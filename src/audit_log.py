@@ -437,6 +437,18 @@ def verify_with_anchor(log_path, anchor_path=None, strict=False):
     return head, count
 
 
+def anchor_status(log_path, anchor_path=None):
+    """Whether the anchor next to a log is HMAC-signed, and whether a key is configured in this process. Reports only;
+    never raises, and never replaces verify_with_anchor (which is what actually checks the signature)."""
+    log_path = Path(log_path)
+    anchor_path = Path(anchor_path) if anchor_path else log_path.with_name(log_path.name + '.head.json')
+    try:
+        signed = bool(json.loads(_read_anchor_text(anchor_path)).get('mac'))
+    except (OSError, ValueError, TypeError, AttributeError):
+        signed = False
+    return {'key_configured': _anchor_mac('', 0) is not None, 'anchor_signed': signed}
+
+
 class AuditHooks:
     """review_package() lifecycle hooks that write the audit trail AHEAD of each action."""
 

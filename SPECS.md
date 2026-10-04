@@ -362,7 +362,7 @@ Audited against the OWASP Top 10 for LLM Applications (2025) and the OWASP Top 1
 | Unbounded consumption | Prompt limits, `max_tokens`, timeout, one retry, bounded concurrency |
 | Secrets | `.env` git-ignored and scanned; the key never enters a prompt, log or experiment record |
 | Supply chain | Exact pins; `pip-audit` clean; no `eval`, `exec`, `subprocess` or `pickle` in our code (a test scans) |
-| Log integrity | Hash chain, anchor, optional HMAC; log forging prevented with `%r` logging |
+| Log integrity | Hash chain, anchor, optional HMAC; log forging prevented with `%r` logging; `verify_audit.py` reports whether the anchor is signed and `--require-key` enforces it |
 | Hostile input | Property-based fuzzing of ingestion, the model reply gate, the audit log, the engine, injection and the review page (section 10a) |
 
 Residual: no authentication, protected health information would go to a third-party model with real data, the audit log is not immutable storage, and there is no per-run spending cap.
@@ -375,9 +375,10 @@ Residual: no authentication, protected health information would go to a third-pa
 | Handbook worked cases | 10 of 10 exact |
 | Independent oracle (`tests/oracle.py`) | **0 disagreements** over 107,635 generated claims (`scripts/status_coverage.py`), plus 37,000 boundary-aware mutants and 123 hand-derived boundary cases |
 | Hostile inputs | Runner, ingestion, review page, audit log, AI providers |
+| Phase 2 evaluation | Nine cited example sets in three evidence tiers (organizer key, independent oracle, hand-derived); F1 1.0 on the three public splits, no valid claim flagged, FHIR path 0.9745 (R009 abstains); `docs/29_Test_Evaluation_Report.md`, evidence in `outputs/evaluation/` |
 | Fuzzing | Six trust boundaries, 25 property tests at 3,000 generated examples each plus one regression test, all passing; two defects found and fixed (section 10a) |
 | Security and red team | `docs/20` |
-| Suite | 523 tests, offline (420 of them verified in CI on Python 3.10, 3.12 and 3.14; all 523 passed locally on all three in fresh environments built from `requirements-dev.txt`, 2026-10-04); the committed audit sample's 6,000 result hashes are re-checked |
+| Suite | 618 tests, offline (420 of them verified in CI on Python 3.10, 3.12 and 3.14; all 618 passed locally on all three in fresh environments built from `requirements-dev.txt`, 2026-10-04); the committed audit sample's 6,000 result hashes are re-checked |
 
 **Independent oracle at scale.** `tests/oracle.py` reimplements the 15 rules from `rules/rules.json` and `docs/04` alone; it imports nothing from `src/`, so the engine and the oracle cannot share a bug by construction — a mistake would have to be made independently, the same way, in both. `scripts/status_coverage.py` generates 107,635 claims with `tests/claim_gen.py` (half seeded from a fully valid claim then randomly damaged, half fully independent-random fields), scores each with both the engine and the oracle, and hard-fails on the first disagreement rather than only counting them, so the artifact below is either "0 disagreements" or the run did not complete:
 
@@ -409,6 +410,79 @@ Property-based tests generate hostile input for the six places where untrusted d
 **Limits.** This is generated-input testing, not coverage-guided fuzzing. The model is mocked, so live-model behaviour rests on the earlier experiments. The engine-versus-oracle comparison skips claims that ingestion would quarantine. A change to JSON whitespace only is not tampering, because the audit hash covers the parsed record. A clean run is evidence, not proof: the CSV-folder reader catches `OSError`, `KeyError` and `ValueError` only, and nothing else escaped in 3,000 examples.
 
 How to run: `python -m unittest discover -s tests -p "test_fuzz_*.py"` for the fast profile, `python scripts/fuzz_campaign.py --examples 3000` for the deep run. Design: `docs/superpowers/specs/2026-10-04-fuzz-testing-design.md`.
+
+### 10b. Phase 2 detection evaluation
+
+**Why.** The Phase 2 rubric asks for detection quality on a 50-claim validation set, with a high macro F1 across rule categories and valid claims preserved. The public splits already score 1.0, so a single number on them proves little. The evaluation therefore scores every labelled example set the repository can supply, says where each label came from, and reports the evidence strength of each result separately. The full report is `docs/29_Test_Evaluation_Report.md`; this section is the specification of how it is produced.
+
+**Example sets and evidence tiers.** Labels differ in trustworthiness, so sets are grouped in three tiers and never pooled into one headline number.
+
+| Tier | Set | Claims | Where the label comes from |
+|---|---|---|---|
+| A: organizer answer key | S1 `data/development` | 400 | `expected_results.jsonl`, organizers' dataset v1.0.0 |
+| A | S2 `data/validation` | 150 | same |
+| A | S3 `data/stress` (the 50-claim split) | 50 | same |
+| A | S4 handbook worked cases | 0 new | the ten cases are all already in S1 to S3, so they add no claims |
+| A | S5 the 600 public claims as FHIR bundles | 600 | organizer key for the same claim id; tests the FHIR importer |
+| A | S6 the 600 public claims as CSV folders | 600 | organizer key; tests the CSV importer |
+| B: independent oracle | S7 generated claims (`tests/claim_gen.py`, seed 20260927) | 107,635 | `tests/oracle.py`, a second implementation written from the rulebook |
+| B | S8 boundary-aware mutants of the public claims (seed 20261004) | 33,945 of 37,000 attempts | oracle |
+| C: hand-derived | S9 boundary table `tests/test_stress_boundaries.py` | 123 cases, 140 labelled results | derived by hand from the rulebook wording |
+
+Tier A is the only external truth. Tier B and C measure agreement between implementations and expectations written by the same team from the same text; a shared misreading would not show, so they are reported as agreement, never as accuracy. Every set is recorded in `outputs/evaluation/provenance.json` with its files and their SHA-256, generator and seed, label source, counts, known limitation and the commit that produced the evidence. A claim in more than one tier-A set is counted once (dedupe compares content, not the claim id). Claims the importer would quarantine are dropped from S7 and S8 and counted (108,726 generated, 107,635 scored).
+
+**Metrics.** The positive class is `FAIL`, as in the organizers' scorer. `UNABLE_TO_ASSESS` is scored separately because an unnecessary abstention costs reviewer time without being an error.
+
+- *Rule categories.* The rulebook defines none, so we group the 15 rules by what they check: completeness and arithmetic (R001, R007, R012); eligibility and coverage (R003, R004, R005, R015); timing (R002, R014); authorization and documentation (R008, R009, R010); catalogue, pricing and duplicates (R006, R011, R013). Counts are pooled within a category and F1 is averaged across categories where it is defined. Macro F1 is also given by severity (11 high, 4 medium) and over all 15 rules so the grouping cannot flatter the result. A category or rule with no failing example has an undefined F1; it is excluded and listed, never scored as 0.
+- *Valid claims.* The claim-level false-positive rate is the share of claims with no `FAIL` in the key where the engine raised any `FAIL`. For fully clean claims (every result PASS or NOT_APPLICABLE) the report also gives the share where the engine abstained and the result-level false-alarm rate.
+- *Uncertainty.* With zero errors a point estimate misleads, so each rate carries an exact one-sided 95% upper bound (Clopper-Pearson; Wilson above 2,000 errors). By the rule of three, claiming an error rate below 1% needs about 300 error-free examples.
+
+**Results.**
+
+| Set | Claims | Results | Precision | Recall | F1 | Status accuracy | Disagreements |
+|---|---|---|---|---|---|---|---|
+| S3 `data/stress` (50 claims) | 50 | 750 | 1.0 | 1.0 | **1.0** | 1.0 | 0 |
+| S2 `data/validation` | 150 | 2,250 | 1.0 | 1.0 | **1.0** | 1.0 | 0 |
+| S1 `data/development` | 400 | 6,000 | 1.0 | 1.0 | **1.0** | 1.0 | 0 |
+| S6 CSV folders | 600 | 9,000 | 1.0 | 1.0 | **1.0** | 1.0 | 0 |
+| S5 FHIR bundles | 600 | 9,000 | 1.0 | 0.9502 | **0.9745** | 0.9656 | 310 (see 10c) |
+
+Macro F1 is 1.0 by category, severity and rule on S1 to S3 and S6. On S5 it is 0.9535 by category, 0.9820 by severity and 0.9333 over rules. In the 50-claim split 9 of the 15 rules have no failing example, so their F1 is undefined there and the timing category is excluded from its macro; the smallest non-zero count is 3. That split is thin evidence by itself, so per-rule conclusions rest on S1 (at least 10 failures per rule) and S2 (at least 4).
+
+*Preserving valid claims.* The engine raised a `FAIL` on none of the claims whose key has no failure: 0 of 160 (95% upper bound 1.85%) in development, 0 of 62 (4.72%) in validation and 0 of 24 (11.73%) in the 50-claim split. Among fully clean claims it raised none and abstained on none (0 of 136, 53 and 12), except on the FHIR path (10c). Result-level false alarms on clean claims: 0 of 2,040, 795 and 180.
+
+*Baselines, to show the metric discriminates.* Predicting PASS everywhere scores F1 0 (status accuracy 0.836, 0.835, 0.799). The organizers' starter baseline, which implements 3 of 15 rules, scores F1 0.432, 0.450 and 0.595 with recall 0.276, 0.291 and 0.423 on development, validation and stress.
+
+*Larger and harder sets.* 0 disagreements with the oracle on 107,635 generated claims (1,614,525 results) and 33,945 mutants (509,175 results), and with the hand-derived expectation on all 140 boundary results. No isolated engine crash occurred in any set. Also none of the 600 public claims violates any of the extra rules we considered (a diagnosis outside the catalogue, a payer that differs from the policy's, a reused invoice number), which is why those cannot be demonstrated on public data.
+
+*Latency* (Windows 10, Python 3.10, 16 CPUs, one process; machine-dependent). Rule engine per claim: median 0.66 ms, p95 1.11 ms, p99 1.31 ms. With FHIR import 0.78 ms median, with CSV import 0.69 ms. The audited path with the deterministic template, which includes the hash-chained log write with its anchor update, has a median of 28.0 ms and p95 of 71.2 ms. The hosted AI explanation step is quoted from earlier live runs (median 2.86 s, p95 28.89 s, 117 calls), not re-run, and is not part of the detection metrics.
+
+**Reproduce.** `python scripts/evaluate_phase2.py` (about six minutes) writes `outputs/evaluation/metrics.json` and `provenance.json`; accuracy sections are deterministic (fixed seeds), latency is not. `python scripts/render_eval_report.py` fills the tables in `docs/29`, and `--check` fails if the report and the evidence disagree. Tests: `tests/test_eval_metrics.py`, `test_eval_sets.py`, `test_eval_sets_generated.py`, `test_evaluate_phase2.py`, `test_eval_report.py`.
+
+**Limits.** A perfect public score cannot rank this system against a better one: the answer key is deterministic and the claims were available while the rules were built. The oracle shares our reading of the rulebook. Tier C is small and written by us. The rule categories are our grouping. The claims are synthetic and say nothing about how often real claims fail. Latency is one laptop, not a load test. Nothing here evaluates review decisions or explanation quality (`docs/17`, `docs/21`).
+
+### 10c. Why FHIR claims do not reach F1 1.0
+
+**Observation.** The same 600 claims score F1 1.0 when read directly or from CSV folders and 0.9745 when read from FHIR bundles. Precision stays 1.0 and recall falls to 0.9502 (439 of the 462 failures in the three splits), status accuracy is 0.9656, macro F1 by category is 0.9535. Of the 9,000 results, 310 differ from the answer key. The disagreement table in the evidence lists every difference in every set, and this is the only place any appear:
+
+| Rule | Key says | Engine says | Count |
+|---|---|---|---|
+| R009 | PASS | UNABLE_TO_ASSESS | 287 |
+| R009 | FAIL | UNABLE_TO_ASSESS | 23 |
+
+**Cause, step by step.**
+1. R009 (`docs/04`) resolves each line's authorization id in the supplied authorizations and checks patient, service code, status `approved`, valid-from and valid-to dates, and the total quantity against the maximum. It needs the whole record.
+2. The FHIR bundles in this dataset contain 600 `Patient`, 1,200 `Organization`, 600 `Coverage`, 600 `Claim` and 372 `DocumentReference` resources. There is no `ClaimResponse` or other resource holding an authorization record. The only trace is the reference number in `Claim.insurance.preAuthRef`, present in 327 bundles.
+3. `src/fhir_adapter.py` maps what exists. It keeps the reference and builds a stub (`authorization_id` set, patient, service, status, dates and quantity empty). On a real R009 failure, the normalized claim has one full authorization and the FHIR version has one stub with the same id and nothing else.
+4. The rulebook says that a missing comparison input leaves the rule `UNABLE_TO_ASSESS`. With the stub, R009 cannot compare anything, so it abstains. The answer key was computed from the full claim, so it says PASS or FAIL. The two can never agree on these 310 results from the bundle alone.
+
+**What the number does and does not mean.** The abstention is the correct, fail-safe answer: the 23 real failures go to a reviewer and **none became a PASS** (no result in any set moved from FAIL to PASS). The cost is workload, not safety: 134 of the 201 fully clean claims get an unnecessary R009 abstention on this path. The engine, the rules and the CSV path are unaffected. A false-positive rate is not involved: 0 of 246 claims without a failure were flagged on the FHIR path as well.
+
+**Why we do not make it 1.0.** Reaching 1.0 from the bundle alone would require inventing the missing record. A guess that is wrong turns some failures into silent passes, which the non-negotiable checks forbid (an unknown check is never shown as PASS). Rejecting every such claim would flood reviewers. Abstaining is what a careful human would do.
+
+**What would reach 1.0 honestly.** Resolve the reference against a payer or authorization registry at ingestion, which is how a real deployment would work and is where an integration with the payer's system belongs. In FHIR R4 a prior authorization is normally carried as a `Claim` with `use` set to `preauthorization` and its `ClaimResponse`; this is stated from general FHIR knowledge and was not checked against the specification text in this project. The organizers' bundles contain neither. Either route is future work, not something the dataset lets us measure.
+
+**Reproduce.** `python scripts/evaluate_phase2.py` and read set S5 in `outputs/evaluation/metrics.json` (`summary.disagreements.breakdown`); `docs/29` section 4 renders the same table. The earlier experiment `defense_experiments.py ingestformats` (`docs/27`) reported the same effect before this evaluation existed (FHIR agreement 96.5% to 96.9%, every difference R009, no silent pass).
 
 ## 11. Experiments in detail
 
@@ -665,5 +739,6 @@ Needs `FEATHERLESS_API_KEY` in `.env`. Raw replies are committed; the key, provi
 - The mentor-held 200 claims are unavailable.
 - Live AI answers have not been scored by a person (sheet ready).
 - The audit log is not immutable storage; a keyed anchor and an external copy of it are needed for that.
+- Phase 2 is partly built: the detection evaluation (section 10b) is done; human-in-the-loop routing and escalation, access control (badge, password and authenticator login, clearance levels), identifier masking and the privacy and security note are not.
 - Fuzzing is generated-input testing against a mocked model, not coverage-guided fuzzing; the limits are listed in section 10a.
 - No architecture diagram made by the team, demo video, pitch or runbook yet.

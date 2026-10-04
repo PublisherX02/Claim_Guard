@@ -1,0 +1,6592 @@
+{
+  "commit": "6be428c1789c7463c67788774dcb411525fe17a8",
+  "sets": {
+    "S1": {
+      "meta": {
+        "tier": "A",
+        "name": "data/development",
+        "path": "engine",
+        "label_kind": "organizer_key"
+      },
+      "summary": {
+        "claims": 400,
+        "results": 6000,
+        "overall": {
+          "tp": 319,
+          "fp": 0,
+          "fn": 0,
+          "tn": 5681,
+          "precision": 1.0,
+          "recall": 1.0,
+          "f1": 1.0
+        },
+        "per_rule": {
+          "R001": {
+            "tp": 36,
+            "fp": 0,
+            "fn": 0,
+            "tn": 364,
+            "precision": 1.0,
+            "recall": 1.0,
+            "f1": 1.0
+          },
+          "R002": {
+            "tp": 11,
+            "fp": 0,
+            "fn": 0,
+            "tn": 389,
+            "precision": 1.0,
+            "recall": 1.0,
+            "f1": 1.0
+          },
+          "R003": {
+            "tp": 28,
+            "fp": 0,
+            "fn": 0,
+            "tn": 372,
+            "precision": 1.0,
+            "recall": 1.0,
+            "f1": 1.0
+          },
+          "R004": {
+            "tp": 28,
+            "fp": 0,
+            "fn": 0,
+            "tn": 372,
+            "precision": 1.0,
+            "recall": 1.0,
+            "f1": 1.0
+          },
+          "R005": {
+            "tp": 26,
+            "fp": 0,
+            "fn": 0,
+            "tn": 374,
+            "precision": 1.0,
+            "recall": 1.0,
+            "f1": 1.0
+          },
+          "R006": {
+            "tp": 24,
+            "fp": 0,
+            "fn": 0,
+            "tn": 376,
+            "precision": 1.0,
+            "recall": 1.0,
+            "f1": 1.0
+          },
+          "R007": {
+            "tp": 23,
+            "fp": 0,
+            "fn": 0,
+            "tn": 377,
+            "precision": 1.0,
+            "recall": 1.0,
+            "f1": 1.0
+          },
+          "R008": {
+            "tp": 11,
+            "fp": 0,
+            "fn": 0,
+            "tn": 389,
+            "precision": 1.0,
+            "recall": 1.0,
+            "f1": 1.0
+          },
+          "R009": {
+            "tp": 15,
+            "fp": 0,
+            "fn": 0,
+            "tn": 385,
+            "precision": 1.0,
+            "recall": 1.0,
+            "f1": 1.0
+          },
+          "R010": {
+            "tp": 15,
+            "fp": 0,
+            "fn": 0,
+            "tn": 385,
+            "precision": 1.0,
+            "recall": 1.0,
+            "f1": 1.0
+          },
+          "R011": {
+            "tp": 10,
+            "fp": 0,
+            "fn": 0,
+            "tn": 390,
+            "precision": 1.0,
+            "recall": 1.0,
+            "f1": 1.0
+          },
+          "R012": {
+            "tp": 23,
+            "fp": 0,
+            "fn": 0,
+            "tn": 377,
+            "precision": 1.0,
+            "recall": 1.0,
+            "f1": 1.0
+          },
+          "R013": {
+            "tp": 30,
+            "fp": 0,
+            "fn": 0,
+            "tn": 370,
+            "precision": 1.0,
+            "recall": 1.0,
+            "f1": 1.0
+          },
+          "R014": {
+            "tp": 20,
+            "fp": 0,
+            "fn": 0,
+            "tn": 380,
+            "precision": 1.0,
+            "recall": 1.0,
+            "f1": 1.0
+          },
+          "R015": {
+            "tp": 19,
+            "fp": 0,
+            "fn": 0,
+            "tn": 381,
+            "precision": 1.0,
+            "recall": 1.0,
+            "f1": 1.0
+          }
+        },
+        "by_category": {
+          "completeness_and_arithmetic": {
+            "tp": 82,
+            "fp": 0,
+            "fn": 0,
+            "tn": 1118,
+            "precision": 1.0,
+            "recall": 1.0,
+            "f1": 1.0,
+            "rules": [
+              "R001",
+              "R007",
+              "R012"
+            ]
+          },
+          "eligibility_and_coverage": {
+            "tp": 101,
+            "fp": 0,
+            "fn": 0,
+            "tn": 1499,
+            "precision": 1.0,
+            "recall": 1.0,
+            "f1": 1.0,
+            "rules": [
+              "R003",
+              "R004",
+              "R005",
+              "R015"
+            ]
+          },
+          "timing": {
+            "tp": 31,
+            "fp": 0,
+            "fn": 0,
+            "tn": 769,
+            "precision": 1.0,
+            "recall": 1.0,
+            "f1": 1.0,
+            "rules": [
+              "R002",
+              "R014"
+            ]
+          },
+          "authorization_and_documentation": {
+            "tp": 41,
+            "fp": 0,
+            "fn": 0,
+            "tn": 1159,
+            "precision": 1.0,
+            "recall": 1.0,
+            "f1": 1.0,
+            "rules": [
+              "R008",
+              "R009",
+              "R010"
+            ]
+          },
+          "catalogue_pricing_and_duplicates": {
+            "tp": 64,
+            "fp": 0,
+            "fn": 0,
+            "tn": 1136,
+            "precision": 1.0,
+            "recall": 1.0,
+            "f1": 1.0,
+            "rules": [
+              "R006",
+              "R011",
+              "R013"
+            ]
+          }
+        },
+        "macro_category": {
+          "macro_f1": 1.0,
+          "defined": 5,
+          "excluded": []
+        },
+        "macro_rule": {
+          "macro_f1": 1.0,
+          "defined": 15,
+          "excluded": []
+        },
+        "status_accuracy": 1.0,
+        "multiclass": {
+          "macro_f1": 1.0,
+          "defined": 4,
+          "excluded": [],
+          "per_status_f1": {
+            "FAIL": 1.0,
+            "NOT_APPLICABLE": 1.0,
+            "PASS": 1.0,
+            "UNABLE_TO_ASSESS": 1.0
+          }
+        },
+        "valid_claims": {
+          "claims_without_fail": {
+            "k": 0,
+            "n": 160,
+            "rate": 0.0,
+            "upper95": 0.018549134077503804
+          },
+          "clean_claims": {
+            "k": 0,
+            "n": 136,
+            "rate": 0.0,
+            "upper95": 0.021786610611001844
+          },
+          "clean_claim_false_abstention": {
+            "k": 0,
+            "n": 136,
+            "rate": 0.0,
+            "upper95": 0.021786610611001844
+          },
+          "clean_result_false_alarm": {
+            "k": 0,
+            "n": 2040,
+            "rate": 0.0,
+            "upper95": 0.001467418499566997
+          }
+        },
+        "disagreements": {
+          "count": 0,
+          "examples": [],
+          "breakdown": []
+        },
+        "fail_error_rate": {
+          "k": 0,
+          "n": 6000,
+          "rate": 0.0,
+          "upper95": 0.0004991640883919013
+        },
+        "by_severity": {
+          "high": {
+            "tp": 230,
+            "fp": 0,
+            "fn": 0,
+            "tn": 4170,
+            "precision": 1.0,
+            "recall": 1.0,
+            "f1": 1.0,
+            "rules": [
+              "R001",
+              "R002",
+              "R003",
+              "R004",
+              "R005",
+              "R007",
+              "R008",
+              "R009",
+              "R011",
+              "R012",
+              "R015"
+            ]
+          },
+          "medium": {
+            "tp": 89,
+            "fp": 0,
+            "fn": 0,
+            "tn": 1511,
+            "precision": 1.0,
+            "recall": 1.0,
+            "f1": 1.0,
+            "rules": [
+              "R006",
+              "R010",
+              "R013",
+              "R014"
+            ]
+          }
+        },
+        "macro_severity": {
+          "macro_f1": 1.0,
+          "defined": 2,
+          "excluded": []
+        }
+      },
+      "engine_crashes": 0,
+      "baselines": {
+        "always_pass": {
+          "claims": 400,
+          "results": 6000,
+          "overall": {
+            "tp": 0,
+            "fp": 0,
+            "fn": 319,
+            "tn": 5681,
+            "precision": null,
+            "recall": 0.0,
+            "f1": 0.0
+          },
+          "per_rule": {
+            "R001": {
+              "tp": 0,
+              "fp": 0,
+              "fn": 36,
+              "tn": 364,
+              "precision": null,
+              "recall": 0.0,
+              "f1": 0.0
+            },
+            "R002": {
+              "tp": 0,
+              "fp": 0,
+              "fn": 11,
+              "tn": 389,
+              "precision": null,
+              "recall": 0.0,
+              "f1": 0.0
+            },
+            "R003": {
+              "tp": 0,
+              "fp": 0,
+              "fn": 28,
+              "tn": 372,
+              "precision": null,
+              "recall": 0.0,
+              "f1": 0.0
+            },
+            "R004": {
+              "tp": 0,
+              "fp": 0,
+              "fn": 28,
+              "tn": 372,
+              "precision": null,
+              "recall": 0.0,
+              "f1": 0.0
+            },
+            "R005": {
+              "tp": 0,
+              "fp": 0,
+              "fn": 26,
+              "tn": 374,
+              "precision": null,
+              "recall": 0.0,
+              "f1": 0.0
+            },
+            "R006": {
+              "tp": 0,
+              "fp": 0,
+              "fn": 24,
+              "tn": 376,
+              "precision": null,
+              "recall": 0.0,
+              "f1": 0.0
+            },
+            "R007": {
+              "tp": 0,
+              "fp": 0,
+              "fn": 23,
+              "tn": 377,
+              "precision": null,
+              "recall": 0.0,
+              "f1": 0.0
+            },
+            "R008": {
+              "tp": 0,
+              "fp": 0,
+              "fn": 11,
+              "tn": 389,
+              "precision": null,
+              "recall": 0.0,
+              "f1": 0.0
+            },
+            "R009": {
+              "tp": 0,
+              "fp": 0,
+              "fn": 15,
+              "tn": 385,
+              "precision": null,
+              "recall": 0.0,
+              "f1": 0.0
+            },
+            "R010": {
+              "tp": 0,
+              "fp": 0,
+              "fn": 15,
+              "tn": 385,
+              "precision": null,
+              "recall": 0.0,
+              "f1": 0.0
+            },
+            "R011": {
+              "tp": 0,
+              "fp": 0,
+              "fn": 10,
+              "tn": 390,
+              "precision": null,
+              "recall": 0.0,
+              "f1": 0.0
+            },
+            "R012": {
+              "tp": 0,
+              "fp": 0,
+              "fn": 23,
+              "tn": 377,
+              "precision": null,
+              "recall": 0.0,
+              "f1": 0.0
+            },
+            "R013": {
+              "tp": 0,
+              "fp": 0,
+              "fn": 30,
+              "tn": 370,
+              "precision": null,
+              "recall": 0.0,
+              "f1": 0.0
+            },
+            "R014": {
+              "tp": 0,
+              "fp": 0,
+              "fn": 20,
+              "tn": 380,
+              "precision": null,
+              "recall": 0.0,
+              "f1": 0.0
+            },
+            "R015": {
+              "tp": 0,
+              "fp": 0,
+              "fn": 19,
+              "tn": 381,
+              "precision": null,
+              "recall": 0.0,
+              "f1": 0.0
+            }
+          },
+          "by_category": {
+            "completeness_and_arithmetic": {
+              "tp": 0,
+              "fp": 0,
+              "fn": 82,
+              "tn": 1118,
+              "precision": null,
+              "recall": 0.0,
+              "f1": 0.0,
+              "rules": [
+                "R001",
+                "R007",
+                "R012"
+              ]
+            },
+            "eligibility_and_coverage": {
+              "tp": 0,
+              "fp": 0,
+              "fn": 101,
+              "tn": 1499,
+              "precision": null,
+              "recall": 0.0,
+              "f1": 0.0,
+              "rules": [
+                "R003",
+                "R004",
+                "R005",
+                "R015"
+              ]
+            },
+            "timing": {
+              "tp": 0,
+              "fp": 0,
+              "fn": 31,
+              "tn": 769,
+              "precision": null,
+              "recall": 0.0,
+              "f1": 0.0,
+              "rules": [
+                "R002",
+                "R014"
+              ]
+            },
+            "authorization_and_documentation": {
+              "tp": 0,
+              "fp": 0,
+              "fn": 41,
+              "tn": 1159,
+              "precision": null,
+              "recall": 0.0,
+              "f1": 0.0,
+              "rules": [
+                "R008",
+                "R009",
+                "R010"
+              ]
+            },
+            "catalogue_pricing_and_duplicates": {
+              "tp": 0,
+              "fp": 0,
+              "fn": 64,
+              "tn": 1136,
+              "precision": null,
+              "recall": 0.0,
+              "f1": 0.0,
+              "rules": [
+                "R006",
+                "R011",
+                "R013"
+              ]
+            }
+          },
+          "macro_category": {
+            "macro_f1": 0.0,
+            "defined": 5,
+            "excluded": []
+          },
+          "macro_rule": {
+            "macro_f1": 0.0,
+            "defined": 15,
+            "excluded": []
+          },
+          "status_accuracy": 0.8356666666666667,
+          "multiclass": {
+            "macro_f1": 0.22761939349918286,
+            "defined": 4,
+            "excluded": [],
+            "per_status_f1": {
+              "FAIL": 0.0,
+              "NOT_APPLICABLE": 0.0,
+              "PASS": 0.9104775739967315,
+              "UNABLE_TO_ASSESS": 0.0
+            }
+          },
+          "valid_claims": {
+            "claims_without_fail": {
+              "k": 0,
+              "n": 160,
+              "rate": 0.0,
+              "upper95": 0.018549134077503804
+            },
+            "clean_claims": {
+              "k": 0,
+              "n": 136,
+              "rate": 0.0,
+              "upper95": 0.021786610611001844
+            },
+            "clean_claim_false_abstention": {
+              "k": 0,
+              "n": 136,
+              "rate": 0.0,
+              "upper95": 0.021786610611001844
+            },
+            "clean_result_false_alarm": {
+              "k": 0,
+              "n": 2040,
+              "rate": 0.0,
+              "upper95": 0.001467418499566997
+            }
+          },
+          "disagreements": {
+            "count": 986,
+            "examples": [
+              {
+                "claim_id": "CG-27BFD8541DEB",
+                "rule_id": "R008",
+                "gold": "NOT_APPLICABLE",
+                "predicted": "PASS"
+              },
+              {
+                "claim_id": "CG-27BFD8541DEB",
+                "rule_id": "R009",
+                "gold": "NOT_APPLICABLE",
+                "predicted": "PASS"
+              },
+              {
+                "claim_id": "CG-27BFD8541DEB",
+                "rule_id": "R010",
+                "gold": "NOT_APPLICABLE",
+                "predicted": "PASS"
+              },
+              {
+                "claim_id": "CG-2D966B65D1A1",
+                "rule_id": "R008",
+                "gold": "NOT_APPLICABLE",
+                "predicted": "PASS"
+              },
+              {
+                "claim_id": "CG-2D966B65D1A1",
+                "rule_id": "R009",
+                "gold": "NOT_APPLICABLE",
+                "predicted": "PASS"
+              },
+              {
+                "claim_id": "CG-2D966B65D1A1",
+                "rule_id": "R010",
+                "gold": "NOT_APPLICABLE",
+                "predicted": "PASS"
+              },
+              {
+                "claim_id": "CG-F5F2411AC3AD",
+                "rule_id": "R010",
+                "gold": "UNABLE_TO_ASSESS",
+                "predicted": "PASS"
+              },
+              {
+                "claim_id": "CG-1CB04117F0CB",
+                "rule_id": "R003",
+                "gold": "FAIL",
+                "predicted": "PASS"
+              },
+              {
+                "claim_id": "CG-63A3C6B299C0",
+                "rule_id": "R003",
+                "gold": "FAIL",
+                "predicted": "PASS"
+              },
+              {
+                "claim_id": "CG-63A3C6B299C0",
+                "rule_id": "R005",
+                "gold": "FAIL",
+                "predicted": "PASS"
+              }
+            ],
+            "breakdown": [
+              {
+                "rule_id": "R001",
+                "gold": "FAIL",
+                "predicted": "PASS",
+                "count": 36
+              },
+              {
+                "rule_id": "R002",
+                "gold": "FAIL",
+                "predicted": "PASS",
+                "count": 11
+              },
+              {
+                "rule_id": "R002",
+                "gold": "UNABLE_TO_ASSESS",
+                "predicted": "PASS",
+                "count": 8
+              },
+              {
+                "rule_id": "R003",
+                "gold": "FAIL",
+                "predicted": "PASS",
+                "count": 28
+              },
+              {
+                "rule_id": "R003",
+                "gold": "UNABLE_TO_ASSESS",
+                "predicted": "PASS",
+                "count": 16
+              },
+              {
+                "rule_id": "R004",
+                "gold": "FAIL",
+                "predicted": "PASS",
+                "count": 28
+              },
+              {
+                "rule_id": "R004",
+                "gold": "UNABLE_TO_ASSESS",
+                "predicted": "PASS",
+                "count": 4
+              },
+              {
+                "rule_id": "R005",
+                "gold": "FAIL",
+                "predicted": "PASS",
+                "count": 26
+              },
+              {
+                "rule_id": "R005",
+                "gold": "UNABLE_TO_ASSESS",
+                "predicted": "PASS",
+                "count": 8
+              },
+              {
+                "rule_id": "R006",
+                "gold": "FAIL",
+                "predicted": "PASS",
+                "count": 24
+              },
+              {
+                "rule_id": "R006",
+                "gold": "UNABLE_TO_ASSESS",
+                "predicted": "PASS",
+                "count": 8
+              },
+              {
+                "rule_id": "R007",
+                "gold": "FAIL",
+                "predicted": "PASS",
+                "count": 23
+              },
+              {
+                "rule_id": "R007",
+                "gold": "UNABLE_TO_ASSESS",
+                "predicted": "PASS",
+                "count": 8
+              },
+              {
+                "rule_id": "R008",
+                "gold": "FAIL",
+                "predicted": "PASS",
+                "count": 11
+              },
+              {
+                "rule_id": "R008",
+                "gold": "NOT_APPLICABLE",
+                "predicted": "PASS",
+                "count": 159
+              },
+              {
+                "rule_id": "R008",
+                "gold": "UNABLE_TO_ASSESS",
+                "predicted": "PASS",
+                "count": 18
+              },
+              {
+                "rule_id": "R009",
+                "gold": "FAIL",
+                "predicted": "PASS",
+                "count": 15
+              },
+              {
+                "rule_id": "R009",
+                "gold": "NOT_APPLICABLE",
+                "predicted": "PASS",
+                "count": 159
+              },
+              {
+                "rule_id": "R009",
+                "gold": "UNABLE_TO_ASSESS",
+                "predicted": "PASS",
+                "count": 32
+              },
+              {
+                "rule_id": "R010",
+                "gold": "FAIL",
+                "predicted": "PASS",
+                "count": 15
+              },
+              {
+                "rule_id": "R010",
+                "gold": "NOT_APPLICABLE",
+                "predicted": "PASS",
+                "count": 158
+              },
+              {
+                "rule_id": "R010",
+                "gold": "UNABLE_TO_ASSESS",
+                "predicted": "PASS",
+                "count": 28
+              },
+              {
+                "rule_id": "R011",
+                "gold": "FAIL",
+                "predicted": "PASS",
+                "count": 10
+              },
+              {
+                "rule_id": "R012",
+                "gold": "FAIL",
+                "predicted": "PASS",
+                "count": 23
+              },
+              {
+                "rule_id": "R013",
+                "gold": "FAIL",
+                "predicted": "PASS",
+                "count": 30
+              },
+              {
+                "rule_id": "R013",
+                "gold": "UNABLE_TO_ASSESS",
+                "predicted": "PASS",
+                "count": 26
+              },
+              {
+                "rule_id": "R014",
+                "gold": "FAIL",
+                "predicted": "PASS",
+                "count": 20
+              },
+              {
+                "rule_id": "R014",
+                "gold": "NOT_APPLICABLE",
+                "predicted": "PASS",
+                "count": 11
+              },
+              {
+                "rule_id": "R014",
+                "gold": "UNABLE_TO_ASSESS",
+                "predicted": "PASS",
+                "count": 16
+              },
+              {
+                "rule_id": "R015",
+                "gold": "FAIL",
+                "predicted": "PASS",
+                "count": 19
+              },
+              {
+                "rule_id": "R015",
+                "gold": "UNABLE_TO_ASSESS",
+                "predicted": "PASS",
+                "count": 8
+              }
+            ]
+          },
+          "fail_error_rate": {
+            "k": 319,
+            "n": 6000,
+            "rate": 0.05316666666666667,
+            "upper95": 0.058177904815036874
+          }
+        },
+        "starter_baseline": {
+          "claims": 400,
+          "results": 6000,
+          "overall": {
+            "tp": 88,
+            "fp": 0,
+            "fn": 231,
+            "tn": 5681,
+            "precision": 1.0,
+            "recall": 0.27586206896551724,
+            "f1": 0.43243243243243246
+          },
+          "per_rule": {
+            "R001": {
+              "tp": 36,
+              "fp": 0,
+              "fn": 0,
+              "tn": 364,
+              "precision": 1.0,
+              "recall": 1.0,
+              "f1": 1.0
+            },
+            "R002": {
+              "tp": 0,
+              "fp": 0,
+              "fn": 11,
+              "tn": 389,
+              "precision": null,
+              "recall": 0.0,
+              "f1": 0.0
+            },
+            "R003": {
+              "tp": 28,
+              "fp": 0,
+              "fn": 0,
+              "tn": 372,
+              "precision": 1.0,
+              "recall": 1.0,
+              "f1": 1.0
+            },
+            "R004": {
+              "tp": 0,
+              "fp": 0,
+              "fn": 28,
+              "tn": 372,
+              "precision": null,
+              "recall": 0.0,
+              "f1": 0.0
+            },
+            "R005": {
+              "tp": 0,
+              "fp": 0,
+              "fn": 26,
+              "tn": 374,
+              "precision": null,
+              "recall": 0.0,
+              "f1": 0.0
+            },
+            "R006": {
+              "tp": 24,
+              "fp": 0,
+              "fn": 0,
+              "tn": 376,
+              "precision": 1.0,
+              "recall": 1.0,
+              "f1": 1.0
+            },
+            "R007": {
+              "tp": 0,
+              "fp": 0,
+              "fn": 23,
+              "tn": 377,
+              "precision": null,
+              "recall": 0.0,
+              "f1": 0.0
+            },
+            "R008": {
+              "tp": 0,
+              "fp": 0,
+              "fn": 11,
+              "tn": 389,
+              "precision": null,
+              "recall": 0.0,
+              "f1": 0.0
+            },
+            "R009": {
+              "tp": 0,
+              "fp": 0,
+              "fn": 15,
+              "tn": 385,
+              "precision": null,
+              "recall": 0.0,
+              "f1": 0.0
+            },
+            "R010": {
+              "tp": 0,
+              "fp": 0,
+              "fn": 15,
+              "tn": 385,
+              "precision": null,
+              "recall": 0.0,
+              "f1": 0.0
+            },
+            "R011": {
+              "tp": 0,
+              "fp": 0,
+              "fn": 10,
+              "tn": 390,
+              "precision": null,
+              "recall": 0.0,
+              "f1": 0.0
+            },
+            "R012": {
+              "tp": 0,
+              "fp": 0,
+              "fn": 23,
+              "tn": 377,
+              "precision": null,
+              "recall": 0.0,
+              "f1": 0.0
+            },
+            "R013": {
+              "tp": 0,
+              "fp": 0,
+              "fn": 30,
+              "tn": 370,
+              "precision": null,
+              "recall": 0.0,
+              "f1": 0.0
+            },
+            "R014": {
+              "tp": 0,
+              "fp": 0,
+              "fn": 20,
+              "tn": 380,
+              "precision": null,
+              "recall": 0.0,
+              "f1": 0.0
+            },
+            "R015": {
+              "tp": 0,
+              "fp": 0,
+              "fn": 19,
+              "tn": 381,
+              "precision": null,
+              "recall": 0.0,
+              "f1": 0.0
+            }
+          },
+          "by_category": {
+            "completeness_and_arithmetic": {
+              "tp": 36,
+              "fp": 0,
+              "fn": 46,
+              "tn": 1118,
+              "precision": 1.0,
+              "recall": 0.43902439024390244,
+              "f1": 0.6101694915254238,
+              "rules": [
+                "R001",
+                "R007",
+                "R012"
+              ]
+            },
+            "eligibility_and_coverage": {
+              "tp": 28,
+              "fp": 0,
+              "fn": 73,
+              "tn": 1499,
+              "precision": 1.0,
+              "recall": 0.27722772277227725,
+              "f1": 0.43410852713178294,
+              "rules": [
+                "R003",
+                "R004",
+                "R005",
+                "R015"
+              ]
+            },
+            "timing": {
+              "tp": 0,
+              "fp": 0,
+              "fn": 31,
+              "tn": 769,
+              "precision": null,
+              "recall": 0.0,
+              "f1": 0.0,
+              "rules": [
+                "R002",
+                "R014"
+              ]
+            },
+            "authorization_and_documentation": {
+              "tp": 0,
+              "fp": 0,
+              "fn": 41,
+              "tn": 1159,
+              "precision": null,
+              "recall": 0.0,
+              "f1": 0.0,
+              "rules": [
+                "R008",
+                "R009",
+                "R010"
+              ]
+            },
+            "catalogue_pricing_and_duplicates": {
+              "tp": 24,
+              "fp": 0,
+              "fn": 40,
+              "tn": 1136,
+              "precision": 1.0,
+              "recall": 0.375,
+              "f1": 0.5454545454545454,
+              "rules": [
+                "R006",
+                "R011",
+                "R013"
+              ]
+            }
+          },
+          "macro_category": {
+            "macro_f1": 0.3179465128223504,
+            "defined": 5,
+            "excluded": []
+          },
+          "macro_rule": {
+            "macro_f1": 0.2,
+            "defined": 15,
+            "excluded": []
+          },
+          "status_accuracy": 0.2,
+          "multiclass": {
+            "macro_f1": 0.20486618841642268,
+            "defined": 5,
+            "excluded": [],
+            "per_status_f1": {
+              "FAIL": 0.43243243243243246,
+              "NOT_APPLICABLE": 0.0,
+              "NOT_IMPLEMENTED": 0.0,
+              "PASS": 0.3566043920026221,
+              "UNABLE_TO_ASSESS": 0.23529411764705882
+            }
+          },
+          "valid_claims": {
+            "claims_without_fail": {
+              "k": 0,
+              "n": 160,
+              "rate": 0.0,
+              "upper95": 0.018549134077503804
+            },
+            "clean_claims": {
+              "k": 0,
+              "n": 136,
+              "rate": 0.0,
+              "upper95": 0.021786610611001844
+            },
+            "clean_claim_false_abstention": {
+              "k": 0,
+              "n": 136,
+              "rate": 0.0,
+              "upper95": 0.021786610611001844
+            },
+            "clean_result_false_alarm": {
+              "k": 0,
+              "n": 2040,
+              "rate": 0.0,
+              "upper95": 0.001467418499566997
+            }
+          },
+          "disagreements": {
+            "count": 4800,
+            "examples": [
+              {
+                "claim_id": "CG-27BFD8541DEB",
+                "rule_id": "R002",
+                "gold": "PASS",
+                "predicted": "NOT_IMPLEMENTED"
+              },
+              {
+                "claim_id": "CG-27BFD8541DEB",
+                "rule_id": "R004",
+                "gold": "PASS",
+                "predicted": "NOT_IMPLEMENTED"
+              },
+              {
+                "claim_id": "CG-27BFD8541DEB",
+                "rule_id": "R005",
+                "gold": "PASS",
+                "predicted": "NOT_IMPLEMENTED"
+              },
+              {
+                "claim_id": "CG-27BFD8541DEB",
+                "rule_id": "R007",
+                "gold": "PASS",
+                "predicted": "NOT_IMPLEMENTED"
+              },
+              {
+                "claim_id": "CG-27BFD8541DEB",
+                "rule_id": "R008",
+                "gold": "NOT_APPLICABLE",
+                "predicted": "NOT_IMPLEMENTED"
+              },
+              {
+                "claim_id": "CG-27BFD8541DEB",
+                "rule_id": "R009",
+                "gold": "NOT_APPLICABLE",
+                "predicted": "NOT_IMPLEMENTED"
+              },
+              {
+                "claim_id": "CG-27BFD8541DEB",
+                "rule_id": "R010",
+                "gold": "NOT_APPLICABLE",
+                "predicted": "NOT_IMPLEMENTED"
+              },
+              {
+                "claim_id": "CG-27BFD8541DEB",
+                "rule_id": "R011",
+                "gold": "PASS",
+                "predicted": "NOT_IMPLEMENTED"
+              },
+              {
+                "claim_id": "CG-27BFD8541DEB",
+                "rule_id": "R012",
+                "gold": "PASS",
+                "predicted": "NOT_IMPLEMENTED"
+              },
+              {
+                "claim_id": "CG-27BFD8541DEB",
+                "rule_id": "R013",
+                "gold": "PASS",
+                "predicted": "NOT_IMPLEMENTED"
+              }
+            ],
+            "breakdown": [
+              {
+                "rule_id": "R002",
+                "gold": "FAIL",
+                "predicted": "NOT_IMPLEMENTED",
+                "count": 11
+              },
+              {
+                "rule_id": "R002",
+                "gold": "PASS",
+                "predicted": "NOT_IMPLEMENTED",
+                "count": 381
+              },
+              {
+                "rule_id": "R002",
+                "gold": "UNABLE_TO_ASSESS",
+                "predicted": "NOT_IMPLEMENTED",
+                "count": 8
+              },
+              {
+                "rule_id": "R004",
+                "gold": "FAIL",
+                "predicted": "NOT_IMPLEMENTED",
+                "count": 28
+              },
+              {
+                "rule_id": "R004",
+                "gold": "PASS",
+                "predicted": "NOT_IMPLEMENTED",
+                "count": 368
+              },
+              {
+                "rule_id": "R004",
+                "gold": "UNABLE_TO_ASSESS",
+                "predicted": "NOT_IMPLEMENTED",
+                "count": 4
+              },
+              {
+                "rule_id": "R005",
+                "gold": "FAIL",
+                "predicted": "NOT_IMPLEMENTED",
+                "count": 26
+              },
+              {
+                "rule_id": "R005",
+                "gold": "PASS",
+                "predicted": "NOT_IMPLEMENTED",
+                "count": 366
+              },
+              {
+                "rule_id": "R005",
+                "gold": "UNABLE_TO_ASSESS",
+                "predicted": "NOT_IMPLEMENTED",
+                "count": 8
+              },
+              {
+                "rule_id": "R007",
+                "gold": "FAIL",
+                "predicted": "NOT_IMPLEMENTED",
+                "count": 23
+              },
+              {
+                "rule_id": "R007",
+                "gold": "PASS",
+                "predicted": "NOT_IMPLEMENTED",
+                "count": 369
+              },
+              {
+                "rule_id": "R007",
+                "gold": "UNABLE_TO_ASSESS",
+                "predicted": "NOT_IMPLEMENTED",
+                "count": 8
+              },
+              {
+                "rule_id": "R008",
+                "gold": "FAIL",
+                "predicted": "NOT_IMPLEMENTED",
+                "count": 11
+              },
+              {
+                "rule_id": "R008",
+                "gold": "NOT_APPLICABLE",
+                "predicted": "NOT_IMPLEMENTED",
+                "count": 159
+              },
+              {
+                "rule_id": "R008",
+                "gold": "PASS",
+                "predicted": "NOT_IMPLEMENTED",
+                "count": 212
+              },
+              {
+                "rule_id": "R008",
+                "gold": "UNABLE_TO_ASSESS",
+                "predicted": "NOT_IMPLEMENTED",
+                "count": 18
+              },
+              {
+                "rule_id": "R009",
+                "gold": "FAIL",
+                "predicted": "NOT_IMPLEMENTED",
+                "count": 15
+              },
+              {
+                "rule_id": "R009",
+                "gold": "NOT_APPLICABLE",
+                "predicted": "NOT_IMPLEMENTED",
+                "count": 159
+              },
+              {
+                "rule_id": "R009",
+                "gold": "PASS",
+                "predicted": "NOT_IMPLEMENTED",
+                "count": 194
+              },
+              {
+                "rule_id": "R009",
+                "gold": "UNABLE_TO_ASSESS",
+                "predicted": "NOT_IMPLEMENTED",
+                "count": 32
+              },
+              {
+                "rule_id": "R010",
+                "gold": "FAIL",
+                "predicted": "NOT_IMPLEMENTED",
+                "count": 15
+              },
+              {
+                "rule_id": "R010",
+                "gold": "NOT_APPLICABLE",
+                "predicted": "NOT_IMPLEMENTED",
+                "count": 158
+              },
+              {
+                "rule_id": "R010",
+                "gold": "PASS",
+                "predicted": "NOT_IMPLEMENTED",
+                "count": 199
+              },
+              {
+                "rule_id": "R010",
+                "gold": "UNABLE_TO_ASSESS",
+                "predicted": "NOT_IMPLEMENTED",
+                "count": 28
+              },
+              {
+                "rule_id": "R011",
+                "gold": "FAIL",
+                "predicted": "NOT_IMPLEMENTED",
+                "count": 10
+              },
+              {
+                "rule_id": "R011",
+                "gold": "PASS",
+                "predicted": "NOT_IMPLEMENTED",
+                "count": 390
+              },
+              {
+                "rule_id": "R012",
+                "gold": "FAIL",
+                "predicted": "NOT_IMPLEMENTED",
+                "count": 23
+              },
+              {
+                "rule_id": "R012",
+                "gold": "PASS",
+                "predicted": "NOT_IMPLEMENTED",
+                "count": 377
+              },
+              {
+                "rule_id": "R013",
+                "gold": "FAIL",
+                "predicted": "NOT_IMPLEMENTED",
+                "count": 30
+              },
+              {
+                "rule_id": "R013",
+                "gold": "PASS",
+                "predicted": "NOT_IMPLEMENTED",
+                "count": 344
+              },
+              {
+                "rule_id": "R013",
+                "gold": "UNABLE_TO_ASSESS",
+                "predicted": "NOT_IMPLEMENTED",
+                "count": 26
+              },
+              {
+                "rule_id": "R014",
+                "gold": "FAIL",
+                "predicted": "NOT_IMPLEMENTED",
+                "count": 20
+              },
+              {
+                "rule_id": "R014",
+                "gold": "NOT_APPLICABLE",
+                "predicted": "NOT_IMPLEMENTED",
+                "count": 11
+              },
+              {
+                "rule_id": "R014",
+                "gold": "PASS",
+                "predicted": "NOT_IMPLEMENTED",
+                "count": 353
+              },
+              {
+                "rule_id": "R014",
+                "gold": "UNABLE_TO_ASSESS",
+                "predicted": "NOT_IMPLEMENTED",
+                "count": 16
+              },
+              {
+                "rule_id": "R015",
+                "gold": "FAIL",
+                "predicted": "NOT_IMPLEMENTED",
+                "count": 19
+              },
+              {
+                "rule_id": "R015",
+                "gold": "PASS",
+                "predicted": "NOT_IMPLEMENTED",
+                "count": 373
+              },
+              {
+                "rule_id": "R015",
+                "gold": "UNABLE_TO_ASSESS",
+                "predicted": "NOT_IMPLEMENTED",
+                "count": 8
+              }
+            ]
+          },
+          "fail_error_rate": {
+            "k": 231,
+            "n": 6000,
+            "rate": 0.0385,
+            "upper95": 0.04283888841559416
+          }
+        }
+      },
+      "engine_ms": {
+        "n": 400,
+        "mean": 0.7702344992139842,
+        "p50": 0.6707000429742038,
+        "p95": 1.039499999023974,
+        "p99": 2.7031999779865146,
+        "max": 10.599699977319688
+      }
+    },
+    "S2": {
+      "meta": {
+        "tier": "A",
+        "name": "data/validation",
+        "path": "engine",
+        "label_kind": "organizer_key"
+      },
+      "summary": {
+        "claims": 150,
+        "results": 2250,
+        "overall": {
+          "tp": 117,
+          "fp": 0,
+          "fn": 0,
+          "tn": 2133,
+          "precision": 1.0,
+          "recall": 1.0,
+          "f1": 1.0
+        },
+        "per_rule": {
+          "R001": {
+            "tp": 17,
+            "fp": 0,
+            "fn": 0,
+            "tn": 133,
+            "precision": 1.0,
+            "recall": 1.0,
+            "f1": 1.0
+          },
+          "R002": {
+            "tp": 4,
+            "fp": 0,
+            "fn": 0,
+            "tn": 146,
+            "precision": 1.0,
+            "recall": 1.0,
+            "f1": 1.0
+          },
+          "R003": {
+            "tp": 7,
+            "fp": 0,
+            "fn": 0,
+            "tn": 143,
+            "precision": 1.0,
+            "recall": 1.0,
+            "f1": 1.0
+          },
+          "R004": {
+            "tp": 7,
+            "fp": 0,
+            "fn": 0,
+            "tn": 143,
+            "precision": 1.0,
+            "recall": 1.0,
+            "f1": 1.0
+          },
+          "R005": {
+            "tp": 6,
+            "fp": 0,
+            "fn": 0,
+            "tn": 144,
+            "precision": 1.0,
+            "recall": 1.0,
+            "f1": 1.0
+          },
+          "R006": {
+            "tp": 10,
+            "fp": 0,
+            "fn": 0,
+            "tn": 140,
+            "precision": 1.0,
+            "recall": 1.0,
+            "f1": 1.0
+          },
+          "R007": {
+            "tp": 7,
+            "fp": 0,
+            "fn": 0,
+            "tn": 143,
+            "precision": 1.0,
+            "recall": 1.0,
+            "f1": 1.0
+          },
+          "R008": {
+            "tp": 4,
+            "fp": 0,
+            "fn": 0,
+            "tn": 146,
+            "precision": 1.0,
+            "recall": 1.0,
+            "f1": 1.0
+          },
+          "R009": {
+            "tp": 5,
+            "fp": 0,
+            "fn": 0,
+            "tn": 145,
+            "precision": 1.0,
+            "recall": 1.0,
+            "f1": 1.0
+          },
+          "R010": {
+            "tp": 5,
+            "fp": 0,
+            "fn": 0,
+            "tn": 145,
+            "precision": 1.0,
+            "recall": 1.0,
+            "f1": 1.0
+          },
+          "R011": {
+            "tp": 4,
+            "fp": 0,
+            "fn": 0,
+            "tn": 146,
+            "precision": 1.0,
+            "recall": 1.0,
+            "f1": 1.0
+          },
+          "R012": {
+            "tp": 13,
+            "fp": 0,
+            "fn": 0,
+            "tn": 137,
+            "precision": 1.0,
+            "recall": 1.0,
+            "f1": 1.0
+          },
+          "R013": {
+            "tp": 11,
+            "fp": 0,
+            "fn": 0,
+            "tn": 139,
+            "precision": 1.0,
+            "recall": 1.0,
+            "f1": 1.0
+          },
+          "R014": {
+            "tp": 7,
+            "fp": 0,
+            "fn": 0,
+            "tn": 143,
+            "precision": 1.0,
+            "recall": 1.0,
+            "f1": 1.0
+          },
+          "R015": {
+            "tp": 10,
+            "fp": 0,
+            "fn": 0,
+            "tn": 140,
+            "precision": 1.0,
+            "recall": 1.0,
+            "f1": 1.0
+          }
+        },
+        "by_category": {
+          "completeness_and_arithmetic": {
+            "tp": 37,
+            "fp": 0,
+            "fn": 0,
+            "tn": 413,
+            "precision": 1.0,
+            "recall": 1.0,
+            "f1": 1.0,
+            "rules": [
+              "R001",
+              "R007",
+              "R012"
+            ]
+          },
+          "eligibility_and_coverage": {
+            "tp": 30,
+            "fp": 0,
+            "fn": 0,
+            "tn": 570,
+            "precision": 1.0,
+            "recall": 1.0,
+            "f1": 1.0,
+            "rules": [
+              "R003",
+              "R004",
+              "R005",
+              "R015"
+            ]
+          },
+          "timing": {
+            "tp": 11,
+            "fp": 0,
+            "fn": 0,
+            "tn": 289,
+            "precision": 1.0,
+            "recall": 1.0,
+            "f1": 1.0,
+            "rules": [
+              "R002",
+              "R014"
+            ]
+          },
+          "authorization_and_documentation": {
+            "tp": 14,
+            "fp": 0,
+            "fn": 0,
+            "tn": 436,
+            "precision": 1.0,
+            "recall": 1.0,
+            "f1": 1.0,
+            "rules": [
+              "R008",
+              "R009",
+              "R010"
+            ]
+          },
+          "catalogue_pricing_and_duplicates": {
+            "tp": 25,
+            "fp": 0,
+            "fn": 0,
+            "tn": 425,
+            "precision": 1.0,
+            "recall": 1.0,
+            "f1": 1.0,
+            "rules": [
+              "R006",
+              "R011",
+              "R013"
+            ]
+          }
+        },
+        "macro_category": {
+          "macro_f1": 1.0,
+          "defined": 5,
+          "excluded": []
+        },
+        "macro_rule": {
+          "macro_f1": 1.0,
+          "defined": 15,
+          "excluded": []
+        },
+        "status_accuracy": 1.0,
+        "multiclass": {
+          "macro_f1": 1.0,
+          "defined": 4,
+          "excluded": [],
+          "per_status_f1": {
+            "FAIL": 1.0,
+            "NOT_APPLICABLE": 1.0,
+            "PASS": 1.0,
+            "UNABLE_TO_ASSESS": 1.0
+          }
+        },
+        "valid_claims": {
+          "claims_without_fail": {
+            "k": 0,
+            "n": 62,
+            "rate": 0.0,
+            "upper95": 0.047169511375356854
+          },
+          "clean_claims": {
+            "k": 0,
+            "n": 53,
+            "rate": 0.0,
+            "upper95": 0.05495548846517784
+          },
+          "clean_claim_false_abstention": {
+            "k": 0,
+            "n": 53,
+            "rate": 0.0,
+            "upper95": 0.05495548846517784
+          },
+          "clean_result_false_alarm": {
+            "k": 0,
+            "n": 795,
+            "rate": 0.0,
+            "upper95": 0.0037611258771363953
+          }
+        },
+        "disagreements": {
+          "count": 0,
+          "examples": [],
+          "breakdown": []
+        },
+        "fail_error_rate": {
+          "k": 0,
+          "n": 2250,
+          "rate": 0.0,
+          "upper95": 0.0013305505976065612
+        },
+        "by_severity": {
+          "high": {
+            "tp": 84,
+            "fp": 0,
+            "fn": 0,
+            "tn": 1566,
+            "precision": 1.0,
+            "recall": 1.0,
+            "f1": 1.0,
+            "rules": [
+              "R001",
+              "R002",
+              "R003",
+              "R004",
+              "R005",
+              "R007",
+              "R008",
+              "R009",
+              "R011",
+              "R012",
+              "R015"
+            ]
+          },
+          "medium": {
+            "tp": 33,
+            "fp": 0,
+            "fn": 0,
+            "tn": 567,
+            "precision": 1.0,
+            "recall": 1.0,
+            "f1": 1.0,
+            "rules": [
+              "R006",
+              "R010",
+              "R013",
+              "R014"
+            ]
+          }
+        },
+        "macro_severity": {
+          "macro_f1": 1.0,
+          "defined": 2,
+          "excluded": []
+        }
+      },
+      "engine_crashes": 0,
+      "baselines": {
+        "always_pass": {
+          "claims": 150,
+          "results": 2250,
+          "overall": {
+            "tp": 0,
+            "fp": 0,
+            "fn": 117,
+            "tn": 2133,
+            "precision": null,
+            "recall": 0.0,
+            "f1": 0.0
+          },
+          "per_rule": {
+            "R001": {
+              "tp": 0,
+              "fp": 0,
+              "fn": 17,
+              "tn": 133,
+              "precision": null,
+              "recall": 0.0,
+              "f1": 0.0
+            },
+            "R002": {
+              "tp": 0,
+              "fp": 0,
+              "fn": 4,
+              "tn": 146,
+              "precision": null,
+              "recall": 0.0,
+              "f1": 0.0
+            },
+            "R003": {
+              "tp": 0,
+              "fp": 0,
+              "fn": 7,
+              "tn": 143,
+              "precision": null,
+              "recall": 0.0,
+              "f1": 0.0
+            },
+            "R004": {
+              "tp": 0,
+              "fp": 0,
+              "fn": 7,
+              "tn": 143,
+              "precision": null,
+              "recall": 0.0,
+              "f1": 0.0
+            },
+            "R005": {
+              "tp": 0,
+              "fp": 0,
+              "fn": 6,
+              "tn": 144,
+              "precision": null,
+              "recall": 0.0,
+              "f1": 0.0
+            },
+            "R006": {
+              "tp": 0,
+              "fp": 0,
+              "fn": 10,
+              "tn": 140,
+              "precision": null,
+              "recall": 0.0,
+              "f1": 0.0
+            },
+            "R007": {
+              "tp": 0,
+              "fp": 0,
+              "fn": 7,
+              "tn": 143,
+              "precision": null,
+              "recall": 0.0,
+              "f1": 0.0
+            },
+            "R008": {
+              "tp": 0,
+              "fp": 0,
+              "fn": 4,
+              "tn": 146,
+              "precision": null,
+              "recall": 0.0,
+              "f1": 0.0
+            },
+            "R009": {
+              "tp": 0,
+              "fp": 0,
+              "fn": 5,
+              "tn": 145,
+              "precision": null,
+              "recall": 0.0,
+              "f1": 0.0
+            },
+            "R010": {
+              "tp": 0,
+              "fp": 0,
+              "fn": 5,
+              "tn": 145,
+              "precision": null,
+              "recall": 0.0,
+              "f1": 0.0
+            },
+            "R011": {
+              "tp": 0,
+              "fp": 0,
+              "fn": 4,
+              "tn": 146,
+              "precision": null,
+              "recall": 0.0,
+              "f1": 0.0
+            },
+            "R012": {
+              "tp": 0,
+              "fp": 0,
+              "fn": 13,
+              "tn": 137,
+              "precision": null,
+              "recall": 0.0,
+              "f1": 0.0
+            },
+            "R013": {
+              "tp": 0,
+              "fp": 0,
+              "fn": 11,
+              "tn": 139,
+              "precision": null,
+              "recall": 0.0,
+              "f1": 0.0
+            },
+            "R014": {
+              "tp": 0,
+              "fp": 0,
+              "fn": 7,
+              "tn": 143,
+              "precision": null,
+              "recall": 0.0,
+              "f1": 0.0
+            },
+            "R015": {
+              "tp": 0,
+              "fp": 0,
+              "fn": 10,
+              "tn": 140,
+              "precision": null,
+              "recall": 0.0,
+              "f1": 0.0
+            }
+          },
+          "by_category": {
+            "completeness_and_arithmetic": {
+              "tp": 0,
+              "fp": 0,
+              "fn": 37,
+              "tn": 413,
+              "precision": null,
+              "recall": 0.0,
+              "f1": 0.0,
+              "rules": [
+                "R001",
+                "R007",
+                "R012"
+              ]
+            },
+            "eligibility_and_coverage": {
+              "tp": 0,
+              "fp": 0,
+              "fn": 30,
+              "tn": 570,
+              "precision": null,
+              "recall": 0.0,
+              "f1": 0.0,
+              "rules": [
+                "R003",
+                "R004",
+                "R005",
+                "R015"
+              ]
+            },
+            "timing": {
+              "tp": 0,
+              "fp": 0,
+              "fn": 11,
+              "tn": 289,
+              "precision": null,
+              "recall": 0.0,
+              "f1": 0.0,
+              "rules": [
+                "R002",
+                "R014"
+              ]
+            },
+            "authorization_and_documentation": {
+              "tp": 0,
+              "fp": 0,
+              "fn": 14,
+              "tn": 436,
+              "precision": null,
+              "recall": 0.0,
+              "f1": 0.0,
+              "rules": [
+                "R008",
+                "R009",
+                "R010"
+              ]
+            },
+            "catalogue_pricing_and_duplicates": {
+              "tp": 0,
+              "fp": 0,
+              "fn": 25,
+              "tn": 425,
+              "precision": null,
+              "recall": 0.0,
+              "f1": 0.0,
+              "rules": [
+                "R006",
+                "R011",
+                "R013"
+              ]
+            }
+          },
+          "macro_category": {
+            "macro_f1": 0.0,
+            "defined": 5,
+            "excluded": []
+          },
+          "macro_rule": {
+            "macro_f1": 0.0,
+            "defined": 15,
+            "excluded": []
+          },
+          "status_accuracy": 0.8351111111111111,
+          "multiclass": {
+            "macro_f1": 0.22753693388229596,
+            "defined": 4,
+            "excluded": [],
+            "per_status_f1": {
+              "FAIL": 0.0,
+              "NOT_APPLICABLE": 0.0,
+              "PASS": 0.9101477355291838,
+              "UNABLE_TO_ASSESS": 0.0
+            }
+          },
+          "valid_claims": {
+            "claims_without_fail": {
+              "k": 0,
+              "n": 62,
+              "rate": 0.0,
+              "upper95": 0.047169511375356854
+            },
+            "clean_claims": {
+              "k": 0,
+              "n": 53,
+              "rate": 0.0,
+              "upper95": 0.05495548846517784
+            },
+            "clean_claim_false_abstention": {
+              "k": 0,
+              "n": 53,
+              "rate": 0.0,
+              "upper95": 0.05495548846517784
+            },
+            "clean_result_false_alarm": {
+              "k": 0,
+              "n": 795,
+              "rate": 0.0,
+              "upper95": 0.0037611258771363953
+            }
+          },
+          "disagreements": {
+            "count": 371,
+            "examples": [
+              {
+                "claim_id": "CG-6A7E614B9752",
+                "rule_id": "R010",
+                "gold": "NOT_APPLICABLE",
+                "predicted": "PASS"
+              },
+              {
+                "claim_id": "CG-2FB11C88A071",
+                "rule_id": "R008",
+                "gold": "UNABLE_TO_ASSESS",
+                "predicted": "PASS"
+              },
+              {
+                "claim_id": "CG-2FB11C88A071",
+                "rule_id": "R009",
+                "gold": "UNABLE_TO_ASSESS",
+                "predicted": "PASS"
+              },
+              {
+                "claim_id": "CG-2FB11C88A071",
+                "rule_id": "R010",
+                "gold": "UNABLE_TO_ASSESS",
+                "predicted": "PASS"
+              },
+              {
+                "claim_id": "CG-2FB11C88A071",
+                "rule_id": "R011",
+                "gold": "FAIL",
+                "predicted": "PASS"
+              },
+              {
+                "claim_id": "CG-2FB11C88A071",
+                "rule_id": "R013",
+                "gold": "UNABLE_TO_ASSESS",
+                "predicted": "PASS"
+              },
+              {
+                "claim_id": "CG-15D09EBAEE25",
+                "rule_id": "R005",
+                "gold": "FAIL",
+                "predicted": "PASS"
+              },
+              {
+                "claim_id": "CG-15D09EBAEE25",
+                "rule_id": "R008",
+                "gold": "NOT_APPLICABLE",
+                "predicted": "PASS"
+              },
+              {
+                "claim_id": "CG-15D09EBAEE25",
+                "rule_id": "R009",
+                "gold": "NOT_APPLICABLE",
+                "predicted": "PASS"
+              },
+              {
+                "claim_id": "CG-CF1C9CE0C2B3",
+                "rule_id": "R001",
+                "gold": "FAIL",
+                "predicted": "PASS"
+              }
+            ],
+            "breakdown": [
+              {
+                "rule_id": "R001",
+                "gold": "FAIL",
+                "predicted": "PASS",
+                "count": 17
+              },
+              {
+                "rule_id": "R002",
+                "gold": "FAIL",
+                "predicted": "PASS",
+                "count": 4
+              },
+              {
+                "rule_id": "R002",
+                "gold": "UNABLE_TO_ASSESS",
+                "predicted": "PASS",
+                "count": 3
+              },
+              {
+                "rule_id": "R003",
+                "gold": "FAIL",
+                "predicted": "PASS",
+                "count": 7
+              },
+              {
+                "rule_id": "R003",
+                "gold": "UNABLE_TO_ASSESS",
+                "predicted": "PASS",
+                "count": 6
+              },
+              {
+                "rule_id": "R004",
+                "gold": "FAIL",
+                "predicted": "PASS",
+                "count": 7
+              },
+              {
+                "rule_id": "R004",
+                "gold": "UNABLE_TO_ASSESS",
+                "predicted": "PASS",
+                "count": 4
+              },
+              {
+                "rule_id": "R005",
+                "gold": "FAIL",
+                "predicted": "PASS",
+                "count": 6
+              },
+              {
+                "rule_id": "R005",
+                "gold": "UNABLE_TO_ASSESS",
+                "predicted": "PASS",
+                "count": 3
+              },
+              {
+                "rule_id": "R006",
+                "gold": "FAIL",
+                "predicted": "PASS",
+                "count": 10
+              },
+              {
+                "rule_id": "R006",
+                "gold": "UNABLE_TO_ASSESS",
+                "predicted": "PASS",
+                "count": 3
+              },
+              {
+                "rule_id": "R007",
+                "gold": "FAIL",
+                "predicted": "PASS",
+                "count": 7
+              },
+              {
+                "rule_id": "R007",
+                "gold": "UNABLE_TO_ASSESS",
+                "predicted": "PASS",
+                "count": 3
+              },
+              {
+                "rule_id": "R008",
+                "gold": "FAIL",
+                "predicted": "PASS",
+                "count": 4
+              },
+              {
+                "rule_id": "R008",
+                "gold": "NOT_APPLICABLE",
+                "predicted": "PASS",
+                "count": 59
+              },
+              {
+                "rule_id": "R008",
+                "gold": "UNABLE_TO_ASSESS",
+                "predicted": "PASS",
+                "count": 7
+              },
+              {
+                "rule_id": "R009",
+                "gold": "FAIL",
+                "predicted": "PASS",
+                "count": 5
+              },
+              {
+                "rule_id": "R009",
+                "gold": "NOT_APPLICABLE",
+                "predicted": "PASS",
+                "count": 59
+              },
+              {
+                "rule_id": "R009",
+                "gold": "UNABLE_TO_ASSESS",
+                "predicted": "PASS",
+                "count": 13
+              },
+              {
+                "rule_id": "R010",
+                "gold": "FAIL",
+                "predicted": "PASS",
+                "count": 5
+              },
+              {
+                "rule_id": "R010",
+                "gold": "NOT_APPLICABLE",
+                "predicted": "PASS",
+                "count": 59
+              },
+              {
+                "rule_id": "R010",
+                "gold": "UNABLE_TO_ASSESS",
+                "predicted": "PASS",
+                "count": 12
+              },
+              {
+                "rule_id": "R011",
+                "gold": "FAIL",
+                "predicted": "PASS",
+                "count": 4
+              },
+              {
+                "rule_id": "R012",
+                "gold": "FAIL",
+                "predicted": "PASS",
+                "count": 13
+              },
+              {
+                "rule_id": "R013",
+                "gold": "FAIL",
+                "predicted": "PASS",
+                "count": 11
+              },
+              {
+                "rule_id": "R013",
+                "gold": "UNABLE_TO_ASSESS",
+                "predicted": "PASS",
+                "count": 10
+              },
+              {
+                "rule_id": "R014",
+                "gold": "FAIL",
+                "predicted": "PASS",
+                "count": 7
+              },
+              {
+                "rule_id": "R014",
+                "gold": "NOT_APPLICABLE",
+                "predicted": "PASS",
+                "count": 4
+              },
+              {
+                "rule_id": "R014",
+                "gold": "UNABLE_TO_ASSESS",
+                "predicted": "PASS",
+                "count": 6
+              },
+              {
+                "rule_id": "R015",
+                "gold": "FAIL",
+                "predicted": "PASS",
+                "count": 10
+              },
+              {
+                "rule_id": "R015",
+                "gold": "UNABLE_TO_ASSESS",
+                "predicted": "PASS",
+                "count": 3
+              }
+            ]
+          },
+          "fail_error_rate": {
+            "k": 117,
+            "n": 2250,
+            "rate": 0.052,
+            "upper95": 0.06036594409809441
+          }
+        },
+        "starter_baseline": {
+          "claims": 150,
+          "results": 2250,
+          "overall": {
+            "tp": 34,
+            "fp": 0,
+            "fn": 83,
+            "tn": 2133,
+            "precision": 1.0,
+            "recall": 0.2905982905982906,
+            "f1": 0.4503311258278146
+          },
+          "per_rule": {
+            "R001": {
+              "tp": 17,
+              "fp": 0,
+              "fn": 0,
+              "tn": 133,
+              "precision": 1.0,
+              "recall": 1.0,
+              "f1": 1.0
+            },
+            "R002": {
+              "tp": 0,
+              "fp": 0,
+              "fn": 4,
+              "tn": 146,
+              "precision": null,
+              "recall": 0.0,
+              "f1": 0.0
+            },
+            "R003": {
+              "tp": 7,
+              "fp": 0,
+              "fn": 0,
+              "tn": 143,
+              "precision": 1.0,
+              "recall": 1.0,
+              "f1": 1.0
+            },
+            "R004": {
+              "tp": 0,
+              "fp": 0,
+              "fn": 7,
+              "tn": 143,
+              "precision": null,
+              "recall": 0.0,
+              "f1": 0.0
+            },
+            "R005": {
+              "tp": 0,
+              "fp": 0,
+              "fn": 6,
+              "tn": 144,
+              "precision": null,
+              "recall": 0.0,
+              "f1": 0.0
+            },
+            "R006": {
+              "tp": 10,
+              "fp": 0,
+              "fn": 0,
+              "tn": 140,
+              "precision": 1.0,
+              "recall": 1.0,
+              "f1": 1.0
+            },
+            "R007": {
+              "tp": 0,
+              "fp": 0,
+              "fn": 7,
+              "tn": 143,
+              "precision": null,
+              "recall": 0.0,
+              "f1": 0.0
+            },
+            "R008": {
+              "tp": 0,
+              "fp": 0,
+              "fn": 4,
+              "tn": 146,
+              "precision": null,
+              "recall": 0.0,
+              "f1": 0.0
+            },
+            "R009": {
+              "tp": 0,
+              "fp": 0,
+              "fn": 5,
+              "tn": 145,
+              "precision": null,
+              "recall": 0.0,
+              "f1": 0.0
+            },
+            "R010": {
+              "tp": 0,
+              "fp": 0,
+              "fn": 5,
+              "tn": 145,
+              "precision": null,
+              "recall": 0.0,
+              "f1": 0.0
+            },
+            "R011": {
+              "tp": 0,
+              "fp": 0,
+              "fn": 4,
+              "tn": 146,
+              "precision": null,
+              "recall": 0.0,
+              "f1": 0.0
+            },
+            "R012": {
+              "tp": 0,
+              "fp": 0,
+              "fn": 13,
+              "tn": 137,
+              "precision": null,
+              "recall": 0.0,
+              "f1": 0.0
+            },
+            "R013": {
+              "tp": 0,
+              "fp": 0,
+              "fn": 11,
+              "tn": 139,
+              "precision": null,
+              "recall": 0.0,
+              "f1": 0.0
+            },
+            "R014": {
+              "tp": 0,
+              "fp": 0,
+              "fn": 7,
+              "tn": 143,
+              "precision": null,
+              "recall": 0.0,
+              "f1": 0.0
+            },
+            "R015": {
+              "tp": 0,
+              "fp": 0,
+              "fn": 10,
+              "tn": 140,
+              "precision": null,
+              "recall": 0.0,
+              "f1": 0.0
+            }
+          },
+          "by_category": {
+            "completeness_and_arithmetic": {
+              "tp": 17,
+              "fp": 0,
+              "fn": 20,
+              "tn": 413,
+              "precision": 1.0,
+              "recall": 0.4594594594594595,
+              "f1": 0.6296296296296297,
+              "rules": [
+                "R001",
+                "R007",
+                "R012"
+              ]
+            },
+            "eligibility_and_coverage": {
+              "tp": 7,
+              "fp": 0,
+              "fn": 23,
+              "tn": 570,
+              "precision": 1.0,
+              "recall": 0.23333333333333334,
+              "f1": 0.3783783783783784,
+              "rules": [
+                "R003",
+                "R004",
+                "R005",
+                "R015"
+              ]
+            },
+            "timing": {
+              "tp": 0,
+              "fp": 0,
+              "fn": 11,
+              "tn": 289,
+              "precision": null,
+              "recall": 0.0,
+              "f1": 0.0,
+              "rules": [
+                "R002",
+                "R014"
+              ]
+            },
+            "authorization_and_documentation": {
+              "tp": 0,
+              "fp": 0,
+              "fn": 14,
+              "tn": 436,
+              "precision": null,
+              "recall": 0.0,
+              "f1": 0.0,
+              "rules": [
+                "R008",
+                "R009",
+                "R010"
+              ]
+            },
+            "catalogue_pricing_and_duplicates": {
+              "tp": 10,
+              "fp": 0,
+              "fn": 15,
+              "tn": 425,
+              "precision": 1.0,
+              "recall": 0.4,
+              "f1": 0.5714285714285714,
+              "rules": [
+                "R006",
+                "R011",
+                "R013"
+              ]
+            }
+          },
+          "macro_category": {
+            "macro_f1": 0.3158873158873159,
+            "defined": 5,
+            "excluded": []
+          },
+          "macro_rule": {
+            "macro_f1": 0.2,
+            "defined": 15,
+            "excluded": []
+          },
+          "status_accuracy": 0.2,
+          "multiclass": {
+            "macro_f1": 0.2051847621777047,
+            "defined": 5,
+            "excluded": [],
+            "per_status_f1": {
+              "FAIL": 0.4503311258278146,
+              "NOT_APPLICABLE": 0.0,
+              "NOT_IMPLEMENTED": 0.0,
+              "PASS": 0.3560804899387577,
+              "UNABLE_TO_ASSESS": 0.21951219512195122
+            }
+          },
+          "valid_claims": {
+            "claims_without_fail": {
+              "k": 0,
+              "n": 62,
+              "rate": 0.0,
+              "upper95": 0.047169511375356854
+            },
+            "clean_claims": {
+              "k": 0,
+              "n": 53,
+              "rate": 0.0,
+              "upper95": 0.05495548846517784
+            },
+            "clean_claim_false_abstention": {
+              "k": 0,
+              "n": 53,
+              "rate": 0.0,
+              "upper95": 0.05495548846517784
+            },
+            "clean_result_false_alarm": {
+              "k": 0,
+              "n": 795,
+              "rate": 0.0,
+              "upper95": 0.0037611258771363953
+            }
+          },
+          "disagreements": {
+            "count": 1800,
+            "examples": [
+              {
+                "claim_id": "CG-BC77D328F1A2",
+                "rule_id": "R002",
+                "gold": "PASS",
+                "predicted": "NOT_IMPLEMENTED"
+              },
+              {
+                "claim_id": "CG-BC77D328F1A2",
+                "rule_id": "R004",
+                "gold": "PASS",
+                "predicted": "NOT_IMPLEMENTED"
+              },
+              {
+                "claim_id": "CG-BC77D328F1A2",
+                "rule_id": "R005",
+                "gold": "PASS",
+                "predicted": "NOT_IMPLEMENTED"
+              },
+              {
+                "claim_id": "CG-BC77D328F1A2",
+                "rule_id": "R007",
+                "gold": "PASS",
+                "predicted": "NOT_IMPLEMENTED"
+              },
+              {
+                "claim_id": "CG-BC77D328F1A2",
+                "rule_id": "R008",
+                "gold": "PASS",
+                "predicted": "NOT_IMPLEMENTED"
+              },
+              {
+                "claim_id": "CG-BC77D328F1A2",
+                "rule_id": "R009",
+                "gold": "PASS",
+                "predicted": "NOT_IMPLEMENTED"
+              },
+              {
+                "claim_id": "CG-BC77D328F1A2",
+                "rule_id": "R010",
+                "gold": "PASS",
+                "predicted": "NOT_IMPLEMENTED"
+              },
+              {
+                "claim_id": "CG-BC77D328F1A2",
+                "rule_id": "R011",
+                "gold": "PASS",
+                "predicted": "NOT_IMPLEMENTED"
+              },
+              {
+                "claim_id": "CG-BC77D328F1A2",
+                "rule_id": "R012",
+                "gold": "PASS",
+                "predicted": "NOT_IMPLEMENTED"
+              },
+              {
+                "claim_id": "CG-BC77D328F1A2",
+                "rule_id": "R013",
+                "gold": "PASS",
+                "predicted": "NOT_IMPLEMENTED"
+              }
+            ],
+            "breakdown": [
+              {
+                "rule_id": "R002",
+                "gold": "FAIL",
+                "predicted": "NOT_IMPLEMENTED",
+                "count": 4
+              },
+              {
+                "rule_id": "R002",
+                "gold": "PASS",
+                "predicted": "NOT_IMPLEMENTED",
+                "count": 143
+              },
+              {
+                "rule_id": "R002",
+                "gold": "UNABLE_TO_ASSESS",
+                "predicted": "NOT_IMPLEMENTED",
+                "count": 3
+              },
+              {
+                "rule_id": "R004",
+                "gold": "FAIL",
+                "predicted": "NOT_IMPLEMENTED",
+                "count": 7
+              },
+              {
+                "rule_id": "R004",
+                "gold": "PASS",
+                "predicted": "NOT_IMPLEMENTED",
+                "count": 139
+              },
+              {
+                "rule_id": "R004",
+                "gold": "UNABLE_TO_ASSESS",
+                "predicted": "NOT_IMPLEMENTED",
+                "count": 4
+              },
+              {
+                "rule_id": "R005",
+                "gold": "FAIL",
+                "predicted": "NOT_IMPLEMENTED",
+                "count": 6
+              },
+              {
+                "rule_id": "R005",
+                "gold": "PASS",
+                "predicted": "NOT_IMPLEMENTED",
+                "count": 141
+              },
+              {
+                "rule_id": "R005",
+                "gold": "UNABLE_TO_ASSESS",
+                "predicted": "NOT_IMPLEMENTED",
+                "count": 3
+              },
+              {
+                "rule_id": "R007",
+                "gold": "FAIL",
+                "predicted": "NOT_IMPLEMENTED",
+                "count": 7
+              },
+              {
+                "rule_id": "R007",
+                "gold": "PASS",
+                "predicted": "NOT_IMPLEMENTED",
+                "count": 140
+              },
+              {
+                "rule_id": "R007",
+                "gold": "UNABLE_TO_ASSESS",
+                "predicted": "NOT_IMPLEMENTED",
+                "count": 3
+              },
+              {
+                "rule_id": "R008",
+                "gold": "FAIL",
+                "predicted": "NOT_IMPLEMENTED",
+                "count": 4
+              },
+              {
+                "rule_id": "R008",
+                "gold": "NOT_APPLICABLE",
+                "predicted": "NOT_IMPLEMENTED",
+                "count": 59
+              },
+              {
+                "rule_id": "R008",
+                "gold": "PASS",
+                "predicted": "NOT_IMPLEMENTED",
+                "count": 80
+              },
+              {
+                "rule_id": "R008",
+                "gold": "UNABLE_TO_ASSESS",
+                "predicted": "NOT_IMPLEMENTED",
+                "count": 7
+              },
+              {
+                "rule_id": "R009",
+                "gold": "FAIL",
+                "predicted": "NOT_IMPLEMENTED",
+                "count": 5
+              },
+              {
+                "rule_id": "R009",
+                "gold": "NOT_APPLICABLE",
+                "predicted": "NOT_IMPLEMENTED",
+                "count": 59
+              },
+              {
+                "rule_id": "R009",
+                "gold": "PASS",
+                "predicted": "NOT_IMPLEMENTED",
+                "count": 73
+              },
+              {
+                "rule_id": "R009",
+                "gold": "UNABLE_TO_ASSESS",
+                "predicted": "NOT_IMPLEMENTED",
+                "count": 13
+              },
+              {
+                "rule_id": "R010",
+                "gold": "FAIL",
+                "predicted": "NOT_IMPLEMENTED",
+                "count": 5
+              },
+              {
+                "rule_id": "R010",
+                "gold": "NOT_APPLICABLE",
+                "predicted": "NOT_IMPLEMENTED",
+                "count": 59
+              },
+              {
+                "rule_id": "R010",
+                "gold": "PASS",
+                "predicted": "NOT_IMPLEMENTED",
+                "count": 74
+              },
+              {
+                "rule_id": "R010",
+                "gold": "UNABLE_TO_ASSESS",
+                "predicted": "NOT_IMPLEMENTED",
+                "count": 12
+              },
+              {
+                "rule_id": "R011",
+                "gold": "FAIL",
+                "predicted": "NOT_IMPLEMENTED",
+                "count": 4
+              },
+              {
+                "rule_id": "R011",
+                "gold": "PASS",
+                "predicted": "NOT_IMPLEMENTED",
+                "count": 146
+              },
+              {
+                "rule_id": "R012",
+                "gold": "FAIL",
+                "predicted": "NOT_IMPLEMENTED",
+                "count": 13
+              },
+              {
+                "rule_id": "R012",
+                "gold": "PASS",
+                "predicted": "NOT_IMPLEMENTED",
+                "count": 137
+              },
+              {
+                "rule_id": "R013",
+                "gold": "FAIL",
+                "predicted": "NOT_IMPLEMENTED",
+                "count": 11
+              },
+              {
+                "rule_id": "R013",
+                "gold": "PASS",
+                "predicted": "NOT_IMPLEMENTED",
+                "count": 129
+              },
+              {
+                "rule_id": "R013",
+                "gold": "UNABLE_TO_ASSESS",
+                "predicted": "NOT_IMPLEMENTED",
+                "count": 10
+              },
+              {
+                "rule_id": "R014",
+                "gold": "FAIL",
+                "predicted": "NOT_IMPLEMENTED",
+                "count": 7
+              },
+              {
+                "rule_id": "R014",
+                "gold": "NOT_APPLICABLE",
+                "predicted": "NOT_IMPLEMENTED",
+                "count": 4
+              },
+              {
+                "rule_id": "R014",
+                "gold": "PASS",
+                "predicted": "NOT_IMPLEMENTED",
+                "count": 133
+              },
+              {
+                "rule_id": "R014",
+                "gold": "UNABLE_TO_ASSESS",
+                "predicted": "NOT_IMPLEMENTED",
+                "count": 6
+              },
+              {
+                "rule_id": "R015",
+                "gold": "FAIL",
+                "predicted": "NOT_IMPLEMENTED",
+                "count": 10
+              },
+              {
+                "rule_id": "R015",
+                "gold": "PASS",
+                "predicted": "NOT_IMPLEMENTED",
+                "count": 137
+              },
+              {
+                "rule_id": "R015",
+                "gold": "UNABLE_TO_ASSESS",
+                "predicted": "NOT_IMPLEMENTED",
+                "count": 3
+              }
+            ]
+          },
+          "fail_error_rate": {
+            "k": 83,
+            "n": 2250,
+            "rate": 0.03688888888888889,
+            "upper95": 0.04411186940198977
+          }
+        }
+      },
+      "engine_ms": {
+        "n": 150,
+        "mean": 1.160724669850121,
+        "p50": 1.096599968150258,
+        "p95": 1.7717000446282327,
+        "p99": 1.8700000364333391,
+        "max": 1.8758999649435282
+      }
+    },
+    "S3": {
+      "meta": {
+        "tier": "A",
+        "name": "data/stress",
+        "path": "engine",
+        "label_kind": "organizer_key"
+      },
+      "summary": {
+        "claims": 50,
+        "results": 750,
+        "overall": {
+          "tp": 26,
+          "fp": 0,
+          "fn": 0,
+          "tn": 724,
+          "precision": 1.0,
+          "recall": 1.0,
+          "f1": 1.0
+        },
+        "per_rule": {
+          "R001": {
+            "tp": 8,
+            "fp": 0,
+            "fn": 0,
+            "tn": 42,
+            "precision": 1.0,
+            "recall": 1.0,
+            "f1": 1.0
+          },
+          "R002": {
+            "tp": 0,
+            "fp": 0,
+            "fn": 0,
+            "tn": 50,
+            "precision": null,
+            "recall": null,
+            "f1": null
+          },
+          "R003": {
+            "tp": 3,
+            "fp": 0,
+            "fn": 0,
+            "tn": 47,
+            "precision": 1.0,
+            "recall": 1.0,
+            "f1": 1.0
+          },
+          "R004": {
+            "tp": 0,
+            "fp": 0,
+            "fn": 0,
+            "tn": 50,
+            "precision": null,
+            "recall": null,
+            "f1": null
+          },
+          "R005": {
+            "tp": 0,
+            "fp": 0,
+            "fn": 0,
+            "tn": 50,
+            "precision": null,
+            "recall": null,
+            "f1": null
+          },
+          "R006": {
+            "tp": 0,
+            "fp": 0,
+            "fn": 0,
+            "tn": 50,
+            "precision": null,
+            "recall": null,
+            "f1": null
+          },
+          "R007": {
+            "tp": 0,
+            "fp": 0,
+            "fn": 0,
+            "tn": 50,
+            "precision": null,
+            "recall": null,
+            "f1": null
+          },
+          "R008": {
+            "tp": 0,
+            "fp": 0,
+            "fn": 0,
+            "tn": 50,
+            "precision": null,
+            "recall": null,
+            "f1": null
+          },
+          "R009": {
+            "tp": 3,
+            "fp": 0,
+            "fn": 0,
+            "tn": 47,
+            "precision": 1.0,
+            "recall": 1.0,
+            "f1": 1.0
+          },
+          "R010": {
+            "tp": 3,
+            "fp": 0,
+            "fn": 0,
+            "tn": 47,
+            "precision": 1.0,
+            "recall": 1.0,
+            "f1": 1.0
+          },
+          "R011": {
+            "tp": 0,
+            "fp": 0,
+            "fn": 0,
+            "tn": 50,
+            "precision": null,
+            "recall": null,
+            "f1": null
+          },
+          "R012": {
+            "tp": 3,
+            "fp": 0,
+            "fn": 0,
+            "tn": 47,
+            "precision": 1.0,
+            "recall": 1.0,
+            "f1": 1.0
+          },
+          "R013": {
+            "tp": 6,
+            "fp": 0,
+            "fn": 0,
+            "tn": 44,
+            "precision": 1.0,
+            "recall": 1.0,
+            "f1": 1.0
+          },
+          "R014": {
+            "tp": 0,
+            "fp": 0,
+            "fn": 0,
+            "tn": 50,
+            "precision": null,
+            "recall": null,
+            "f1": null
+          },
+          "R015": {
+            "tp": 0,
+            "fp": 0,
+            "fn": 0,
+            "tn": 50,
+            "precision": null,
+            "recall": null,
+            "f1": null
+          }
+        },
+        "by_category": {
+          "completeness_and_arithmetic": {
+            "tp": 11,
+            "fp": 0,
+            "fn": 0,
+            "tn": 139,
+            "precision": 1.0,
+            "recall": 1.0,
+            "f1": 1.0,
+            "rules": [
+              "R001",
+              "R007",
+              "R012"
+            ]
+          },
+          "eligibility_and_coverage": {
+            "tp": 3,
+            "fp": 0,
+            "fn": 0,
+            "tn": 197,
+            "precision": 1.0,
+            "recall": 1.0,
+            "f1": 1.0,
+            "rules": [
+              "R003",
+              "R004",
+              "R005",
+              "R015"
+            ]
+          },
+          "timing": {
+            "tp": 0,
+            "fp": 0,
+            "fn": 0,
+            "tn": 100,
+            "precision": null,
+            "recall": null,
+            "f1": null,
+            "rules": [
+              "R002",
+              "R014"
+            ]
+          },
+          "authorization_and_documentation": {
+            "tp": 6,
+            "fp": 0,
+            "fn": 0,
+            "tn": 144,
+            "precision": 1.0,
+            "recall": 1.0,
+            "f1": 1.0,
+            "rules": [
+              "R008",
+              "R009",
+              "R010"
+            ]
+          },
+          "catalogue_pricing_and_duplicates": {
+            "tp": 6,
+            "fp": 0,
+            "fn": 0,
+            "tn": 144,
+            "precision": 1.0,
+            "recall": 1.0,
+            "f1": 1.0,
+            "rules": [
+              "R006",
+              "R011",
+              "R013"
+            ]
+          }
+        },
+        "macro_category": {
+          "macro_f1": 1.0,
+          "defined": 4,
+          "excluded": [
+            "timing"
+          ]
+        },
+        "macro_rule": {
+          "macro_f1": 1.0,
+          "defined": 6,
+          "excluded": [
+            "R002",
+            "R004",
+            "R005",
+            "R006",
+            "R007",
+            "R008",
+            "R011",
+            "R014",
+            "R015"
+          ]
+        },
+        "status_accuracy": 1.0,
+        "multiclass": {
+          "macro_f1": 1.0,
+          "defined": 4,
+          "excluded": [],
+          "per_status_f1": {
+            "FAIL": 1.0,
+            "NOT_APPLICABLE": 1.0,
+            "PASS": 1.0,
+            "UNABLE_TO_ASSESS": 1.0
+          }
+        },
+        "valid_claims": {
+          "claims_without_fail": {
+            "k": 0,
+            "n": 24,
+            "rate": 0.0,
+            "upper95": 0.1173461561549487
+          },
+          "clean_claims": {
+            "k": 0,
+            "n": 12,
+            "rate": 0.0,
+            "upper95": 0.22092219194555585
+          },
+          "clean_claim_false_abstention": {
+            "k": 0,
+            "n": 12,
+            "rate": 0.0,
+            "upper95": 0.22092219194555585
+          },
+          "clean_result_false_alarm": {
+            "k": 0,
+            "n": 180,
+            "rate": 0.0,
+            "upper95": 0.01650522819566269
+          }
+        },
+        "disagreements": {
+          "count": 0,
+          "examples": [],
+          "breakdown": []
+        },
+        "fail_error_rate": {
+          "k": 0,
+          "n": 750,
+          "rate": 0.0,
+          "upper95": 0.003986343053701269
+        },
+        "by_severity": {
+          "high": {
+            "tp": 17,
+            "fp": 0,
+            "fn": 0,
+            "tn": 533,
+            "precision": 1.0,
+            "recall": 1.0,
+            "f1": 1.0,
+            "rules": [
+              "R001",
+              "R002",
+              "R003",
+              "R004",
+              "R005",
+              "R007",
+              "R008",
+              "R009",
+              "R011",
+              "R012",
+              "R015"
+            ]
+          },
+          "medium": {
+            "tp": 9,
+            "fp": 0,
+            "fn": 0,
+            "tn": 191,
+            "precision": 1.0,
+            "recall": 1.0,
+            "f1": 1.0,
+            "rules": [
+              "R006",
+              "R010",
+              "R013",
+              "R014"
+            ]
+          }
+        },
+        "macro_severity": {
+          "macro_f1": 1.0,
+          "defined": 2,
+          "excluded": []
+        }
+      },
+      "engine_crashes": 0,
+      "baselines": {
+        "always_pass": {
+          "claims": 50,
+          "results": 750,
+          "overall": {
+            "tp": 0,
+            "fp": 0,
+            "fn": 26,
+            "tn": 724,
+            "precision": null,
+            "recall": 0.0,
+            "f1": 0.0
+          },
+          "per_rule": {
+            "R001": {
+              "tp": 0,
+              "fp": 0,
+              "fn": 8,
+              "tn": 42,
+              "precision": null,
+              "recall": 0.0,
+              "f1": 0.0
+            },
+            "R002": {
+              "tp": 0,
+              "fp": 0,
+              "fn": 0,
+              "tn": 50,
+              "precision": null,
+              "recall": null,
+              "f1": null
+            },
+            "R003": {
+              "tp": 0,
+              "fp": 0,
+              "fn": 3,
+              "tn": 47,
+              "precision": null,
+              "recall": 0.0,
+              "f1": 0.0
+            },
+            "R004": {
+              "tp": 0,
+              "fp": 0,
+              "fn": 0,
+              "tn": 50,
+              "precision": null,
+              "recall": null,
+              "f1": null
+            },
+            "R005": {
+              "tp": 0,
+              "fp": 0,
+              "fn": 0,
+              "tn": 50,
+              "precision": null,
+              "recall": null,
+              "f1": null
+            },
+            "R006": {
+              "tp": 0,
+              "fp": 0,
+              "fn": 0,
+              "tn": 50,
+              "precision": null,
+              "recall": null,
+              "f1": null
+            },
+            "R007": {
+              "tp": 0,
+              "fp": 0,
+              "fn": 0,
+              "tn": 50,
+              "precision": null,
+              "recall": null,
+              "f1": null
+            },
+            "R008": {
+              "tp": 0,
+              "fp": 0,
+              "fn": 0,
+              "tn": 50,
+              "precision": null,
+              "recall": null,
+              "f1": null
+            },
+            "R009": {
+              "tp": 0,
+              "fp": 0,
+              "fn": 3,
+              "tn": 47,
+              "precision": null,
+              "recall": 0.0,
+              "f1": 0.0
+            },
+            "R010": {
+              "tp": 0,
+              "fp": 0,
+              "fn": 3,
+              "tn": 47,
+              "precision": null,
+              "recall": 0.0,
+              "f1": 0.0
+            },
+            "R011": {
+              "tp": 0,
+              "fp": 0,
+              "fn": 0,
+              "tn": 50,
+              "precision": null,
+              "recall": null,
+              "f1": null
+            },
+            "R012": {
+              "tp": 0,
+              "fp": 0,
+              "fn": 3,
+              "tn": 47,
+              "precision": null,
+              "recall": 0.0,
+              "f1": 0.0
+            },
+            "R013": {
+              "tp": 0,
+              "fp": 0,
+              "fn": 6,
+              "tn": 44,
+              "precision": null,
+              "recall": 0.0,
+              "f1": 0.0
+            },
+            "R014": {
+              "tp": 0,
+              "fp": 0,
+              "fn": 0,
+              "tn": 50,
+              "precision": null,
+              "recall": null,
+              "f1": null
+            },
+            "R015": {
+              "tp": 0,
+              "fp": 0,
+              "fn": 0,
+              "tn": 50,
+              "precision": null,
+              "recall": null,
+              "f1": null
+            }
+          },
+          "by_category": {
+            "completeness_and_arithmetic": {
+              "tp": 0,
+              "fp": 0,
+              "fn": 11,
+              "tn": 139,
+              "precision": null,
+              "recall": 0.0,
+              "f1": 0.0,
+              "rules": [
+                "R001",
+                "R007",
+                "R012"
+              ]
+            },
+            "eligibility_and_coverage": {
+              "tp": 0,
+              "fp": 0,
+              "fn": 3,
+              "tn": 197,
+              "precision": null,
+              "recall": 0.0,
+              "f1": 0.0,
+              "rules": [
+                "R003",
+                "R004",
+                "R005",
+                "R015"
+              ]
+            },
+            "timing": {
+              "tp": 0,
+              "fp": 0,
+              "fn": 0,
+              "tn": 100,
+              "precision": null,
+              "recall": null,
+              "f1": null,
+              "rules": [
+                "R002",
+                "R014"
+              ]
+            },
+            "authorization_and_documentation": {
+              "tp": 0,
+              "fp": 0,
+              "fn": 6,
+              "tn": 144,
+              "precision": null,
+              "recall": 0.0,
+              "f1": 0.0,
+              "rules": [
+                "R008",
+                "R009",
+                "R010"
+              ]
+            },
+            "catalogue_pricing_and_duplicates": {
+              "tp": 0,
+              "fp": 0,
+              "fn": 6,
+              "tn": 144,
+              "precision": null,
+              "recall": 0.0,
+              "f1": 0.0,
+              "rules": [
+                "R006",
+                "R011",
+                "R013"
+              ]
+            }
+          },
+          "macro_category": {
+            "macro_f1": 0.0,
+            "defined": 4,
+            "excluded": [
+              "timing"
+            ]
+          },
+          "macro_rule": {
+            "macro_f1": 0.0,
+            "defined": 6,
+            "excluded": [
+              "R002",
+              "R004",
+              "R005",
+              "R006",
+              "R007",
+              "R008",
+              "R011",
+              "R014",
+              "R015"
+            ]
+          },
+          "status_accuracy": 0.7986666666666666,
+          "multiclass": {
+            "macro_f1": 0.22201630837657524,
+            "defined": 4,
+            "excluded": [],
+            "per_status_f1": {
+              "FAIL": 0.0,
+              "NOT_APPLICABLE": 0.0,
+              "PASS": 0.888065233506301,
+              "UNABLE_TO_ASSESS": 0.0
+            }
+          },
+          "valid_claims": {
+            "claims_without_fail": {
+              "k": 0,
+              "n": 24,
+              "rate": 0.0,
+              "upper95": 0.1173461561549487
+            },
+            "clean_claims": {
+              "k": 0,
+              "n": 12,
+              "rate": 0.0,
+              "upper95": 0.22092219194555585
+            },
+            "clean_claim_false_abstention": {
+              "k": 0,
+              "n": 12,
+              "rate": 0.0,
+              "upper95": 0.22092219194555585
+            },
+            "clean_result_false_alarm": {
+              "k": 0,
+              "n": 180,
+              "rate": 0.0,
+              "upper95": 0.01650522819566269
+            }
+          },
+          "disagreements": {
+            "count": 151,
+            "examples": [
+              {
+                "claim_id": "CG-8756AB9D7AD7",
+                "rule_id": "R008",
+                "gold": "NOT_APPLICABLE",
+                "predicted": "PASS"
+              },
+              {
+                "claim_id": "CG-8756AB9D7AD7",
+                "rule_id": "R009",
+                "gold": "NOT_APPLICABLE",
+                "predicted": "PASS"
+              },
+              {
+                "claim_id": "CG-8756AB9D7AD7",
+                "rule_id": "R010",
+                "gold": "NOT_APPLICABLE",
+                "predicted": "PASS"
+              },
+              {
+                "claim_id": "CG-8756AB9D7AD7",
+                "rule_id": "R013",
+                "gold": "FAIL",
+                "predicted": "PASS"
+              },
+              {
+                "claim_id": "CG-7587196E6CDE",
+                "rule_id": "R003",
+                "gold": "UNABLE_TO_ASSESS",
+                "predicted": "PASS"
+              },
+              {
+                "claim_id": "CG-97E4A776D23C",
+                "rule_id": "R013",
+                "gold": "FAIL",
+                "predicted": "PASS"
+              },
+              {
+                "claim_id": "CG-5135630C280F",
+                "rule_id": "R001",
+                "gold": "FAIL",
+                "predicted": "PASS"
+              },
+              {
+                "claim_id": "CG-5135630C280F",
+                "rule_id": "R007",
+                "gold": "UNABLE_TO_ASSESS",
+                "predicted": "PASS"
+              },
+              {
+                "claim_id": "CG-5135630C280F",
+                "rule_id": "R010",
+                "gold": "NOT_APPLICABLE",
+                "predicted": "PASS"
+              },
+              {
+                "claim_id": "CG-5135630C280F",
+                "rule_id": "R013",
+                "gold": "UNABLE_TO_ASSESS",
+                "predicted": "PASS"
+              }
+            ],
+            "breakdown": [
+              {
+                "rule_id": "R001",
+                "gold": "FAIL",
+                "predicted": "PASS",
+                "count": 8
+              },
+              {
+                "rule_id": "R002",
+                "gold": "UNABLE_TO_ASSESS",
+                "predicted": "PASS",
+                "count": 4
+              },
+              {
+                "rule_id": "R003",
+                "gold": "FAIL",
+                "predicted": "PASS",
+                "count": 3
+              },
+              {
+                "rule_id": "R003",
+                "gold": "UNABLE_TO_ASSESS",
+                "predicted": "PASS",
+                "count": 8
+              },
+              {
+                "rule_id": "R005",
+                "gold": "UNABLE_TO_ASSESS",
+                "predicted": "PASS",
+                "count": 4
+              },
+              {
+                "rule_id": "R006",
+                "gold": "UNABLE_TO_ASSESS",
+                "predicted": "PASS",
+                "count": 4
+              },
+              {
+                "rule_id": "R007",
+                "gold": "UNABLE_TO_ASSESS",
+                "predicted": "PASS",
+                "count": 4
+              },
+              {
+                "rule_id": "R008",
+                "gold": "NOT_APPLICABLE",
+                "predicted": "PASS",
+                "count": 22
+              },
+              {
+                "rule_id": "R008",
+                "gold": "UNABLE_TO_ASSESS",
+                "predicted": "PASS",
+                "count": 4
+              },
+              {
+                "rule_id": "R009",
+                "gold": "FAIL",
+                "predicted": "PASS",
+                "count": 3
+              },
+              {
+                "rule_id": "R009",
+                "gold": "NOT_APPLICABLE",
+                "predicted": "PASS",
+                "count": 22
+              },
+              {
+                "rule_id": "R009",
+                "gold": "UNABLE_TO_ASSESS",
+                "predicted": "PASS",
+                "count": 5
+              },
+              {
+                "rule_id": "R010",
+                "gold": "FAIL",
+                "predicted": "PASS",
+                "count": 3
+              },
+              {
+                "rule_id": "R010",
+                "gold": "NOT_APPLICABLE",
+                "predicted": "PASS",
+                "count": 19
+              },
+              {
+                "rule_id": "R010",
+                "gold": "UNABLE_TO_ASSESS",
+                "predicted": "PASS",
+                "count": 9
+              },
+              {
+                "rule_id": "R012",
+                "gold": "FAIL",
+                "predicted": "PASS",
+                "count": 3
+              },
+              {
+                "rule_id": "R013",
+                "gold": "FAIL",
+                "predicted": "PASS",
+                "count": 6
+              },
+              {
+                "rule_id": "R013",
+                "gold": "UNABLE_TO_ASSESS",
+                "predicted": "PASS",
+                "count": 8
+              },
+              {
+                "rule_id": "R014",
+                "gold": "UNABLE_TO_ASSESS",
+                "predicted": "PASS",
+                "count": 8
+              },
+              {
+                "rule_id": "R015",
+                "gold": "UNABLE_TO_ASSESS",
+                "predicted": "PASS",
+                "count": 4
+              }
+            ]
+          },
+          "fail_error_rate": {
+            "k": 26,
+            "n": 750,
+            "rate": 0.034666666666666665,
+            "upper95": 0.04777781018315844
+          }
+        },
+        "starter_baseline": {
+          "claims": 50,
+          "results": 750,
+          "overall": {
+            "tp": 11,
+            "fp": 0,
+            "fn": 15,
+            "tn": 724,
+            "precision": 1.0,
+            "recall": 0.4230769230769231,
+            "f1": 0.5945945945945946
+          },
+          "per_rule": {
+            "R001": {
+              "tp": 8,
+              "fp": 0,
+              "fn": 0,
+              "tn": 42,
+              "precision": 1.0,
+              "recall": 1.0,
+              "f1": 1.0
+            },
+            "R002": {
+              "tp": 0,
+              "fp": 0,
+              "fn": 0,
+              "tn": 50,
+              "precision": null,
+              "recall": null,
+              "f1": null
+            },
+            "R003": {
+              "tp": 3,
+              "fp": 0,
+              "fn": 0,
+              "tn": 47,
+              "precision": 1.0,
+              "recall": 1.0,
+              "f1": 1.0
+            },
+            "R004": {
+              "tp": 0,
+              "fp": 0,
+              "fn": 0,
+              "tn": 50,
+              "precision": null,
+              "recall": null,
+              "f1": null
+            },
+            "R005": {
+              "tp": 0,
+              "fp": 0,
+              "fn": 0,
+              "tn": 50,
+              "precision": null,
+              "recall": null,
+              "f1": null
+            },
+            "R006": {
+              "tp": 0,
+              "fp": 0,
+              "fn": 0,
+              "tn": 50,
+              "precision": null,
+              "recall": null,
+              "f1": null
+            },
+            "R007": {
+              "tp": 0,
+              "fp": 0,
+              "fn": 0,
+              "tn": 50,
+              "precision": null,
+              "recall": null,
+              "f1": null
+            },
+            "R008": {
+              "tp": 0,
+              "fp": 0,
+              "fn": 0,
+              "tn": 50,
+              "precision": null,
+              "recall": null,
+              "f1": null
+            },
+            "R009": {
+              "tp": 0,
+              "fp": 0,
+              "fn": 3,
+              "tn": 47,
+              "precision": null,
+              "recall": 0.0,
+              "f1": 0.0
+            },
+            "R010": {
+              "tp": 0,
+              "fp": 0,
+              "fn": 3,
+              "tn": 47,
+              "precision": null,
+              "recall": 0.0,
+              "f1": 0.0
+            },
+            "R011": {
+              "tp": 0,
+              "fp": 0,
+              "fn": 0,
+              "tn": 50,
+              "precision": null,
+              "recall": null,
+              "f1": null
+            },
+            "R012": {
+              "tp": 0,
+              "fp": 0,
+              "fn": 3,
+              "tn": 47,
+              "precision": null,
+              "recall": 0.0,
+              "f1": 0.0
+            },
+            "R013": {
+              "tp": 0,
+              "fp": 0,
+              "fn": 6,
+              "tn": 44,
+              "precision": null,
+              "recall": 0.0,
+              "f1": 0.0
+            },
+            "R014": {
+              "tp": 0,
+              "fp": 0,
+              "fn": 0,
+              "tn": 50,
+              "precision": null,
+              "recall": null,
+              "f1": null
+            },
+            "R015": {
+              "tp": 0,
+              "fp": 0,
+              "fn": 0,
+              "tn": 50,
+              "precision": null,
+              "recall": null,
+              "f1": null
+            }
+          },
+          "by_category": {
+            "completeness_and_arithmetic": {
+              "tp": 8,
+              "fp": 0,
+              "fn": 3,
+              "tn": 139,
+              "precision": 1.0,
+              "recall": 0.7272727272727273,
+              "f1": 0.8421052631578947,
+              "rules": [
+                "R001",
+                "R007",
+                "R012"
+              ]
+            },
+            "eligibility_and_coverage": {
+              "tp": 3,
+              "fp": 0,
+              "fn": 0,
+              "tn": 197,
+              "precision": 1.0,
+              "recall": 1.0,
+              "f1": 1.0,
+              "rules": [
+                "R003",
+                "R004",
+                "R005",
+                "R015"
+              ]
+            },
+            "timing": {
+              "tp": 0,
+              "fp": 0,
+              "fn": 0,
+              "tn": 100,
+              "precision": null,
+              "recall": null,
+              "f1": null,
+              "rules": [
+                "R002",
+                "R014"
+              ]
+            },
+            "authorization_and_documentation": {
+              "tp": 0,
+              "fp": 0,
+              "fn": 6,
+              "tn": 144,
+              "precision": null,
+              "recall": 0.0,
+              "f1": 0.0,
+              "rules": [
+                "R008",
+                "R009",
+                "R010"
+              ]
+            },
+            "catalogue_pricing_and_duplicates": {
+              "tp": 0,
+              "fp": 0,
+              "fn": 6,
+              "tn": 144,
+              "precision": null,
+              "recall": 0.0,
+              "f1": 0.0,
+              "rules": [
+                "R006",
+                "R011",
+                "R013"
+              ]
+            }
+          },
+          "macro_category": {
+            "macro_f1": 0.4605263157894737,
+            "defined": 4,
+            "excluded": [
+              "timing"
+            ]
+          },
+          "macro_rule": {
+            "macro_f1": 0.3333333333333333,
+            "defined": 6,
+            "excluded": [
+              "R002",
+              "R004",
+              "R005",
+              "R006",
+              "R007",
+              "R008",
+              "R011",
+              "R014",
+              "R015"
+            ]
+          },
+          "status_accuracy": 0.2,
+          "multiclass": {
+            "macro_f1": 0.2537562355744174,
+            "defined": 5,
+            "excluded": [],
+            "per_status_f1": {
+              "FAIL": 0.5945945945945946,
+              "NOT_APPLICABLE": 0.0,
+              "NOT_IMPLEMENTED": 0.0,
+              "PASS": 0.349862258953168,
+              "UNABLE_TO_ASSESS": 0.32432432432432434
+            }
+          },
+          "valid_claims": {
+            "claims_without_fail": {
+              "k": 0,
+              "n": 24,
+              "rate": 0.0,
+              "upper95": 0.1173461561549487
+            },
+            "clean_claims": {
+              "k": 0,
+              "n": 12,
+              "rate": 0.0,
+              "upper95": 0.22092219194555585
+            },
+            "clean_claim_false_abstention": {
+              "k": 0,
+              "n": 12,
+              "rate": 0.0,
+              "upper95": 0.22092219194555585
+            },
+            "clean_result_false_alarm": {
+              "k": 0,
+              "n": 180,
+              "rate": 0.0,
+              "upper95": 0.01650522819566269
+            }
+          },
+          "disagreements": {
+            "count": 600,
+            "examples": [
+              {
+                "claim_id": "CG-8756AB9D7AD7",
+                "rule_id": "R002",
+                "gold": "PASS",
+                "predicted": "NOT_IMPLEMENTED"
+              },
+              {
+                "claim_id": "CG-8756AB9D7AD7",
+                "rule_id": "R004",
+                "gold": "PASS",
+                "predicted": "NOT_IMPLEMENTED"
+              },
+              {
+                "claim_id": "CG-8756AB9D7AD7",
+                "rule_id": "R005",
+                "gold": "PASS",
+                "predicted": "NOT_IMPLEMENTED"
+              },
+              {
+                "claim_id": "CG-8756AB9D7AD7",
+                "rule_id": "R007",
+                "gold": "PASS",
+                "predicted": "NOT_IMPLEMENTED"
+              },
+              {
+                "claim_id": "CG-8756AB9D7AD7",
+                "rule_id": "R008",
+                "gold": "NOT_APPLICABLE",
+                "predicted": "NOT_IMPLEMENTED"
+              },
+              {
+                "claim_id": "CG-8756AB9D7AD7",
+                "rule_id": "R009",
+                "gold": "NOT_APPLICABLE",
+                "predicted": "NOT_IMPLEMENTED"
+              },
+              {
+                "claim_id": "CG-8756AB9D7AD7",
+                "rule_id": "R010",
+                "gold": "NOT_APPLICABLE",
+                "predicted": "NOT_IMPLEMENTED"
+              },
+              {
+                "claim_id": "CG-8756AB9D7AD7",
+                "rule_id": "R011",
+                "gold": "PASS",
+                "predicted": "NOT_IMPLEMENTED"
+              },
+              {
+                "claim_id": "CG-8756AB9D7AD7",
+                "rule_id": "R012",
+                "gold": "PASS",
+                "predicted": "NOT_IMPLEMENTED"
+              },
+              {
+                "claim_id": "CG-8756AB9D7AD7",
+                "rule_id": "R013",
+                "gold": "FAIL",
+                "predicted": "NOT_IMPLEMENTED"
+              }
+            ],
+            "breakdown": [
+              {
+                "rule_id": "R002",
+                "gold": "PASS",
+                "predicted": "NOT_IMPLEMENTED",
+                "count": 46
+              },
+              {
+                "rule_id": "R002",
+                "gold": "UNABLE_TO_ASSESS",
+                "predicted": "NOT_IMPLEMENTED",
+                "count": 4
+              },
+              {
+                "rule_id": "R004",
+                "gold": "PASS",
+                "predicted": "NOT_IMPLEMENTED",
+                "count": 50
+              },
+              {
+                "rule_id": "R005",
+                "gold": "PASS",
+                "predicted": "NOT_IMPLEMENTED",
+                "count": 46
+              },
+              {
+                "rule_id": "R005",
+                "gold": "UNABLE_TO_ASSESS",
+                "predicted": "NOT_IMPLEMENTED",
+                "count": 4
+              },
+              {
+                "rule_id": "R007",
+                "gold": "PASS",
+                "predicted": "NOT_IMPLEMENTED",
+                "count": 46
+              },
+              {
+                "rule_id": "R007",
+                "gold": "UNABLE_TO_ASSESS",
+                "predicted": "NOT_IMPLEMENTED",
+                "count": 4
+              },
+              {
+                "rule_id": "R008",
+                "gold": "NOT_APPLICABLE",
+                "predicted": "NOT_IMPLEMENTED",
+                "count": 22
+              },
+              {
+                "rule_id": "R008",
+                "gold": "PASS",
+                "predicted": "NOT_IMPLEMENTED",
+                "count": 24
+              },
+              {
+                "rule_id": "R008",
+                "gold": "UNABLE_TO_ASSESS",
+                "predicted": "NOT_IMPLEMENTED",
+                "count": 4
+              },
+              {
+                "rule_id": "R009",
+                "gold": "FAIL",
+                "predicted": "NOT_IMPLEMENTED",
+                "count": 3
+              },
+              {
+                "rule_id": "R009",
+                "gold": "NOT_APPLICABLE",
+                "predicted": "NOT_IMPLEMENTED",
+                "count": 22
+              },
+              {
+                "rule_id": "R009",
+                "gold": "PASS",
+                "predicted": "NOT_IMPLEMENTED",
+                "count": 20
+              },
+              {
+                "rule_id": "R009",
+                "gold": "UNABLE_TO_ASSESS",
+                "predicted": "NOT_IMPLEMENTED",
+                "count": 5
+              },
+              {
+                "rule_id": "R010",
+                "gold": "FAIL",
+                "predicted": "NOT_IMPLEMENTED",
+                "count": 3
+              },
+              {
+                "rule_id": "R010",
+                "gold": "NOT_APPLICABLE",
+                "predicted": "NOT_IMPLEMENTED",
+                "count": 19
+              },
+              {
+                "rule_id": "R010",
+                "gold": "PASS",
+                "predicted": "NOT_IMPLEMENTED",
+                "count": 19
+              },
+              {
+                "rule_id": "R010",
+                "gold": "UNABLE_TO_ASSESS",
+                "predicted": "NOT_IMPLEMENTED",
+                "count": 9
+              },
+              {
+                "rule_id": "R011",
+                "gold": "PASS",
+                "predicted": "NOT_IMPLEMENTED",
+                "count": 50
+              },
+              {
+                "rule_id": "R012",
+                "gold": "FAIL",
+                "predicted": "NOT_IMPLEMENTED",
+                "count": 3
+              },
+              {
+                "rule_id": "R012",
+                "gold": "PASS",
+                "predicted": "NOT_IMPLEMENTED",
+                "count": 47
+              },
+              {
+                "rule_id": "R013",
+                "gold": "FAIL",
+                "predicted": "NOT_IMPLEMENTED",
+                "count": 6
+              },
+              {
+                "rule_id": "R013",
+                "gold": "PASS",
+                "predicted": "NOT_IMPLEMENTED",
+                "count": 36
+              },
+              {
+                "rule_id": "R013",
+                "gold": "UNABLE_TO_ASSESS",
+                "predicted": "NOT_IMPLEMENTED",
+                "count": 8
+              },
+              {
+                "rule_id": "R014",
+                "gold": "PASS",
+                "predicted": "NOT_IMPLEMENTED",
+                "count": 42
+              },
+              {
+                "rule_id": "R014",
+                "gold": "UNABLE_TO_ASSESS",
+                "predicted": "NOT_IMPLEMENTED",
+                "count": 8
+              },
+              {
+                "rule_id": "R015",
+                "gold": "PASS",
+                "predicted": "NOT_IMPLEMENTED",
+                "count": 46
+              },
+              {
+                "rule_id": "R015",
+                "gold": "UNABLE_TO_ASSESS",
+                "predicted": "NOT_IMPLEMENTED",
+                "count": 4
+              }
+            ]
+          },
+          "fail_error_rate": {
+            "k": 15,
+            "n": 750,
+            "rate": 0.02,
+            "upper95": 0.030629764046188217
+          }
+        }
+      },
+      "engine_ms": {
+        "n": 50,
+        "mean": 0.6583119998686016,
+        "p50": 0.6428000051528215,
+        "p95": 0.7267999462783337,
+        "p99": 0.8621999877505004,
+        "max": 0.8621999877505004
+      }
+    },
+    "S4": {
+      "meta": {
+        "tier": "A",
+        "name": "handbook worked cases",
+        "path": "engine",
+        "label_kind": "organizer_key"
+      },
+      "summary": {
+        "claims": 0,
+        "results": 0,
+        "overall": {
+          "tp": 0,
+          "fp": 0,
+          "fn": 0,
+          "tn": 0,
+          "precision": null,
+          "recall": null,
+          "f1": null
+        },
+        "per_rule": {},
+        "by_category": {
+          "completeness_and_arithmetic": {
+            "tp": 0,
+            "fp": 0,
+            "fn": 0,
+            "tn": 0,
+            "precision": null,
+            "recall": null,
+            "f1": null,
+            "rules": [
+              "R001",
+              "R007",
+              "R012"
+            ]
+          },
+          "eligibility_and_coverage": {
+            "tp": 0,
+            "fp": 0,
+            "fn": 0,
+            "tn": 0,
+            "precision": null,
+            "recall": null,
+            "f1": null,
+            "rules": [
+              "R003",
+              "R004",
+              "R005",
+              "R015"
+            ]
+          },
+          "timing": {
+            "tp": 0,
+            "fp": 0,
+            "fn": 0,
+            "tn": 0,
+            "precision": null,
+            "recall": null,
+            "f1": null,
+            "rules": [
+              "R002",
+              "R014"
+            ]
+          },
+          "authorization_and_documentation": {
+            "tp": 0,
+            "fp": 0,
+            "fn": 0,
+            "tn": 0,
+            "precision": null,
+            "recall": null,
+            "f1": null,
+            "rules": [
+              "R008",
+              "R009",
+              "R010"
+            ]
+          },
+          "catalogue_pricing_and_duplicates": {
+            "tp": 0,
+            "fp": 0,
+            "fn": 0,
+            "tn": 0,
+            "precision": null,
+            "recall": null,
+            "f1": null,
+            "rules": [
+              "R006",
+              "R011",
+              "R013"
+            ]
+          }
+        },
+        "macro_category": {
+          "macro_f1": null,
+          "defined": 0,
+          "excluded": [
+            "authorization_and_documentation",
+            "catalogue_pricing_and_duplicates",
+            "completeness_and_arithmetic",
+            "eligibility_and_coverage",
+            "timing"
+          ]
+        },
+        "macro_rule": {
+          "macro_f1": null,
+          "defined": 0,
+          "excluded": []
+        },
+        "status_accuracy": null,
+        "multiclass": {
+          "macro_f1": null,
+          "defined": 0,
+          "excluded": [],
+          "per_status_f1": {}
+        },
+        "valid_claims": {
+          "claims_without_fail": {
+            "k": 0,
+            "n": 0,
+            "rate": null,
+            "upper95": null
+          },
+          "clean_claims": {
+            "k": 0,
+            "n": 0,
+            "rate": null,
+            "upper95": null
+          },
+          "clean_claim_false_abstention": {
+            "k": 0,
+            "n": 0,
+            "rate": null,
+            "upper95": null
+          },
+          "clean_result_false_alarm": {
+            "k": 0,
+            "n": 0,
+            "rate": null,
+            "upper95": null
+          }
+        },
+        "disagreements": {
+          "count": 0,
+          "examples": [],
+          "breakdown": []
+        },
+        "fail_error_rate": {
+          "k": 0,
+          "n": 0,
+          "rate": null,
+          "upper95": null
+        },
+        "by_severity": {
+          "high": {
+            "tp": 0,
+            "fp": 0,
+            "fn": 0,
+            "tn": 0,
+            "precision": null,
+            "recall": null,
+            "f1": null,
+            "rules": [
+              "R001",
+              "R002",
+              "R003",
+              "R004",
+              "R005",
+              "R007",
+              "R008",
+              "R009",
+              "R011",
+              "R012",
+              "R015"
+            ]
+          },
+          "medium": {
+            "tp": 0,
+            "fp": 0,
+            "fn": 0,
+            "tn": 0,
+            "precision": null,
+            "recall": null,
+            "f1": null,
+            "rules": [
+              "R006",
+              "R010",
+              "R013",
+              "R014"
+            ]
+          }
+        },
+        "macro_severity": {
+          "macro_f1": null,
+          "defined": 0,
+          "excluded": [
+            "high",
+            "medium"
+          ]
+        }
+      },
+      "engine_crashes": 0,
+      "baselines": {
+        "always_pass": {
+          "claims": 0,
+          "results": 0,
+          "overall": {
+            "tp": 0,
+            "fp": 0,
+            "fn": 0,
+            "tn": 0,
+            "precision": null,
+            "recall": null,
+            "f1": null
+          },
+          "per_rule": {},
+          "by_category": {
+            "completeness_and_arithmetic": {
+              "tp": 0,
+              "fp": 0,
+              "fn": 0,
+              "tn": 0,
+              "precision": null,
+              "recall": null,
+              "f1": null,
+              "rules": [
+                "R001",
+                "R007",
+                "R012"
+              ]
+            },
+            "eligibility_and_coverage": {
+              "tp": 0,
+              "fp": 0,
+              "fn": 0,
+              "tn": 0,
+              "precision": null,
+              "recall": null,
+              "f1": null,
+              "rules": [
+                "R003",
+                "R004",
+                "R005",
+                "R015"
+              ]
+            },
+            "timing": {
+              "tp": 0,
+              "fp": 0,
+              "fn": 0,
+              "tn": 0,
+              "precision": null,
+              "recall": null,
+              "f1": null,
+              "rules": [
+                "R002",
+                "R014"
+              ]
+            },
+            "authorization_and_documentation": {
+              "tp": 0,
+              "fp": 0,
+              "fn": 0,
+              "tn": 0,
+              "precision": null,
+              "recall": null,
+              "f1": null,
+              "rules": [
+                "R008",
+                "R009",
+                "R010"
+              ]
+            },
+            "catalogue_pricing_and_duplicates": {
+              "tp": 0,
+              "fp": 0,
+              "fn": 0,
+              "tn": 0,
+              "precision": null,
+              "recall": null,
+              "f1": null,
+              "rules": [
+                "R006",
+                "R011",
+                "R013"
+              ]
+            }
+          },
+          "macro_category": {
+            "macro_f1": null,
+            "defined": 0,
+            "excluded": [
+              "authorization_and_documentation",
+              "catalogue_pricing_and_duplicates",
+              "completeness_and_arithmetic",
+              "eligibility_and_coverage",
+              "timing"
+            ]
+          },
+          "macro_rule": {
+            "macro_f1": null,
+            "defined": 0,
+            "excluded": []
+          },
+          "status_accuracy": null,
+          "multiclass": {
+            "macro_f1": null,
+            "defined": 0,
+            "excluded": [],
+            "per_status_f1": {}
+          },
+          "valid_claims": {
+            "claims_without_fail": {
+              "k": 0,
+              "n": 0,
+              "rate": null,
+              "upper95": null
+            },
+            "clean_claims": {
+              "k": 0,
+              "n": 0,
+              "rate": null,
+              "upper95": null
+            },
+            "clean_claim_false_abstention": {
+              "k": 0,
+              "n": 0,
+              "rate": null,
+              "upper95": null
+            },
+            "clean_result_false_alarm": {
+              "k": 0,
+              "n": 0,
+              "rate": null,
+              "upper95": null
+            }
+          },
+          "disagreements": {
+            "count": 0,
+            "examples": [],
+            "breakdown": []
+          },
+          "fail_error_rate": {
+            "k": 0,
+            "n": 0,
+            "rate": null,
+            "upper95": null
+          }
+        },
+        "starter_baseline": {
+          "claims": 0,
+          "results": 0,
+          "overall": {
+            "tp": 0,
+            "fp": 0,
+            "fn": 0,
+            "tn": 0,
+            "precision": null,
+            "recall": null,
+            "f1": null
+          },
+          "per_rule": {},
+          "by_category": {
+            "completeness_and_arithmetic": {
+              "tp": 0,
+              "fp": 0,
+              "fn": 0,
+              "tn": 0,
+              "precision": null,
+              "recall": null,
+              "f1": null,
+              "rules": [
+                "R001",
+                "R007",
+                "R012"
+              ]
+            },
+            "eligibility_and_coverage": {
+              "tp": 0,
+              "fp": 0,
+              "fn": 0,
+              "tn": 0,
+              "precision": null,
+              "recall": null,
+              "f1": null,
+              "rules": [
+                "R003",
+                "R004",
+                "R005",
+                "R015"
+              ]
+            },
+            "timing": {
+              "tp": 0,
+              "fp": 0,
+              "fn": 0,
+              "tn": 0,
+              "precision": null,
+              "recall": null,
+              "f1": null,
+              "rules": [
+                "R002",
+                "R014"
+              ]
+            },
+            "authorization_and_documentation": {
+              "tp": 0,
+              "fp": 0,
+              "fn": 0,
+              "tn": 0,
+              "precision": null,
+              "recall": null,
+              "f1": null,
+              "rules": [
+                "R008",
+                "R009",
+                "R010"
+              ]
+            },
+            "catalogue_pricing_and_duplicates": {
+              "tp": 0,
+              "fp": 0,
+              "fn": 0,
+              "tn": 0,
+              "precision": null,
+              "recall": null,
+              "f1": null,
+              "rules": [
+                "R006",
+                "R011",
+                "R013"
+              ]
+            }
+          },
+          "macro_category": {
+            "macro_f1": null,
+            "defined": 0,
+            "excluded": [
+              "authorization_and_documentation",
+              "catalogue_pricing_and_duplicates",
+              "completeness_and_arithmetic",
+              "eligibility_and_coverage",
+              "timing"
+            ]
+          },
+          "macro_rule": {
+            "macro_f1": null,
+            "defined": 0,
+            "excluded": []
+          },
+          "status_accuracy": null,
+          "multiclass": {
+            "macro_f1": null,
+            "defined": 0,
+            "excluded": [],
+            "per_status_f1": {}
+          },
+          "valid_claims": {
+            "claims_without_fail": {
+              "k": 0,
+              "n": 0,
+              "rate": null,
+              "upper95": null
+            },
+            "clean_claims": {
+              "k": 0,
+              "n": 0,
+              "rate": null,
+              "upper95": null
+            },
+            "clean_claim_false_abstention": {
+              "k": 0,
+              "n": 0,
+              "rate": null,
+              "upper95": null
+            },
+            "clean_result_false_alarm": {
+              "k": 0,
+              "n": 0,
+              "rate": null,
+              "upper95": null
+            }
+          },
+          "disagreements": {
+            "count": 0,
+            "examples": [],
+            "breakdown": []
+          },
+          "fail_error_rate": {
+            "k": 0,
+            "n": 0,
+            "rate": null,
+            "upper95": null
+          }
+        }
+      },
+      "engine_ms": {
+        "n": 0,
+        "mean": null,
+        "p50": null,
+        "p95": null,
+        "p99": null,
+        "max": null
+      }
+    },
+    "S5": {
+      "meta": {
+        "tier": "A",
+        "name": "the 600 public claims as FHIR bundles",
+        "path": "ingest_fhir",
+        "label_kind": "organizer_key"
+      },
+      "summary": {
+        "claims": 600,
+        "results": 9000,
+        "overall": {
+          "tp": 439,
+          "fp": 0,
+          "fn": 23,
+          "tn": 8538,
+          "precision": 1.0,
+          "recall": 0.9502164502164502,
+          "f1": 0.974472807991121
+        },
+        "per_rule": {
+          "R001": {
+            "tp": 61,
+            "fp": 0,
+            "fn": 0,
+            "tn": 539,
+            "precision": 1.0,
+            "recall": 1.0,
+            "f1": 1.0
+          },
+          "R002": {
+            "tp": 15,
+            "fp": 0,
+            "fn": 0,
+            "tn": 585,
+            "precision": 1.0,
+            "recall": 1.0,
+            "f1": 1.0
+          },
+          "R003": {
+            "tp": 38,
+            "fp": 0,
+            "fn": 0,
+            "tn": 562,
+            "precision": 1.0,
+            "recall": 1.0,
+            "f1": 1.0
+          },
+          "R004": {
+            "tp": 35,
+            "fp": 0,
+            "fn": 0,
+            "tn": 565,
+            "precision": 1.0,
+            "recall": 1.0,
+            "f1": 1.0
+          },
+          "R005": {
+            "tp": 32,
+            "fp": 0,
+            "fn": 0,
+            "tn": 568,
+            "precision": 1.0,
+            "recall": 1.0,
+            "f1": 1.0
+          },
+          "R006": {
+            "tp": 34,
+            "fp": 0,
+            "fn": 0,
+            "tn": 566,
+            "precision": 1.0,
+            "recall": 1.0,
+            "f1": 1.0
+          },
+          "R007": {
+            "tp": 30,
+            "fp": 0,
+            "fn": 0,
+            "tn": 570,
+            "precision": 1.0,
+            "recall": 1.0,
+            "f1": 1.0
+          },
+          "R008": {
+            "tp": 15,
+            "fp": 0,
+            "fn": 0,
+            "tn": 585,
+            "precision": 1.0,
+            "recall": 1.0,
+            "f1": 1.0
+          },
+          "R009": {
+            "tp": 0,
+            "fp": 0,
+            "fn": 23,
+            "tn": 577,
+            "precision": null,
+            "recall": 0.0,
+            "f1": 0.0
+          },
+          "R010": {
+            "tp": 23,
+            "fp": 0,
+            "fn": 0,
+            "tn": 577,
+            "precision": 1.0,
+            "recall": 1.0,
+            "f1": 1.0
+          },
+          "R011": {
+            "tp": 14,
+            "fp": 0,
+            "fn": 0,
+            "tn": 586,
+            "precision": 1.0,
+            "recall": 1.0,
+            "f1": 1.0
+          },
+          "R012": {
+            "tp": 39,
+            "fp": 0,
+            "fn": 0,
+            "tn": 561,
+            "precision": 1.0,
+            "recall": 1.0,
+            "f1": 1.0
+          },
+          "R013": {
+            "tp": 47,
+            "fp": 0,
+            "fn": 0,
+            "tn": 553,
+            "precision": 1.0,
+            "recall": 1.0,
+            "f1": 1.0
+          },
+          "R014": {
+            "tp": 27,
+            "fp": 0,
+            "fn": 0,
+            "tn": 573,
+            "precision": 1.0,
+            "recall": 1.0,
+            "f1": 1.0
+          },
+          "R015": {
+            "tp": 29,
+            "fp": 0,
+            "fn": 0,
+            "tn": 571,
+            "precision": 1.0,
+            "recall": 1.0,
+            "f1": 1.0
+          }
+        },
+        "by_category": {
+          "completeness_and_arithmetic": {
+            "tp": 130,
+            "fp": 0,
+            "fn": 0,
+            "tn": 1670,
+            "precision": 1.0,
+            "recall": 1.0,
+            "f1": 1.0,
+            "rules": [
+              "R001",
+              "R007",
+              "R012"
+            ]
+          },
+          "eligibility_and_coverage": {
+            "tp": 134,
+            "fp": 0,
+            "fn": 0,
+            "tn": 2266,
+            "precision": 1.0,
+            "recall": 1.0,
+            "f1": 1.0,
+            "rules": [
+              "R003",
+              "R004",
+              "R005",
+              "R015"
+            ]
+          },
+          "timing": {
+            "tp": 42,
+            "fp": 0,
+            "fn": 0,
+            "tn": 1158,
+            "precision": 1.0,
+            "recall": 1.0,
+            "f1": 1.0,
+            "rules": [
+              "R002",
+              "R014"
+            ]
+          },
+          "authorization_and_documentation": {
+            "tp": 38,
+            "fp": 0,
+            "fn": 23,
+            "tn": 1739,
+            "precision": 1.0,
+            "recall": 0.6229508196721312,
+            "f1": 0.7676767676767676,
+            "rules": [
+              "R008",
+              "R009",
+              "R010"
+            ]
+          },
+          "catalogue_pricing_and_duplicates": {
+            "tp": 95,
+            "fp": 0,
+            "fn": 0,
+            "tn": 1705,
+            "precision": 1.0,
+            "recall": 1.0,
+            "f1": 1.0,
+            "rules": [
+              "R006",
+              "R011",
+              "R013"
+            ]
+          }
+        },
+        "macro_category": {
+          "macro_f1": 0.9535353535353537,
+          "defined": 5,
+          "excluded": []
+        },
+        "macro_rule": {
+          "macro_f1": 0.9333333333333333,
+          "defined": 15,
+          "excluded": []
+        },
+        "status_accuracy": 0.9655555555555555,
+        "multiclass": {
+          "macro_f1": 0.9062894447901291,
+          "defined": 4,
+          "excluded": [],
+          "per_status_f1": {
+            "FAIL": 0.974472807991121,
+            "NOT_APPLICABLE": 1.0,
+            "PASS": 0.980472205211948,
+            "UNABLE_TO_ASSESS": 0.6702127659574468
+          }
+        },
+        "valid_claims": {
+          "claims_without_fail": {
+            "k": 0,
+            "n": 246,
+            "rate": 0.0,
+            "upper95": 0.012103924462517734
+          },
+          "clean_claims": {
+            "k": 0,
+            "n": 201,
+            "rate": 0.0,
+            "upper95": 0.01479362369471493
+          },
+          "clean_claim_false_abstention": {
+            "k": 134,
+            "n": 201,
+            "rate": 0.6666666666666666,
+            "upper95": 0.7217238632240146
+          },
+          "clean_result_false_alarm": {
+            "k": 0,
+            "n": 3015,
+            "rate": 0.0,
+            "upper95": 0.000993115911283371
+          }
+        },
+        "disagreements": {
+          "count": 310,
+          "examples": [
+            {
+              "claim_id": "CG-F5F2411AC3AD",
+              "rule_id": "R009",
+              "gold": "PASS",
+              "predicted": "UNABLE_TO_ASSESS"
+            },
+            {
+              "claim_id": "CG-1CB04117F0CB",
+              "rule_id": "R009",
+              "gold": "PASS",
+              "predicted": "UNABLE_TO_ASSESS"
+            },
+            {
+              "claim_id": "CG-63A3C6B299C0",
+              "rule_id": "R009",
+              "gold": "PASS",
+              "predicted": "UNABLE_TO_ASSESS"
+            },
+            {
+              "claim_id": "CG-03082B941A47",
+              "rule_id": "R009",
+              "gold": "PASS",
+              "predicted": "UNABLE_TO_ASSESS"
+            },
+            {
+              "claim_id": "CG-0BE36F3A5455",
+              "rule_id": "R009",
+              "gold": "PASS",
+              "predicted": "UNABLE_TO_ASSESS"
+            },
+            {
+              "claim_id": "CG-B2EA0E30D1A8",
+              "rule_id": "R009",
+              "gold": "PASS",
+              "predicted": "UNABLE_TO_ASSESS"
+            },
+            {
+              "claim_id": "CG-608E9A6D8033",
+              "rule_id": "R009",
+              "gold": "PASS",
+              "predicted": "UNABLE_TO_ASSESS"
+            },
+            {
+              "claim_id": "CG-EF74DDD32A0C",
+              "rule_id": "R009",
+              "gold": "PASS",
+              "predicted": "UNABLE_TO_ASSESS"
+            },
+            {
+              "claim_id": "CG-4AB86523A338",
+              "rule_id": "R009",
+              "gold": "PASS",
+              "predicted": "UNABLE_TO_ASSESS"
+            },
+            {
+              "claim_id": "CG-91E018F1841E",
+              "rule_id": "R009",
+              "gold": "PASS",
+              "predicted": "UNABLE_TO_ASSESS"
+            }
+          ],
+          "breakdown": [
+            {
+              "rule_id": "R009",
+              "gold": "FAIL",
+              "predicted": "UNABLE_TO_ASSESS",
+              "count": 23
+            },
+            {
+              "rule_id": "R009",
+              "gold": "PASS",
+              "predicted": "UNABLE_TO_ASSESS",
+              "count": 287
+            }
+          ]
+        },
+        "fail_error_rate": {
+          "k": 23,
+          "n": 9000,
+          "rate": 0.0025555555555555557,
+          "upper95": 0.003618669763992578
+        },
+        "by_severity": {
+          "high": {
+            "tp": 308,
+            "fp": 0,
+            "fn": 23,
+            "tn": 6269,
+            "precision": 1.0,
+            "recall": 0.9305135951661632,
+            "f1": 0.9640062597809077,
+            "rules": [
+              "R001",
+              "R002",
+              "R003",
+              "R004",
+              "R005",
+              "R007",
+              "R008",
+              "R009",
+              "R011",
+              "R012",
+              "R015"
+            ]
+          },
+          "medium": {
+            "tp": 131,
+            "fp": 0,
+            "fn": 0,
+            "tn": 2269,
+            "precision": 1.0,
+            "recall": 1.0,
+            "f1": 1.0,
+            "rules": [
+              "R006",
+              "R010",
+              "R013",
+              "R014"
+            ]
+          }
+        },
+        "macro_severity": {
+          "macro_f1": 0.9820031298904539,
+          "defined": 2,
+          "excluded": []
+        }
+      },
+      "engine_crashes": 0,
+      "baselines": null,
+      "engine_ms": {
+        "n": 600,
+        "mean": 0.7209589994939355,
+        "p50": 0.681100005749613,
+        "p95": 0.9821999701671302,
+        "p99": 1.3364999904297292,
+        "max": 2.063299994915724
+      }
+    },
+    "S6": {
+      "meta": {
+        "tier": "A",
+        "name": "the 600 public claims as CSV folders",
+        "path": "ingest_csv",
+        "label_kind": "organizer_key"
+      },
+      "summary": {
+        "claims": 600,
+        "results": 9000,
+        "overall": {
+          "tp": 462,
+          "fp": 0,
+          "fn": 0,
+          "tn": 8538,
+          "precision": 1.0,
+          "recall": 1.0,
+          "f1": 1.0
+        },
+        "per_rule": {
+          "R001": {
+            "tp": 61,
+            "fp": 0,
+            "fn": 0,
+            "tn": 539,
+            "precision": 1.0,
+            "recall": 1.0,
+            "f1": 1.0
+          },
+          "R002": {
+            "tp": 15,
+            "fp": 0,
+            "fn": 0,
+            "tn": 585,
+            "precision": 1.0,
+            "recall": 1.0,
+            "f1": 1.0
+          },
+          "R003": {
+            "tp": 38,
+            "fp": 0,
+            "fn": 0,
+            "tn": 562,
+            "precision": 1.0,
+            "recall": 1.0,
+            "f1": 1.0
+          },
+          "R004": {
+            "tp": 35,
+            "fp": 0,
+            "fn": 0,
+            "tn": 565,
+            "precision": 1.0,
+            "recall": 1.0,
+            "f1": 1.0
+          },
+          "R005": {
+            "tp": 32,
+            "fp": 0,
+            "fn": 0,
+            "tn": 568,
+            "precision": 1.0,
+            "recall": 1.0,
+            "f1": 1.0
+          },
+          "R006": {
+            "tp": 34,
+            "fp": 0,
+            "fn": 0,
+            "tn": 566,
+            "precision": 1.0,
+            "recall": 1.0,
+            "f1": 1.0
+          },
+          "R007": {
+            "tp": 30,
+            "fp": 0,
+            "fn": 0,
+            "tn": 570,
+            "precision": 1.0,
+            "recall": 1.0,
+            "f1": 1.0
+          },
+          "R008": {
+            "tp": 15,
+            "fp": 0,
+            "fn": 0,
+            "tn": 585,
+            "precision": 1.0,
+            "recall": 1.0,
+            "f1": 1.0
+          },
+          "R009": {
+            "tp": 23,
+            "fp": 0,
+            "fn": 0,
+            "tn": 577,
+            "precision": 1.0,
+            "recall": 1.0,
+            "f1": 1.0
+          },
+          "R010": {
+            "tp": 23,
+            "fp": 0,
+            "fn": 0,
+            "tn": 577,
+            "precision": 1.0,
+            "recall": 1.0,
+            "f1": 1.0
+          },
+          "R011": {
+            "tp": 14,
+            "fp": 0,
+            "fn": 0,
+            "tn": 586,
+            "precision": 1.0,
+            "recall": 1.0,
+            "f1": 1.0
+          },
+          "R012": {
+            "tp": 39,
+            "fp": 0,
+            "fn": 0,
+            "tn": 561,
+            "precision": 1.0,
+            "recall": 1.0,
+            "f1": 1.0
+          },
+          "R013": {
+            "tp": 47,
+            "fp": 0,
+            "fn": 0,
+            "tn": 553,
+            "precision": 1.0,
+            "recall": 1.0,
+            "f1": 1.0
+          },
+          "R014": {
+            "tp": 27,
+            "fp": 0,
+            "fn": 0,
+            "tn": 573,
+            "precision": 1.0,
+            "recall": 1.0,
+            "f1": 1.0
+          },
+          "R015": {
+            "tp": 29,
+            "fp": 0,
+            "fn": 0,
+            "tn": 571,
+            "precision": 1.0,
+            "recall": 1.0,
+            "f1": 1.0
+          }
+        },
+        "by_category": {
+          "completeness_and_arithmetic": {
+            "tp": 130,
+            "fp": 0,
+            "fn": 0,
+            "tn": 1670,
+            "precision": 1.0,
+            "recall": 1.0,
+            "f1": 1.0,
+            "rules": [
+              "R001",
+              "R007",
+              "R012"
+            ]
+          },
+          "eligibility_and_coverage": {
+            "tp": 134,
+            "fp": 0,
+            "fn": 0,
+            "tn": 2266,
+            "precision": 1.0,
+            "recall": 1.0,
+            "f1": 1.0,
+            "rules": [
+              "R003",
+              "R004",
+              "R005",
+              "R015"
+            ]
+          },
+          "timing": {
+            "tp": 42,
+            "fp": 0,
+            "fn": 0,
+            "tn": 1158,
+            "precision": 1.0,
+            "recall": 1.0,
+            "f1": 1.0,
+            "rules": [
+              "R002",
+              "R014"
+            ]
+          },
+          "authorization_and_documentation": {
+            "tp": 61,
+            "fp": 0,
+            "fn": 0,
+            "tn": 1739,
+            "precision": 1.0,
+            "recall": 1.0,
+            "f1": 1.0,
+            "rules": [
+              "R008",
+              "R009",
+              "R010"
+            ]
+          },
+          "catalogue_pricing_and_duplicates": {
+            "tp": 95,
+            "fp": 0,
+            "fn": 0,
+            "tn": 1705,
+            "precision": 1.0,
+            "recall": 1.0,
+            "f1": 1.0,
+            "rules": [
+              "R006",
+              "R011",
+              "R013"
+            ]
+          }
+        },
+        "macro_category": {
+          "macro_f1": 1.0,
+          "defined": 5,
+          "excluded": []
+        },
+        "macro_rule": {
+          "macro_f1": 1.0,
+          "defined": 15,
+          "excluded": []
+        },
+        "status_accuracy": 1.0,
+        "multiclass": {
+          "macro_f1": 1.0,
+          "defined": 4,
+          "excluded": [],
+          "per_status_f1": {
+            "FAIL": 1.0,
+            "NOT_APPLICABLE": 1.0,
+            "PASS": 1.0,
+            "UNABLE_TO_ASSESS": 1.0
+          }
+        },
+        "valid_claims": {
+          "claims_without_fail": {
+            "k": 0,
+            "n": 246,
+            "rate": 0.0,
+            "upper95": 0.012103924462517734
+          },
+          "clean_claims": {
+            "k": 0,
+            "n": 201,
+            "rate": 0.0,
+            "upper95": 0.01479362369471493
+          },
+          "clean_claim_false_abstention": {
+            "k": 0,
+            "n": 201,
+            "rate": 0.0,
+            "upper95": 0.01479362369471493
+          },
+          "clean_result_false_alarm": {
+            "k": 0,
+            "n": 3015,
+            "rate": 0.0,
+            "upper95": 0.000993115911283371
+          }
+        },
+        "disagreements": {
+          "count": 0,
+          "examples": [],
+          "breakdown": []
+        },
+        "fail_error_rate": {
+          "k": 0,
+          "n": 9000,
+          "rate": 0.0,
+          "upper95": 0.0003328037500479608
+        },
+        "by_severity": {
+          "high": {
+            "tp": 331,
+            "fp": 0,
+            "fn": 0,
+            "tn": 6269,
+            "precision": 1.0,
+            "recall": 1.0,
+            "f1": 1.0,
+            "rules": [
+              "R001",
+              "R002",
+              "R003",
+              "R004",
+              "R005",
+              "R007",
+              "R008",
+              "R009",
+              "R011",
+              "R012",
+              "R015"
+            ]
+          },
+          "medium": {
+            "tp": 131,
+            "fp": 0,
+            "fn": 0,
+            "tn": 2269,
+            "precision": 1.0,
+            "recall": 1.0,
+            "f1": 1.0,
+            "rules": [
+              "R006",
+              "R010",
+              "R013",
+              "R014"
+            ]
+          }
+        },
+        "macro_severity": {
+          "macro_f1": 1.0,
+          "defined": 2,
+          "excluded": []
+        }
+      },
+      "engine_crashes": 0,
+      "baselines": null,
+      "engine_ms": {
+        "n": 600,
+        "mean": 0.7252733322093263,
+        "p50": 0.6855000392533839,
+        "p95": 1.0395999997854233,
+        "p99": 1.2274000328034163,
+        "max": 1.402099966071546
+      }
+    },
+    "S7": {
+      "meta": {
+        "tier": "B",
+        "name": "generated claims",
+        "path": "engine",
+        "label_kind": "independent_oracle"
+      },
+      "summary": {
+        "claims": 107635,
+        "results": 1614525,
+        "overall": {
+          "tp": 370853,
+          "fp": 0,
+          "fn": 0,
+          "tn": 1243672,
+          "precision": 1.0,
+          "recall": 1.0,
+          "f1": 1.0
+        },
+        "per_rule": {
+          "R001": {
+            "tp": 57195,
+            "fp": 0,
+            "fn": 0,
+            "tn": 50440,
+            "precision": 1.0,
+            "recall": 1.0,
+            "f1": 1.0
+          },
+          "R002": {
+            "tp": 13636,
+            "fp": 0,
+            "fn": 0,
+            "tn": 93999,
+            "precision": 1.0,
+            "recall": 1.0,
+            "f1": 1.0
+          },
+          "R003": {
+            "tp": 46712,
+            "fp": 0,
+            "fn": 0,
+            "tn": 60923,
+            "precision": 1.0,
+            "recall": 1.0,
+            "f1": 1.0
+          },
+          "R004": {
+            "tp": 29105,
+            "fp": 0,
+            "fn": 0,
+            "tn": 78530,
+            "precision": 1.0,
+            "recall": 1.0,
+            "f1": 1.0
+          },
+          "R005": {
+            "tp": 13181,
+            "fp": 0,
+            "fn": 0,
+            "tn": 94454,
+            "precision": 1.0,
+            "recall": 1.0,
+            "f1": 1.0
+          },
+          "R006": {
+            "tp": 7360,
+            "fp": 0,
+            "fn": 0,
+            "tn": 100275,
+            "precision": 1.0,
+            "recall": 1.0,
+            "f1": 1.0
+          },
+          "R007": {
+            "tp": 37355,
+            "fp": 0,
+            "fn": 0,
+            "tn": 70280,
+            "precision": 1.0,
+            "recall": 1.0,
+            "f1": 1.0
+          },
+          "R008": {
+            "tp": 11044,
+            "fp": 0,
+            "fn": 0,
+            "tn": 96591,
+            "precision": 1.0,
+            "recall": 1.0,
+            "f1": 1.0
+          },
+          "R009": {
+            "tp": 22179,
+            "fp": 0,
+            "fn": 0,
+            "tn": 85456,
+            "precision": 1.0,
+            "recall": 1.0,
+            "f1": 1.0
+          },
+          "R010": {
+            "tp": 24589,
+            "fp": 0,
+            "fn": 0,
+            "tn": 83046,
+            "precision": 1.0,
+            "recall": 1.0,
+            "f1": 1.0
+          },
+          "R011": {
+            "tp": 20937,
+            "fp": 0,
+            "fn": 0,
+            "tn": 86698,
+            "precision": 1.0,
+            "recall": 1.0,
+            "f1": 1.0
+          },
+          "R012": {
+            "tp": 9190,
+            "fp": 0,
+            "fn": 0,
+            "tn": 98445,
+            "precision": 1.0,
+            "recall": 1.0,
+            "f1": 1.0
+          },
+          "R013": {
+            "tp": 50345,
+            "fp": 0,
+            "fn": 0,
+            "tn": 57290,
+            "precision": 1.0,
+            "recall": 1.0,
+            "f1": 1.0
+          },
+          "R014": {
+            "tp": 9467,
+            "fp": 0,
+            "fn": 0,
+            "tn": 98168,
+            "precision": 1.0,
+            "recall": 1.0,
+            "f1": 1.0
+          },
+          "R015": {
+            "tp": 18558,
+            "fp": 0,
+            "fn": 0,
+            "tn": 89077,
+            "precision": 1.0,
+            "recall": 1.0,
+            "f1": 1.0
+          }
+        },
+        "by_category": {
+          "completeness_and_arithmetic": {
+            "tp": 103740,
+            "fp": 0,
+            "fn": 0,
+            "tn": 219165,
+            "precision": 1.0,
+            "recall": 1.0,
+            "f1": 1.0,
+            "rules": [
+              "R001",
+              "R007",
+              "R012"
+            ]
+          },
+          "eligibility_and_coverage": {
+            "tp": 107556,
+            "fp": 0,
+            "fn": 0,
+            "tn": 322984,
+            "precision": 1.0,
+            "recall": 1.0,
+            "f1": 1.0,
+            "rules": [
+              "R003",
+              "R004",
+              "R005",
+              "R015"
+            ]
+          },
+          "timing": {
+            "tp": 23103,
+            "fp": 0,
+            "fn": 0,
+            "tn": 192167,
+            "precision": 1.0,
+            "recall": 1.0,
+            "f1": 1.0,
+            "rules": [
+              "R002",
+              "R014"
+            ]
+          },
+          "authorization_and_documentation": {
+            "tp": 57812,
+            "fp": 0,
+            "fn": 0,
+            "tn": 265093,
+            "precision": 1.0,
+            "recall": 1.0,
+            "f1": 1.0,
+            "rules": [
+              "R008",
+              "R009",
+              "R010"
+            ]
+          },
+          "catalogue_pricing_and_duplicates": {
+            "tp": 78642,
+            "fp": 0,
+            "fn": 0,
+            "tn": 244263,
+            "precision": 1.0,
+            "recall": 1.0,
+            "f1": 1.0,
+            "rules": [
+              "R006",
+              "R011",
+              "R013"
+            ]
+          }
+        },
+        "macro_category": {
+          "macro_f1": 1.0,
+          "defined": 5,
+          "excluded": []
+        },
+        "macro_rule": {
+          "macro_f1": 1.0,
+          "defined": 15,
+          "excluded": []
+        },
+        "status_accuracy": 1.0,
+        "multiclass": {
+          "macro_f1": 1.0,
+          "defined": 4,
+          "excluded": [],
+          "per_status_f1": {
+            "FAIL": 1.0,
+            "NOT_APPLICABLE": 1.0,
+            "PASS": 1.0,
+            "UNABLE_TO_ASSESS": 1.0
+          }
+        },
+        "valid_claims": {
+          "claims_without_fail": {
+            "k": 0,
+            "n": 25068,
+            "rate": 0.0,
+            "upper95": 0.00011949709906378114
+          },
+          "clean_claims": {
+            "k": 0,
+            "n": 18145,
+            "rate": 0.0,
+            "upper95": 0.0001650859735498056
+          },
+          "clean_claim_false_abstention": {
+            "k": 0,
+            "n": 18145,
+            "rate": 0.0,
+            "upper95": 0.0001650859735498056
+          },
+          "clean_result_false_alarm": {
+            "k": 0,
+            "n": 272175,
+            "rate": 0.0,
+            "upper95": 1.1006579543115791e-05
+          }
+        },
+        "disagreements": {
+          "count": 0,
+          "examples": [],
+          "breakdown": []
+        },
+        "fail_error_rate": {
+          "k": 0,
+          "n": 1614525,
+          "rate": 0.0,
+          "upper95": 1.8554865947040255e-06
+        },
+        "by_severity": {
+          "high": {
+            "tp": 279092,
+            "fp": 0,
+            "fn": 0,
+            "tn": 904893,
+            "precision": 1.0,
+            "recall": 1.0,
+            "f1": 1.0,
+            "rules": [
+              "R001",
+              "R002",
+              "R003",
+              "R004",
+              "R005",
+              "R007",
+              "R008",
+              "R009",
+              "R011",
+              "R012",
+              "R015"
+            ]
+          },
+          "medium": {
+            "tp": 91761,
+            "fp": 0,
+            "fn": 0,
+            "tn": 338779,
+            "precision": 1.0,
+            "recall": 1.0,
+            "f1": 1.0,
+            "rules": [
+              "R006",
+              "R010",
+              "R013",
+              "R014"
+            ]
+          }
+        },
+        "macro_severity": {
+          "macro_f1": 1.0,
+          "defined": 2,
+          "excluded": []
+        }
+      },
+      "engine_crashes": 0,
+      "baselines": null,
+      "engine_ms": {
+        "n": 107635,
+        "mean": 0.7954133684009417,
+        "p50": 0.727800012100488,
+        "p95": 1.1946000158786774,
+        "p99": 1.5376000083051622,
+        "max": 8.15020001027733
+      }
+    },
+    "S8": {
+      "meta": {
+        "tier": "B",
+        "name": "boundary-aware mutants of the public claims",
+        "path": "engine",
+        "label_kind": "independent_oracle"
+      },
+      "summary": {
+        "claims": 33945,
+        "results": 509175,
+        "overall": {
+          "tp": 69697,
+          "fp": 0,
+          "fn": 0,
+          "tn": 439478,
+          "precision": 1.0,
+          "recall": 1.0,
+          "f1": 1.0
+        },
+        "per_rule": {
+          "R001": {
+            "tp": 4427,
+            "fp": 0,
+            "fn": 0,
+            "tn": 29518,
+            "precision": 1.0,
+            "recall": 1.0,
+            "f1": 1.0
+          },
+          "R002": {
+            "tp": 1419,
+            "fp": 0,
+            "fn": 0,
+            "tn": 32526,
+            "precision": 1.0,
+            "recall": 1.0,
+            "f1": 1.0
+          },
+          "R003": {
+            "tp": 3395,
+            "fp": 0,
+            "fn": 0,
+            "tn": 30550,
+            "precision": 1.0,
+            "recall": 1.0,
+            "f1": 1.0
+          },
+          "R004": {
+            "tp": 7071,
+            "fp": 0,
+            "fn": 0,
+            "tn": 26874,
+            "precision": 1.0,
+            "recall": 1.0,
+            "f1": 1.0
+          },
+          "R005": {
+            "tp": 2999,
+            "fp": 0,
+            "fn": 0,
+            "tn": 30946,
+            "precision": 1.0,
+            "recall": 1.0,
+            "f1": 1.0
+          },
+          "R006": {
+            "tp": 8096,
+            "fp": 0,
+            "fn": 0,
+            "tn": 25849,
+            "precision": 1.0,
+            "recall": 1.0,
+            "f1": 1.0
+          },
+          "R007": {
+            "tp": 7617,
+            "fp": 0,
+            "fn": 0,
+            "tn": 26328,
+            "precision": 1.0,
+            "recall": 1.0,
+            "f1": 1.0
+          },
+          "R008": {
+            "tp": 846,
+            "fp": 0,
+            "fn": 0,
+            "tn": 33099,
+            "precision": 1.0,
+            "recall": 1.0,
+            "f1": 1.0
+          },
+          "R009": {
+            "tp": 5106,
+            "fp": 0,
+            "fn": 0,
+            "tn": 28839,
+            "precision": 1.0,
+            "recall": 1.0,
+            "f1": 1.0
+          },
+          "R010": {
+            "tp": 4479,
+            "fp": 0,
+            "fn": 0,
+            "tn": 29466,
+            "precision": 1.0,
+            "recall": 1.0,
+            "f1": 1.0
+          },
+          "R011": {
+            "tp": 2501,
+            "fp": 0,
+            "fn": 0,
+            "tn": 31444,
+            "precision": 1.0,
+            "recall": 1.0,
+            "f1": 1.0
+          },
+          "R012": {
+            "tp": 12428,
+            "fp": 0,
+            "fn": 0,
+            "tn": 21517,
+            "precision": 1.0,
+            "recall": 1.0,
+            "f1": 1.0
+          },
+          "R013": {
+            "tp": 4941,
+            "fp": 0,
+            "fn": 0,
+            "tn": 29004,
+            "precision": 1.0,
+            "recall": 1.0,
+            "f1": 1.0
+          },
+          "R014": {
+            "tp": 1599,
+            "fp": 0,
+            "fn": 0,
+            "tn": 32346,
+            "precision": 1.0,
+            "recall": 1.0,
+            "f1": 1.0
+          },
+          "R015": {
+            "tp": 2773,
+            "fp": 0,
+            "fn": 0,
+            "tn": 31172,
+            "precision": 1.0,
+            "recall": 1.0,
+            "f1": 1.0
+          }
+        },
+        "by_category": {
+          "completeness_and_arithmetic": {
+            "tp": 24472,
+            "fp": 0,
+            "fn": 0,
+            "tn": 77363,
+            "precision": 1.0,
+            "recall": 1.0,
+            "f1": 1.0,
+            "rules": [
+              "R001",
+              "R007",
+              "R012"
+            ]
+          },
+          "eligibility_and_coverage": {
+            "tp": 16238,
+            "fp": 0,
+            "fn": 0,
+            "tn": 119542,
+            "precision": 1.0,
+            "recall": 1.0,
+            "f1": 1.0,
+            "rules": [
+              "R003",
+              "R004",
+              "R005",
+              "R015"
+            ]
+          },
+          "timing": {
+            "tp": 3018,
+            "fp": 0,
+            "fn": 0,
+            "tn": 64872,
+            "precision": 1.0,
+            "recall": 1.0,
+            "f1": 1.0,
+            "rules": [
+              "R002",
+              "R014"
+            ]
+          },
+          "authorization_and_documentation": {
+            "tp": 10431,
+            "fp": 0,
+            "fn": 0,
+            "tn": 91404,
+            "precision": 1.0,
+            "recall": 1.0,
+            "f1": 1.0,
+            "rules": [
+              "R008",
+              "R009",
+              "R010"
+            ]
+          },
+          "catalogue_pricing_and_duplicates": {
+            "tp": 15538,
+            "fp": 0,
+            "fn": 0,
+            "tn": 86297,
+            "precision": 1.0,
+            "recall": 1.0,
+            "f1": 1.0,
+            "rules": [
+              "R006",
+              "R011",
+              "R013"
+            ]
+          }
+        },
+        "macro_category": {
+          "macro_f1": 1.0,
+          "defined": 5,
+          "excluded": []
+        },
+        "macro_rule": {
+          "macro_f1": 1.0,
+          "defined": 15,
+          "excluded": []
+        },
+        "status_accuracy": 1.0,
+        "multiclass": {
+          "macro_f1": 1.0,
+          "defined": 4,
+          "excluded": [],
+          "per_status_f1": {
+            "FAIL": 1.0,
+            "NOT_APPLICABLE": 1.0,
+            "PASS": 1.0,
+            "UNABLE_TO_ASSESS": 1.0
+          }
+        },
+        "valid_claims": {
+          "claims_without_fail": {
+            "k": 0,
+            "n": 4064,
+            "rate": 0.0,
+            "upper95": 0.0007368672267440424
+          },
+          "clean_claims": {
+            "k": 0,
+            "n": 2307,
+            "rate": 0.0,
+            "upper95": 0.0012976974754100867
+          },
+          "clean_claim_false_abstention": {
+            "k": 0,
+            "n": 2307,
+            "rate": 0.0,
+            "upper95": 0.0012976974754100867
+          },
+          "clean_result_false_alarm": {
+            "k": 0,
+            "n": 34605,
+            "rate": 0.0,
+            "upper95": 8.656560057795915e-05
+          }
+        },
+        "disagreements": {
+          "count": 0,
+          "examples": [],
+          "breakdown": []
+        },
+        "fail_error_rate": {
+          "k": 0,
+          "n": 509175,
+          "rate": 0.0,
+          "upper95": 5.883484972546427e-06
+        },
+        "by_severity": {
+          "high": {
+            "tp": 50582,
+            "fp": 0,
+            "fn": 0,
+            "tn": 322813,
+            "precision": 1.0,
+            "recall": 1.0,
+            "f1": 1.0,
+            "rules": [
+              "R001",
+              "R002",
+              "R003",
+              "R004",
+              "R005",
+              "R007",
+              "R008",
+              "R009",
+              "R011",
+              "R012",
+              "R015"
+            ]
+          },
+          "medium": {
+            "tp": 19115,
+            "fp": 0,
+            "fn": 0,
+            "tn": 116665,
+            "precision": 1.0,
+            "recall": 1.0,
+            "f1": 1.0,
+            "rules": [
+              "R006",
+              "R010",
+              "R013",
+              "R014"
+            ]
+          }
+        },
+        "macro_severity": {
+          "macro_f1": 1.0,
+          "defined": 2,
+          "excluded": []
+        }
+      },
+      "engine_crashes": 0,
+      "baselines": null,
+      "engine_ms": {
+        "n": 33945,
+        "mean": 0.7498134512901208,
+        "p50": 0.6870999932289124,
+        "p95": 1.1403999524191022,
+        "p99": 1.426899980287999,
+        "max": 4.503900010604411
+      }
+    },
+    "S9": {
+      "meta": {
+        "tier": "C",
+        "name": "boundary table (123 cases)",
+        "path": "engine",
+        "label_kind": "hand_derived"
+      },
+      "summary": {
+        "claims": 123,
+        "results": 140,
+        "overall": {
+          "tp": 64,
+          "fp": 0,
+          "fn": 0,
+          "tn": 76,
+          "precision": 1.0,
+          "recall": 1.0,
+          "f1": 1.0
+        },
+        "per_rule": {
+          "R001": {
+            "tp": 3,
+            "fp": 0,
+            "fn": 0,
+            "tn": 2,
+            "precision": 1.0,
+            "recall": 1.0,
+            "f1": 1.0
+          },
+          "R002": {
+            "tp": 2,
+            "fp": 0,
+            "fn": 0,
+            "tn": 3,
+            "precision": 1.0,
+            "recall": 1.0,
+            "f1": 1.0
+          },
+          "R003": {
+            "tp": 6,
+            "fp": 0,
+            "fn": 0,
+            "tn": 10,
+            "precision": 1.0,
+            "recall": 1.0,
+            "f1": 1.0
+          },
+          "R004": {
+            "tp": 3,
+            "fp": 0,
+            "fn": 0,
+            "tn": 2,
+            "precision": 1.0,
+            "recall": 1.0,
+            "f1": 1.0
+          },
+          "R005": {
+            "tp": 2,
+            "fp": 0,
+            "fn": 0,
+            "tn": 2,
+            "precision": 1.0,
+            "recall": 1.0,
+            "f1": 1.0
+          },
+          "R006": {
+            "tp": 4,
+            "fp": 0,
+            "fn": 0,
+            "tn": 4,
+            "precision": 1.0,
+            "recall": 1.0,
+            "f1": 1.0
+          },
+          "R007": {
+            "tp": 4,
+            "fp": 0,
+            "fn": 0,
+            "tn": 7,
+            "precision": 1.0,
+            "recall": 1.0,
+            "f1": 1.0
+          },
+          "R008": {
+            "tp": 2,
+            "fp": 0,
+            "fn": 0,
+            "tn": 3,
+            "precision": 1.0,
+            "recall": 1.0,
+            "f1": 1.0
+          },
+          "R009": {
+            "tp": 12,
+            "fp": 0,
+            "fn": 0,
+            "tn": 9,
+            "precision": 1.0,
+            "recall": 1.0,
+            "f1": 1.0
+          },
+          "R010": {
+            "tp": 5,
+            "fp": 0,
+            "fn": 0,
+            "tn": 7,
+            "precision": 1.0,
+            "recall": 1.0,
+            "f1": 1.0
+          },
+          "R011": {
+            "tp": 3,
+            "fp": 0,
+            "fn": 0,
+            "tn": 2,
+            "precision": 1.0,
+            "recall": 1.0,
+            "f1": 1.0
+          },
+          "R012": {
+            "tp": 3,
+            "fp": 0,
+            "fn": 0,
+            "tn": 7,
+            "precision": 1.0,
+            "recall": 1.0,
+            "f1": 1.0
+          },
+          "R013": {
+            "tp": 9,
+            "fp": 0,
+            "fn": 0,
+            "tn": 8,
+            "precision": 1.0,
+            "recall": 1.0,
+            "f1": 1.0
+          },
+          "R014": {
+            "tp": 3,
+            "fp": 0,
+            "fn": 0,
+            "tn": 9,
+            "precision": 1.0,
+            "recall": 1.0,
+            "f1": 1.0
+          },
+          "R015": {
+            "tp": 3,
+            "fp": 0,
+            "fn": 0,
+            "tn": 1,
+            "precision": 1.0,
+            "recall": 1.0,
+            "f1": 1.0
+          }
+        },
+        "by_category": {
+          "completeness_and_arithmetic": {
+            "tp": 10,
+            "fp": 0,
+            "fn": 0,
+            "tn": 16,
+            "precision": 1.0,
+            "recall": 1.0,
+            "f1": 1.0,
+            "rules": [
+              "R001",
+              "R007",
+              "R012"
+            ]
+          },
+          "eligibility_and_coverage": {
+            "tp": 14,
+            "fp": 0,
+            "fn": 0,
+            "tn": 15,
+            "precision": 1.0,
+            "recall": 1.0,
+            "f1": 1.0,
+            "rules": [
+              "R003",
+              "R004",
+              "R005",
+              "R015"
+            ]
+          },
+          "timing": {
+            "tp": 5,
+            "fp": 0,
+            "fn": 0,
+            "tn": 12,
+            "precision": 1.0,
+            "recall": 1.0,
+            "f1": 1.0,
+            "rules": [
+              "R002",
+              "R014"
+            ]
+          },
+          "authorization_and_documentation": {
+            "tp": 19,
+            "fp": 0,
+            "fn": 0,
+            "tn": 19,
+            "precision": 1.0,
+            "recall": 1.0,
+            "f1": 1.0,
+            "rules": [
+              "R008",
+              "R009",
+              "R010"
+            ]
+          },
+          "catalogue_pricing_and_duplicates": {
+            "tp": 16,
+            "fp": 0,
+            "fn": 0,
+            "tn": 14,
+            "precision": 1.0,
+            "recall": 1.0,
+            "f1": 1.0,
+            "rules": [
+              "R006",
+              "R011",
+              "R013"
+            ]
+          }
+        },
+        "macro_category": {
+          "macro_f1": 1.0,
+          "defined": 5,
+          "excluded": []
+        },
+        "macro_rule": {
+          "macro_f1": 1.0,
+          "defined": 15,
+          "excluded": []
+        },
+        "status_accuracy": 1.0,
+        "multiclass": {
+          "macro_f1": 1.0,
+          "defined": 4,
+          "excluded": [],
+          "per_status_f1": {
+            "FAIL": 1.0,
+            "NOT_APPLICABLE": 1.0,
+            "PASS": 1.0,
+            "UNABLE_TO_ASSESS": 1.0
+          }
+        },
+        "valid_claims": {
+          "claims_without_fail": {
+            "k": 0,
+            "n": 1,
+            "rate": 0.0,
+            "upper95": 0.95
+          },
+          "clean_claims": {
+            "k": 0,
+            "n": 1,
+            "rate": 0.0,
+            "upper95": 0.95
+          },
+          "clean_claim_false_abstention": {
+            "k": 0,
+            "n": 1,
+            "rate": 0.0,
+            "upper95": 0.95
+          },
+          "clean_result_false_alarm": {
+            "k": 0,
+            "n": 15,
+            "rate": 0.0,
+            "upper95": 0.18103627252208465
+          }
+        },
+        "disagreements": {
+          "count": 0,
+          "examples": [],
+          "breakdown": []
+        },
+        "fail_error_rate": {
+          "k": 0,
+          "n": 140,
+          "rate": 0.0,
+          "upper95": 0.02117077284486879
+        },
+        "by_severity": {
+          "high": {
+            "tp": 43,
+            "fp": 0,
+            "fn": 0,
+            "tn": 48,
+            "precision": 1.0,
+            "recall": 1.0,
+            "f1": 1.0,
+            "rules": [
+              "R001",
+              "R002",
+              "R003",
+              "R004",
+              "R005",
+              "R007",
+              "R008",
+              "R009",
+              "R011",
+              "R012",
+              "R015"
+            ]
+          },
+          "medium": {
+            "tp": 21,
+            "fp": 0,
+            "fn": 0,
+            "tn": 28,
+            "precision": 1.0,
+            "recall": 1.0,
+            "f1": 1.0,
+            "rules": [
+              "R006",
+              "R010",
+              "R013",
+              "R014"
+            ]
+          }
+        },
+        "macro_severity": {
+          "macro_f1": 1.0,
+          "defined": 2,
+          "excluded": []
+        }
+      },
+      "engine_crashes": 0,
+      "baselines": null,
+      "engine_ms": {
+        "n": 123,
+        "mean": 0.7845926835822562,
+        "p50": 0.700299977324903,
+        "p95": 0.9884999599307775,
+        "p99": 1.0499999625608325,
+        "max": 3.7198999780230224
+      }
+    }
+  },
+  "latency": {
+    "unit": "milliseconds",
+    "deterministic": false,
+    "environment": {
+      "platform": "Windows-10-10.0.26200-SP0",
+      "python": "3.10.11",
+      "cpus": 16
+    },
+    "engine_per_claim": {
+      "n": 1800,
+      "mean": 0.7205645556031313,
+      "p50": 0.6569999968633056,
+      "p95": 1.1092000058852136,
+      "p99": 1.3084000092931092,
+      "max": 1.6616000211797655
+    },
+    "ingest_fhir_per_claim": {
+      "n": 1200,
+      "mean": 0.8264976667123847,
+      "p50": 0.7755000260658562,
+      "p95": 1.1641999590210617,
+      "p99": 1.3283999869599938,
+      "max": 1.798400015104562
+    },
+    "ingest_csv_per_claim": {
+      "n": 1200,
+      "mean": 0.7569849160790909,
+      "p50": 0.6909999647177756,
+      "p95": 1.0300999856553972,
+      "p99": 1.2648999691009521,
+      "max": 9.920999989844859
+    },
+    "audited_template_per_claim": {
+      "n": 100,
+      "mean": 31.301569995703176,
+      "p50": 28.0036999611184,
+      "p95": 71.2321000173688,
+      "p99": 104.25820003729314,
+      "max": 124.93900000117719
+    }
+  },
+  "ai_step_recorded": {
+    "seconds": {
+      "median": 2.86,
+      "p95": 28.89,
+      "calls": 117
+    },
+    "source": "outputs/defense/load.json (live Mistral-Nemo calls, recorded earlier; not re-run here)"
+  }
+}

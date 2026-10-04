@@ -79,6 +79,38 @@ The FHIR route cannot carry authorization details or free-text notes, so R009 re
 
 **Audit log.** It records ingestion, every rule check with its confidence fields, the AI's question (written before the model is called), the AI recommendation, and system and human decisions, as a hash chain plus a separately stored head-hash anchor. This is tamper-*evident*, not immutable: `docs/16_Audit_Log_Design.md` states what production immutability would additionally need (write-once storage, an externally held anchor, authenticated reviewers). Setting `AUDIT_ANCHOR_KEY` signs the anchor so it cannot be forged without the key (`docs/20_Security_Audit.md`).
 
+## Phase 2 deliverables at a glance
+
+| Deliverable | Where | Status |
+|---|---|---|
+| **Detection quality and benchmark** (15 points): macro F1 across rule categories, valid claims preserved | [docs/29_Test_Evaluation_Report.md](docs/29_Test_Evaluation_Report.md); evidence in `outputs/evaluation/`; reproduce with `python scripts/evaluate_phase2.py` | Done |
+| **Test evaluation report** (detection metrics, F1, false-positive rate, latency, limitations) | [docs/29_Test_Evaluation_Report.md](docs/29_Test_Evaluation_Report.md); explanation of the FHIR result below and in [SPECS.md section 10c](SPECS.md) | Done |
+| **Human-in-the-loop and escalation logic** (10 points): routing of low-confidence and high-severity cases, overrides, feedback log | Design agreed (clearance levels, senior approval for high-severity findings, work dispatcher over a task queue); review decisions with recheck already exist from Phase 1 | Not built yet |
+| **Privacy, security and safety guards** (5 points): data minimization, access control, prompt and data guards, graceful handling of malformed FHIR | Built: clinical and fraud guard on AI text, quarantine of malformed FHIR, hash-chained audit log, fuzz-tested boundaries. Not built: access control (badge, password and authenticator login) and identifier masking | Partly |
+| **Privacy and security note** (threat model, access control, least privilege, auditability) | `docs/20_Security_Audit.md` is the Phase 1 audit; the Phase 2 note waits on the access-control work | Not written yet |
+
+### Why FHIR claims do not score 1.0
+
+On the organizers' answer key the engine scores F1 1.0 when it reads claims directly, and the same 600 claims read from CSV folders also score 1.0. Read from FHIR bundles they score **0.9745** (precision 1.0, recall 0.9502, status accuracy 0.9656). The cause is the input, not the rules:
+
+- Rule R009 ("authorization record matches service") must see the authorization record: patient, service, status, valid-from and valid-to dates and maximum quantity.
+- A FHIR bundle in this dataset carries only the authorization **reference number** (`preAuthRef`, present in 327 of the 600 bundles). It holds `Patient`, `Organization`, `Coverage`, `Claim` and `DocumentReference` resources and nothing that holds the record. The importer keeps the reference and creates an empty stub for the record.
+- The rulebook says a missing comparison input leaves the rule `UNABLE_TO_ASSESS`, so the engine abstains. The answer key was computed from the full claim, so it says PASS or FAIL.
+
+All **310** differences in the 9,000 results are this one case: 287 results the key calls PASS and 23 it calls FAIL, all reported as `UNABLE_TO_ASSESS`. Nothing else differs, and no failing result became a PASS. The 23 missed failures are why recall is 439 of 462 (0.9502). The cost is reviewer workload: 134 of the 201 fully clean claims receive an unnecessary abstention on R009 through FHIR. Guessing the missing record would reach 1.0 only by risking silent passes, which the project forbids. The real remedy is to look the authorization up by its reference in a payer registry, which the dataset does not include. Full evidence and breakdown: [SPECS.md section 10c](SPECS.md) and [docs/29, section 4](docs/29_Test_Evaluation_Report.md).
+
+## Phase 2 deliverables and where each lives
+
+| Rubric item | Where it is | Verify |
+|---|---|---|
+| **Macro F1 across rule categories** (five categories, plus macro by severity and over all 15 rules) | `src/eval_metrics.py` (streaming `Tally`), `scripts/eval_sets.py` (nine labelled sets in three evidence tiers), `scripts/evaluate_phase2.py` | `python scripts/evaluate_phase2.py` (about 6 minutes), then `python scripts/render_eval_report.py --check` |
+| **Low false-positive rate on valid claims** | Same code; tables in `docs/29` section 5 with exact 95% upper bounds | 0 of 160, 62 and 24 claims with no failure were flagged (development, validation, stress) |
+| **Latency** | `docs/29` section 8; AI step quoted from the recorded live calls in `outputs/defense/load.json` | Rule engine median 0.66 ms per claim on the test laptop |
+| **Provenance of every example set** (file hash, generator, seed, label origin, commit) | `outputs/evaluation/provenance.json`, table in `docs/29` section 2 | Hashes match the files; evidence names the commit that produced it |
+| **Test evaluation report** | `docs/29_Test_Evaluation_Report.md`, tables generated from the evidence and checked by a test | `python -m unittest discover -s tests -p test_eval_report.py` |
+| **Robustness of the trust boundaries** (supports the safety guards) | `tests/test_fuzz_*.py`, `scripts/fuzz_campaign.py`, [Fuzz testing](#fuzz-testing) | `python scripts/fuzz_campaign.py --examples 3000` (about 6 minutes) |
+| Human-in-the-loop routing, access control, privacy and security note | Not built; see the table above | |
+
 ## Install and run
 
 **Prerequisites.** Python 3.10 or newer (tested on 3.10, 3.12 and 3.14) and git. Windows, macOS and Linux all work. The rule engine needs `yara-x`; the AI step needs `openai` and `pydantic`; everything else is the standard library. No API key, GPU or internet access is needed to run anything below except the optional live model.
@@ -111,7 +143,7 @@ This is a narrated tour of the whole pipeline in eight scenes: ingestion of FHIR
 **3. Run the tests**
 
 ```bash
-python -m unittest discover -s tests          # 523 tests, about 2 min, offline, no API key needed
+python -m unittest discover -s tests          # 618 tests, about 2 min, offline, no API key needed
 python scripts/fuzz_campaign.py --examples 3000   # deeper fuzz run of the six trust boundaries (about 6 min); writes outputs/defense/fuzz.json
 ```
 
@@ -158,8 +190,9 @@ Expected: `evaluate.py` prints status accuracy 1.0 for the development split; `v
 |---|---|
 | Status accuracy, issue precision and recall, all 15 rules | **1.0** on the development, validation and stress splits (9,000 of 9,000 results) |
 | Independent oracle agreement (rules written again from the rulebook text alone) | **0 disagreements** over 107,635 generated claims (`scripts/status_coverage.py`), plus 37,000 boundary-aware mutants and 123 hand-derived edge cases |
+| Phase 2 detection evaluation | F1 **1.0** on the 50-claim split, the 150-claim validation split and the 400-claim development split; **no valid claim flagged** in any set (0 of 160 development claims with no failure, upper bound 1.85%); 0 disagreements with the independent oracle over 107,635 generated claims, 33,945 mutants and 123 hand-derived boundary cases. Through FHIR, F1 falls to 0.9745 because authorizations are not carried (rule R009 abstains; no failure becomes a pass). Every example set is cited with its label origin. `docs/29_Test_Evaluation_Report.md` |
 | Fuzz testing | **Six trust boundaries**, 25 property tests at 3,000 generated examples each plus one regression test, all passing; two real defects found and fixed (see Fuzz testing below). `outputs/defense/fuzz.json` |
-| Tests | 523, all offline. 420 were last verified in CI on Python 3.10, 3.12 and 3.14 (commit named in `docs/19`); all 523 then passed locally on 3.10, 3.12 and 3.14 in fresh environments built from `requirements-dev.txt` (2026-10-04), and CI confirms after the push |
+| Tests | 618, all offline. 420 were last verified in CI on Python 3.10, 3.12 and 3.14 (commit named in `docs/19`); all 618 then passed locally on 3.10, 3.12 and 3.14 in fresh environments built from `requirements-dev.txt` (2026-10-04), and CI confirms after the push |
 | Live AI explanations (Mistral-Nemo-Instruct-2407 via Featherless.ai, prompt v1.6.0 with a closing gate, temperature 0) | **Seven benchmarks, all at 85% or more** on 12 new cases (lowest 93.2%): 97.5% live, 93.3% useful, 100% injection resisted, 100% cover the rule's corrective action, 93.2% cite an observed evidence value, 93.2% name a next step, 0 garbled answers shown. Chosen by four rounds of experiments, see below |
 | Local, free alternative (`gemma3:4b` via Ollama) | Beats the paid, hosted default on every automated metric: 97.2% live vs. 94.4%, 3.0 s vs. 4.1 s median latency, 0 garbled replies across an 84-case stress test. See below |
 | Security | audited against the OWASP Top 10 for LLM Applications and the OWASP Top 10: `docs/20_Security_Audit.md` |
@@ -269,7 +302,7 @@ Also built and tested, but off by default: a **cascade** (fluent model, then a r
 | `rules/` | `core.yar` (compiled rule pack), `rules.json`, `policies.json`, catalogues |
 | `schemas/` | JSON schemas for claims, results and review events |
 | `data/` | 600 synthetic claims in three splits, in JSONL, CSV and FHIR forms, with the public answer key |
-| `tests/` | 523 tests, including `oracle.py` (independent reference implementation), the stress and security suites, and the `test_fuzz_*.py` fuzz tests with their shared `fuzz_strategies.py` |
+| `tests/` | 618 tests, including `oracle.py` (independent reference implementation), the stress and security suites, and the `test_fuzz_*.py` fuzz tests with their shared `fuzz_strategies.py` |
 | `scripts/` | `demo.py` (narrated tour), audited runs, audit verification, `draw_diagrams.py`, AI evaluation, `fuzz_campaign.py` (deep fuzz run) and the experiment runner |
 | `experiments/` | Raw experiment data and `summary.json`; figures are in `docs/figures/` |
 | `outputs/` | Frozen evidence: metrics, audit samples, recorded live AI runs |
@@ -282,6 +315,7 @@ Also built and tested, but off by default: a **cascade** (fluent model, then a r
 |---|---|
 | [SPECS.md](SPECS.md) | Detailed specification: contracts, rules, the AI step, audit log, security, and every experiment |
 | [BLUEPRINT.md](BLUEPRINT.md) | The project as an information system: the submission deliverables and where each lives, quality characteristics (reliability, security, interoperability, performance, portability, maintainability), the business model canvas with cited desk research, the 12 realisation steps each with its proof of success, the environment tests, and seven UML diagrams |
+| `docs/29_Test_Evaluation_Report.md` | Phase 2 test evaluation: macro F1 by rule category, false positives on valid claims, latency, nine cited example sets, limitations |
 | `docs/27_Decisions_Proofs_and_Defense.md` | Every major decision: what we rejected, the experiment or test that backs it, and the likely challenge with its answer |
 | `docs/04_Rulebook.md` | The 15 fictional rules |
 | `docs/16_Audit_Log_Design.md` | Audit log design and what real immutability would need |
@@ -304,4 +338,4 @@ No clinical judgement, medical-necessity decision, fraud accusation, automatic a
 
 ## Status
 
-Phase 1 (ingestion, rule engine, structured output, audit log) is complete. The architecture and data-flow document is `docs/22`, and the demo runs with `python scripts/demo.py`; the recorded video follows `docs/23`. Not yet built: the review interface as a mobile app on a local API server, authentication and the pitch.
+Phase 1 (ingestion, rule engine, structured output, audit log) is complete. Phase 2: the detection evaluation and its report are done (see [Phase 2 deliverables at a glance](#phase-2-deliverables-at-a-glance)); human-in-the-loop routing, access control and the privacy and security note are not built yet. The architecture and data-flow document is `docs/22`, and the demo runs with `python scripts/demo.py`; the recorded video follows `docs/23`. Not yet built: the review interface as a mobile app on a local API server, authentication and the pitch.

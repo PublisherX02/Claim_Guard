@@ -12,6 +12,7 @@ from langgraph.prebuilt import create_react_agent
 from langgraph.checkpoint.memory import MemorySaver
 import pytesseract
 
+from calc_guard import check_expression
 from extractor import build_local_llm
 from document_loader import get_documents
 
@@ -66,10 +67,11 @@ def _make_tools(rag_index: RagIndex):
     @tool
     def calculator(expression: str) -> str:
         """Evaluate a math expression."""
-        if not re.fullmatch(r"[0-9+\-*/(). \t]+", expression):
-            return "Error: expression contains disallowed characters."
+        problem = check_expression(expression)
+        if problem:
+            return problem
         try:
-            return str(eval(expression, {"__builtins__": {}}, {}))  # nosec B307 -- regex above admits digits/operators only
+            return str(eval(expression, {"__builtins__": {}}, {}))  # nosec B307 -- calc_guard admits digits and + - * / ( ) . only, no **, <= 200 chars
         except Exception as e:
             return f"Error: {str(e)}"
 
