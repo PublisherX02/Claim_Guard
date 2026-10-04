@@ -72,6 +72,15 @@ class MutantSetTests(unittest.TestCase):
         self.assertEqual(s.notes['attempted'], 400)
         self.assertEqual(s.notes['scored'], len(items))
 
+    def test_renaming_does_not_change_any_verdict(self):
+        cfg = config(ROOT)
+        pack = oracle.load_rules_pack(ROOT)
+        s = es.mutant_set(ROOT, attempts=300, seed=20261004)
+        for claim, gold in list(s.items())[:100]:
+            engine = {r['rule_id']: r['status'] for r in evaluate(dict(claim, claim_id='CG-RENAMED'), cfg)}
+            self.assertEqual(engine, gold)
+            self.assertEqual(oracle.evaluate(dict(claim, claim_id='CG-RENAMED'), pack), gold)
+
     def test_deterministic(self):
         a = [c for c, _ in es.mutant_set(ROOT, attempts=60, seed=3).items()]
         b = [c for c, _ in es.mutant_set(ROOT, attempts=60, seed=3).items()]

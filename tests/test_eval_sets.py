@@ -80,7 +80,7 @@ class OrganizerSetTests(unittest.TestCase):
         seen = set()
         for s in self.sets:
             for claim, _ in drain(s):
-                h = es.digest(claim)
+                h = es.content_hash(claim)
                 self.assertNotIn(h, seen)
                 seen.add(h)
 
@@ -131,6 +131,21 @@ class BoundarySetTests(unittest.TestCase):
         renamed = dict(claim, claim_id='CG-OTHER')
         b = {r['rule_id']: r['status'] for r in evaluate(renamed, cfg)}
         self.assertEqual(a, b)
+
+
+class ContentHashTests(unittest.TestCase):
+    def test_a_relabelled_copy_of_a_claim_hashes_the_same(self):
+        claim = es.organizer_sets(ROOT)[2].items().__next__()[0]
+        self.assertEqual(es.content_hash(claim), es.content_hash(dict(claim, claim_id='CG-RELABELLED')))
+
+    def test_a_real_difference_changes_the_hash(self):
+        claim = es.organizer_sets(ROOT)[2].items().__next__()[0]
+        self.assertNotEqual(es.content_hash(claim), es.content_hash(dict(claim, notes='different')))
+
+    def test_handbook_overlap_is_still_ten(self):
+        s4 = es.organizer_sets(ROOT)[3]
+        self.assertEqual(list(s4.items()), [])
+        self.assertEqual(s4.notes['duplicates_of_s1_s3'], 10)
 
 
 class ProvenanceTests(unittest.TestCase):

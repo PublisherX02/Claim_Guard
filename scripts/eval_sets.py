@@ -38,6 +38,12 @@ class EvalSet:
     notes: dict = field(default_factory=dict)
 
 
+def content_hash(claim):
+    """Identity of a claim by what it says, not what it is called: two claims that differ only in claim_id are the same claim
+    for the purpose of counting an example once."""
+    return digest({k: v for k, v in claim.items() if k != 'claim_id'})
+
+
 def file_sha256(path):
     h = hashlib.sha256()
     with open(path, 'rb') as f:
@@ -90,7 +96,7 @@ def organizer_sets(root):
         claims_path = root / 'data' / split / 'claims.jsonl'
         key_path = root / 'data' / split / 'expected_results.jsonl'
         claims, gold = load_jsonl(claims_path), organizer_gold(root, split)
-        seen.update(digest(c) for c in claims)
+        seen.update(content_hash(c) for c in claims)
         sets.append(EvalSet(
             f'S{i}', 'A', f'data/{split}', 'engine', 'organizer_key',
             f'data/{split}/expected_results.jsonl, {DATASET}',
@@ -107,7 +113,7 @@ def organizer_sets(root):
     def s4_items():
         s4.notes['duplicates_of_s1_s3'] = 0
         for case in cases:
-            if digest(case['claim']) in seen:
+            if content_hash(case['claim']) in seen:
                 s4.notes['duplicates_of_s1_s3'] += 1
                 continue
             yield case['claim'], {r['rule_id']: r['status'] for r in case['expected_results']}
