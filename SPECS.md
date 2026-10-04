@@ -363,9 +363,10 @@ Audited against the OWASP Top 10 for LLM Applications (2025) and the OWASP Top 1
 | Secrets | `.env` git-ignored and scanned; the key never enters a prompt, log or experiment record |
 | Supply chain | Exact pins; `pip-audit` clean; no `eval`, `exec`, `subprocess` or `pickle` in our code (a test scans) |
 | Log integrity | Hash chain, anchor, optional HMAC; log forging prevented with `%r` logging; `verify_audit.py` reports whether the anchor is signed and `--require-key` enforces it |
-| Hostile input | Property-based fuzzing of ingestion, the model reply gate, the audit log, the engine, injection and the review page (section 10a) |
+| Hostile input | Property-based fuzzing of ingestion, the model reply gate, the audit log, the engine, injection, the review page and the reviewer API (sections 10a, 10d) |
+| Identity and access | Badge, password and authenticator login; four clearance levels; hide-not-disable responses with masked identifiers; decisions bound to the session; signed security audit log; 20 attacks and 6 races on two stores (section 10d) |
 
-Residual: no authentication, protected health information would go to a third-party model with real data, the audit log is not immutable storage, and there is no per-run spending cap.
+Residual: the offline file-based review flow has no authentication (the reviewer API does, section 10d), protected health information would go to a third-party model with real data, the audit log is not immutable storage, and there is no per-run spending cap.
 
 ## 10. Verification
 
@@ -378,7 +379,7 @@ Residual: no authentication, protected health information would go to a third-pa
 | Phase 2 evaluation | Nine cited example sets in three evidence tiers (organizer key, independent oracle, hand-derived); F1 1.0 on the three public splits, no valid claim flagged, FHIR path 0.9745 (R009 abstains); `docs/29_Test_Evaluation_Report.md`, evidence in `outputs/evaluation/` |
 | Fuzzing | Six trust boundaries, 25 property tests at 3,000 generated examples each plus one regression test, all passing; two defects found and fixed (section 10a) |
 | Security and red team | `docs/20` |
-| Suite | 618 tests, offline (420 of them verified in CI on Python 3.10, 3.12 and 3.14; all 618 passed locally on all three in fresh environments built from `requirements-dev.txt`, 2026-10-04); the committed audit sample's 6,000 result hashes are re-checked |
+| Suite | 896 tests, offline (420 of them verified in CI on Python 3.10, 3.12 and 3.14; all 896 passed locally on all three in fresh environments built from `requirements-dev.txt`, 2026-10-04); the committed audit sample's 6,000 result hashes are re-checked |
 
 **Independent oracle at scale.** `tests/oracle.py` reimplements the 15 rules from `rules/rules.json` and `docs/04` alone; it imports nothing from `src/`, so the engine and the oracle cannot share a bug by construction — a mistake would have to be made independently, the same way, in both. `scripts/status_coverage.py` generates 107,635 claims with `tests/claim_gen.py` (half seeded from a fully valid claim then randomly damaged, half fully independent-random fields), scores each with both the engine and the oracle, and hard-fails on the first disagreement rather than only counting them, so the artifact below is either "0 disagreements" or the run did not complete:
 
@@ -483,6 +484,111 @@ Macro F1 is 1.0 by category, severity and rule on S1 to S3 and S6. On S5 it is 0
 **What would reach 1.0 honestly.** Resolve the reference against a payer or authorization registry at ingestion, which is how a real deployment would work and is where an integration with the payer's system belongs. In FHIR R4 a prior authorization is normally carried as a `Claim` with `use` set to `preauthorization` and its `ClaimResponse`; this is stated from general FHIR knowledge and was not checked against the specification text in this project. The organizers' bundles contain neither. Either route is future work, not something the dataset lets us measure.
 
 **Reproduce.** `python scripts/evaluate_phase2.py` and read set S5 in `outputs/evaluation/metrics.json` (`summary.disagreements.breakdown`); `docs/29` section 4 renders the same table. The earlier experiment `defense_experiments.py ingestformats` (`docs/27`) reported the same effect before this evaluation existed (FHIR agreement 96.5% to 96.9%, every difference R009, no silent pass).
+
+### 10d. Identity and access: the reviewer API
+
+**Why.** Until now the identity of a reviewer was text in a decision file: anyone who could edit the file could claim to be anyone
+(`docs/20`, A07; the "no identity" finding in the security review). The reviewer API closes that for everything that goes through
+it. The design (`docs/superpowers/specs/2026-10-04-identity-access-design.md`) follows the team's Attijari login: a badge number,
+a password and an authenticator-app code, then clearance levels with per-user permission flags, and responses that omit what the
+caller may not see. It differs from Attijari where that was weaker: it fails closed when its store is down, has no blanket
+administrator bypass, binds a CSRF token to the session, and answers every failed login identically.
+
+**Login.** `POST /api/v1/auth/login` takes `badge_id` (`CG-` and 4 to 8 digits), `password` and the 6-digit `totp`. The password
+is checked with bcrypt (cost 12 in production); an unknown, locked or inactive account spends the same time on a dummy check, so
+neither the response nor the clock tells an attacker which badges exist. The code is for exactly the current 30-second step and
+is consumed through a unique database index, so it works once, even when 50 requests race with it. Five wrong attempts lock the
+account for 15 minutes (a lock is never extended by further attempts). A session is a signed token in an `HttpOnly`,
+`SameSite=Strict` cookie plus a CSRF token that every state-changing request must echo. The token carries only the badge and a
+session id: **level and permissions are read from the database on every request**, so a demotion or deactivation applies to the
+next request and a forged "role" inside a valid token changes nothing. If the database is unreachable, login fails; nothing is
+accepted on a guess.
+
+**Clearance levels.** Permissions are flags; a level is a default set. Separation of duties is deliberate: level 4 manages users
+and reads the audit log but cannot read or decide claims, so the person who administers the system is not the person who approves
+its findings.
+
+| Permission | L1 viewer | L2 reviewer | L3 senior | L4 admin |
+|---|---|---|---|---|
+| `claims.view` (findings, evidence, explanations, masked) | yes | yes | yes | no |
+| `claims.view_notes` (claim notes and attachment text) | no | yes | yes | no |
+| `claims.decide` (confirm, dismiss, request information) on medium-severity findings | no | yes | yes | no |
+| `claims.decide_high` (the same on high-severity findings) | no | no | yes | no |
+| `claims.recheck` | no | yes | yes | no |
+| `pii.unmask` (real identifiers for one claim, with a reason; logged) | no | yes | yes | no |
+| `audit.view`, `audit.verify`, `users.manage` | no | no | no | yes |
+
+An administrator can set another user's level up to their own, grant or revoke single flags, and unlock accounts, but cannot change
+their own level, deactivate themself, demote the last active administrator, or give user-management and audit flags to anyone who
+is not level 4.
+
+**What the API does with a request.** Every endpoint checks the session, then the CSRF token on unsafe methods, then the
+permission. A caller who lacks a permission gets 403 and an audit event; no session gets 401. Responses are shaped for the caller:
+patient and member identifiers are replaced by stable keyed pseudonyms (also inside evidence values and explanation text), notes
+and attachment text are removed below L2, and the per-finding `allowed_actions` list is present only when the caller could
+actually perform one. Before a masked response is sent it is searched for any surviving raw identifier; if one is found the request
+fails instead. A decision is built by the server: the reviewer is the session's badge, the finding's current status is read from
+the results, the time is the server's, and a request body carrying any of those fields is rejected. A reviewer (L2) is refused on a
+high-severity finding; only L3 can decide it, which is the explicit senior approval the human-in-the-loop line asks for. Bodies are
+limited to 64 KB, must be JSON, use strict types and refuse unknown fields; validation errors never echo the input; unexpected
+errors become a plain 500; every response carries `Cache-Control: no-store`, `nosniff`, `X-Frame-Options: DENY`, `no-referrer` and
+a `default-src 'none'` policy. **Not yet built:** `POST /claims/{id}/recheck` checks its permission and then answers 501, because a
+real recheck needs stored run traces and result versions, which arrive when claims move into the database with the task queue.
+
+**Audit.** A second hash-chained log records logins and failures (with the true reason, which the caller never sees), lockouts,
+logouts, rejected tokens, refusals, unmasking, decisions and every user change. Its anchor must be HMAC-signed and the server
+refuses to start without the key. Events cannot carry anything whose name suggests a secret, values are bounded and JSON-safe, and
+floods of failures, refusals or bad tokens are capped per minute and summarised, so the log cannot be filled by an attacker.
+
+**How it was tested.** 278 tests, run on Python 3.10, 3.12 and 3.14.
+- *One contract suite, two stores.* The in-memory store and a real MongoDB 7 pass the same 20 tests, including 50 parallel
+  submissions of one code (exactly one succeeds) and 500 parallel failed-login updates (none lost).
+- *A permission matrix* of every endpoint against no session and each level (85 cells), written out as data.
+- *An attack suite, 20 attacks, on both stores:* brute force and credential stuffing, a spoofed forwarded-for header, replay,
+  forged, tampered, expired, downgraded and `alg: none` tokens, privilege claims inside a valid signature, session reuse and
+  fixation, operator injection (`{"$ne": null}` and others) in every field and path, mass assignment and escalation, malformed
+  and raw hostile requests sent as exact bytes, enumeration by response and by time, and data exposure. All hold.
+- *A race suite, 6 races on both stores,* including a demotion that must be visible to every request that starts after it.
+- *Fuzzing:* Hypothesis on the API (6 tests); a deep run of 1,500 examples per test passed in 104 seconds.
+- *Mutation checks:* 25 deliberate breakages (a missing dummy password check, an accepted replay, ignored revocation, a missing
+  CSRF check, a missing severity gate, unmasked responses, a permission cache, a non-atomic code check and others) are each caught
+  by a test. Running them found three weak tests of mine (a timing test too cheap to see a missing dummy check, a self-demotion
+  guard hidden behind the last-admin guard, a masking test that used the code under test to list identifiers); all three were
+  strengthened. The contract suite found one design flaw before any code depended on it: a user field literally named `badge_id`
+  collided with the identifier argument of the update call, which is now positional-only.
+- *A real run:* `python scripts/access_experiments.py all` starts the actual server on a real port with MongoDB and drives it over
+  HTTP: **25 of 25** checks passed (`outputs/defense/access.json`).
+
+**Load** (one laptop, Windows 10, 16 CPUs, server and clients in one process, MongoDB 7.0.43 in Docker, production password cost):
+
+| Clients | Login p50 / p95 | Logins per second | Read p50 / p95 | Reads per second | Errors |
+|---|---|---|---|---|---|
+| 1 | 336 / 369 ms | 3.0 | 8.6 / 17.3 ms | 97 | 0 |
+| 8 | 334 / 367 ms | 23.2 | 53.4 / 86.9 ms | 138 | 0 |
+| 32 | 662 / 1,035 ms | 42.5 | 192.6 / 253.7 ms | 159 | 0 |
+
+A login costs about a third of a second because bcrypt is meant to; it scales to about 40 per second here, near what 16 cores of
+hashing allow. Reads saturate near 160 per second because client and server share one Python process; a separate load generator
+would show more. These numbers describe this machine, not a deployment.
+
+**Limits and residual risks.**
+- The login throttle (20 failures per address per 15 minutes) lives in one process. Behind a reverse proxy every client shares the
+  proxy's address unless the proxy is trusted explicitly, which is not built; with several server processes each has its own count.
+- Changing a password ends the session that changed it, not the user's other sessions, which live until they expire (60 minutes).
+- The check that stops the last administrator being removed reads a count and then writes, so two administrators removing each
+  other at the same instant could leave none. A stored update cannot repair that; recovery is the command-line tool.
+- There is no password-reset flow: an administrator can unlock an account and reset its authenticator, but a forgotten password
+  needs an account to be recreated. There is no self-service sign-up, no single sign-on, and no per-claim assignment yet (every
+  reviewer with the permission can open every claim; assignment arrives with the task-queue work).
+- The server does not terminate TLS itself beyond uvicorn's options; the cookie is marked Secure, so a real deployment sits behind
+  TLS. The compose file is for local use: the database is bound to localhost, not encrypted in transit.
+- Secrets come from the environment; dev mode keeps generated ones in a git-ignored file. The authenticator seed is encrypted with
+  one key and there is no rotation procedure. The audit anchor key lives in the server's environment, so someone who controls that
+  environment could forge the log (`docs/20`, F4).
+- The "ID badge" is a number typed at login, not a hardware badge; the second factor is the authenticator code.
+- The file-based review flow of Phase 1 (`scripts/run_audited_review.py`, the offline review page) is unauthenticated by design and
+  remains for offline demonstration; only the API binds decisions to a verified identity.
+- Claims and results are still read from files, and recheck is not implemented in the API (501).
 
 ## 11. Experiments in detail
 
@@ -734,11 +840,11 @@ Needs `FEATHERLESS_API_KEY` in `.env`. Raw replies are committed; the key, provi
 
 ## 13. Limits and open items
 
-- No authentication or authorization; reviewer identity is self-declared.
+- The reviewer API authenticates and authorises (section 10d); the offline file-based review flow and the static review page still have self-declared reviewer identity.
 - The review interface is a static page; the local API server and mobile app are a later phase.
 - The mentor-held 200 claims are unavailable.
 - Live AI answers have not been scored by a person (sheet ready).
 - The audit log is not immutable storage; a keyed anchor and an external copy of it are needed for that.
-- Phase 2 is partly built: the detection evaluation (section 10b) is done; human-in-the-loop routing and escalation, access control (badge, password and authenticator login, clearance levels), identifier masking and the privacy and security note are not.
+- Phase 2 is partly built: the detection evaluation (section 10b) and identity and access (section 10d: badge, password and authenticator login, four clearance levels, identifier masking, a severity gate on decisions) are done; routing and escalation by confidence, the work dispatcher, the claims-in-database move, recheck through the API and the privacy and security note are not.
 - Fuzzing is generated-input testing against a mocked model, not coverage-guided fuzzing; the limits are listed in section 10a.
 - No architecture diagram made by the team, demo video, pitch or runbook yet.

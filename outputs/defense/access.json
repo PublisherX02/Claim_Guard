@@ -1,0 +1,178 @@
+{
+  "environment": {
+    "commit": "dc26450492072b5acaf1c66a3584657a0da72b30",
+    "platform": "Windows-10-10.0.26200-SP0",
+    "python": "3.10.11",
+    "cpus": 16,
+    "uvicorn": "0.54.0",
+    "note": "server and clients share one machine and one process; latency is machine-dependent"
+  },
+  "store": "mongodb 7.0.43",
+  "smoke": {
+    "checks": [
+      {
+        "name": "health needs no login",
+        "ok": true
+      },
+      {
+        "name": "claims need a login",
+        "ok": true
+      },
+      {
+        "name": "a wrong password gets the generic refusal",
+        "ok": true
+      },
+      {
+        "name": "a viewer logs in with badge, password and authenticator code",
+        "ok": true
+      },
+      {
+        "name": "the viewer is level 1 and cannot decide claims",
+        "ok": true
+      },
+      {
+        "name": "the viewer can list claims",
+        "ok": true
+      },
+      {
+        "name": "the viewer sees no raw patient or member identifier",
+        "ok": true
+      },
+      {
+        "name": "the viewer sees no notes",
+        "ok": true
+      },
+      {
+        "name": "the viewer cannot unmask",
+        "ok": true
+      },
+      {
+        "name": "the viewer cannot read the audit log",
+        "ok": true
+      },
+      {
+        "name": "a reviewer logs in",
+        "ok": true
+      },
+      {
+        "name": "the reviewer sees the notes field",
+        "ok": true
+      },
+      {
+        "name": "the reviewer is refused on a high-severity finding",
+        "ok": true
+      },
+      {
+        "name": "the reviewer decides a medium-severity finding",
+        "ok": true
+      },
+      {
+        "name": "the reviewer cannot choose the recorded actor",
+        "ok": true
+      },
+      {
+        "name": "the reviewer can unmask with a reason",
+        "ok": true
+      },
+      {
+        "name": "a senior reviewer logs in",
+        "ok": true
+      },
+      {
+        "name": "the senior decides the high-severity finding",
+        "ok": true
+      },
+      {
+        "name": "an administrator logs in",
+        "ok": true
+      },
+      {
+        "name": "the administrator cannot read claims (separation of duties)",
+        "ok": true
+      },
+      {
+        "name": "the audit log shows logins, failures, refusals, decisions and unmasking",
+        "ok": true
+      },
+      {
+        "name": "decisions are recorded under the logged-in badges",
+        "ok": true
+      },
+      {
+        "name": "both audit chains verify and the security anchor is signed",
+        "ok": true
+      },
+      {
+        "name": "no password, code or seed appears in the audit log",
+        "ok": true
+      },
+      {
+        "name": "a one-time code that already logged someone in is refused as a replay",
+        "ok": true
+      }
+    ],
+    "passed": 25,
+    "total": 25
+  },
+  "load": {
+    "bcrypt_rounds": 12,
+    "login": {
+      "1": {
+        "n": 24,
+        "errors": 0,
+        "p50_ms": 335.85,
+        "p95_ms": 369.07,
+        "p99_ms": 369.84,
+        "max_ms": 369.84,
+        "throughput_per_s": 2.96
+      },
+      "8": {
+        "n": 64,
+        "errors": 0,
+        "p50_ms": 334.27,
+        "p95_ms": 367.22,
+        "p99_ms": 402.79,
+        "max_ms": 402.79,
+        "throughput_per_s": 23.16
+      },
+      "32": {
+        "n": 96,
+        "errors": 0,
+        "p50_ms": 662.37,
+        "p95_ms": 1035.23,
+        "p99_ms": 1103.98,
+        "max_ms": 1103.98,
+        "throughput_per_s": 42.47
+      }
+    },
+    "read": {
+      "1": {
+        "n": 200,
+        "errors": 0,
+        "p50_ms": 8.56,
+        "p95_ms": 17.34,
+        "p99_ms": 20.41,
+        "max_ms": 80.65,
+        "throughput_per_s": 97.26
+      },
+      "8": {
+        "n": 400,
+        "errors": 0,
+        "p50_ms": 53.35,
+        "p95_ms": 86.87,
+        "p99_ms": 122.09,
+        "max_ms": 164.63,
+        "throughput_per_s": 137.87
+      },
+      "32": {
+        "n": 800,
+        "errors": 0,
+        "p50_ms": 192.63,
+        "p95_ms": 253.68,
+        "p99_ms": 293.84,
+        "max_ms": 384.2,
+        "throughput_per_s": 159.45
+      }
+    }
+  }
+}
