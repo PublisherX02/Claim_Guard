@@ -23,7 +23,8 @@ def make_log(tmp, n=8):
 def parsed(raw):
     """The rows a log holds, or None when it no longer parses: the hash covers parsed content, not raw bytes."""
     try:
-        return [json.loads(l) for l in raw.decode('utf-8').split(chr(10)) if l.strip()]
+        text = raw.decode('utf-8').replace('\r\n', chr(10)).replace('\r', chr(10))  # the verifier reads in text mode (universal newlines)
+        return [json.loads(l) for l in text.split(chr(10)) if l.strip()]
     except ValueError:
         return None
 
