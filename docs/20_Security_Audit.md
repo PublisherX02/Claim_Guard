@@ -53,7 +53,7 @@ Fixed in the earlier stress pass and relevant here: the AI trust boundary now ru
 | A04 | Insecure design | **Mitigated** | Deterministic engine decides; AI only explains; fail-closed on unknown data, contract failure and rule crashes; write-ahead audit of every AI question. |
 | A05 | Security misconfiguration | **Mitigated** | `.env` is ignored and not tracked (tested); `.env.example` holds no value; no debug mode; the only network endpoints are the two named model providers (tested). |
 | A06 | Vulnerable and outdated components | **Mitigated** | `pip-audit` clean today. Exact pins mean this must be re-run when versions change. |
-| A07 | Identification and authentication failures | **Gap (by scope)** | Reviewer identity is self-declared text in the decision. |
+| A07 | Identification and authentication failures | **Closed in the reviewer API** (SPECS 10d); gap remains in the offline file-based flow | The API requires badge, password and an authenticator code, locks accounts after five failures, refuses replayed codes, answers all failures identically, and takes the reviewer from the session. The offline review page and `run_audited_review.py` still record self-declared text, by design. Residual risks are listed in SPECS 10d. |
 | A08 | Software and data integrity failures | **Partial** | Release checksums for the pack; audit chain; engine code hash; no unsafe deserialization. Nothing signs the repository or the audit log itself beyond F4. |
 | A09 | Logging and monitoring failures | **Partial** | Every check, AI action and decision is logged with versions and hashes; F3 fixed. There is no alerting or monitoring, and the log can be deleted by whoever can delete the files (the anchor copy is meant to be kept elsewhere). |
 | A10 | Server-side request forgery | **Not applicable** | The service makes no request to an address supplied by data. The model endpoints are constants in the code. |
@@ -64,7 +64,7 @@ More than 30 attacks through the real audited pipeline: hidden and blanked field
 
 ## Residual risks, in priority order
 
-1. **No authentication or authorisation** (A01, A07). Acceptable for a local teaching prototype, and the first thing a real deployment would need, together with the local API and mobile app you plan.
+1. **Authentication and authorisation** (A01, A07): built for the reviewer API (SPECS 10d) and tested with 21 attacks and 6 races on two stores. The offline file-based flow remains unauthenticated, and the residual risks in SPECS 10d (single-process address throttle, sessions of other devices surviving a password change, no password-reset flow, TLS left to the deployment) are open.
 2. **PHI to an external model** (LLM02). Do not use real patient data with the hosted provider.
 3. **Audit log is tamper-evident, not immutable** (A02, A08). Set `AUDIT_ANCHOR_KEY`, keep the anchor and key outside the writer's storage, and use write-once storage for real immutability (`docs/16`).
 4. **No per-run AI spending limit** (LLM10).

@@ -4,5 +4,18 @@ yara-x==1.20.0
 # OpenAI-compatible chat-completions API (only used when FEATHERLESS_API_KEY is set).
 openai==3.19.0
 # pydantic: strict per-finding output schema for model replies (src/llm_adapter.py).
-# Everything else remains standard library.
+# pydantic is also the request-body validation layer of the reviewer API.
 pydantic==2.13.5
+# Reviewer API (src/access/, docs/superpowers/specs/2026-10-04-identity-access-design.md). The offline engine, the evaluation
+# and the demo do not import any of these.
+# fastapi, starlette, uvicorn: the HTTP service. starlette is pinned because fastapi's test client and cookie handling follow it.
+fastapi==0.142.2
+starlette==1.7.0
+uvicorn==0.54.0
+# bcrypt: password hashing. PyJWT: signed session tokens. pyotp: authenticator-app one-time codes.
+bcrypt==5.0.0
+PyJWT==2.15.1
+pyotp==2.10.0
+# cryptography: encrypts each user's authenticator seed at rest (Fernet). pymongo: the MongoDB user store.
+cryptography==50.0.2
+pymongo==4.18.2

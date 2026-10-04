@@ -19,7 +19,7 @@ sys.path.insert(0, str(ROOT / 'tests'))
 import fuzz_strategies as fs  # noqa: E402
 
 SURFACES = ['test_fuzz_ingest', 'test_fuzz_llm_output', 'test_fuzz_audit_log', 'test_fuzz_engine',
-            'test_fuzz_injection', 'test_fuzz_review_page']
+            'test_fuzz_injection', 'test_fuzz_review_page', 'test_fuzz_access']
 
 
 def run_surface(module, examples):

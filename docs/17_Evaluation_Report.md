@@ -10,7 +10,7 @@ Synthetic teaching benchmark only. Nothing here is a claim about real denial red
 Python 3.10.11 (`.venv` via uv), `yara-x==1.20.0`, `openai==3.19.0` (`requirements.txt`). Secrets live in an untracked `.env` (`.env.example` is committed).
 
 ```bash
-python -m unittest discover -s tests                     # 618 tests, all offline, no API key needed
+python -m unittest discover -s tests                     # 909 tests, all offline, no API key needed
 python src/run_yara.py --input data/development/claims.jsonl --output outputs/yara_dev_predictions.jsonl
 python src/evaluate.py --gold data/development/expected_results.jsonl \
     --pred outputs/yara_dev_predictions.jsonl --claims data/development/claims.jsonl \
@@ -125,7 +125,7 @@ This is the "AI ablations" part of the evaluation. Full design, data, figures, d
 
 ## Human review and security
 
-Evidence is in the tests (618 passing) and the frozen runs:
+Evidence is in the tests (909 passing) and the frozen runs:
 
 - **Review workflow** (`tests/test_review_workflow.py`, 12 tests): decisions must match the finding's real status, only FAIL / UNABLE_TO_ASSESS findings are reviewable, reason and actor are required, one bad decision rejects the whole batch, decisions never modify rule results. A recheck creates a new run with a new input hash and links it to the prior run; the original claim and results are untouched; a rechecked finding that still fails returns to "unreviewed".
 - **Audit log** (`tests/test_audit_log.py`, 35 tests incl. write-ahead ordering and the verifier; systematic record `outputs/audit_dev/` = 8,598 events, 499 AI requests each logged before its answer and all `human_escalation` (offline template provider, so no live-model events in this log) for all 400 development claims, cross-checked against the results file by `scripts/verify_audit.py`, which also fails on a tampered result; workflow demo `outputs/audit_demo/`): an edited event, a truncated log and a fully replaced log are each detected, and so are rows appended after the anchor (strict mode of `scripts/verify_audit.py`, `tests/test_audit_strict_anchor.py`; full 8-attack matrix in `docs/27`); the system cannot log an approval; a fabricated confidence on a deterministic event is rejected. Tamper-evident only, not immutable (`docs/16_Audit_Log_Design.md`).
@@ -140,7 +140,7 @@ Evidence is in the tests (618 passing) and the frozen runs:
 - Synthetic, invented codes (EDU-*, SVC-*, SAR). No claim about real payer rules, clinical necessity or reimbursement.
 - Perfect public-split scores are not evidence of generalization (see Data discipline). The mentor-held result is still to come.
 - FHIR ingestion is a teaching subset: one Claim per Bundle, no Encounter resource exists in the pack (the adapter reports any Encounter a bundle does carry, in `report['encounters']`, but the closed claim schema has no slot for it and no rule uses it), no terminology or profile validation, authorization details unavailable.
-- Audit log is tamper-evident, not immutable; reviewer identity is self-declared; no authentication.
+- Audit log is tamper-evident, not immutable; the reviewer API authenticates reviewers (SPECS 10d) but the offline file-based review flow still records self-declared identity.
 - The review page is an offline HTML file: decisions move through a downloaded JSONL, not a server.
 - AI explanation: the hosted endpoint is unreliable (at temperature 0 the 14B model garbled about a fifth of its raw replies; the safety net replaces them, and a garbled-text guard was added after three slipped through), no human scoring yet, and an answer can still add an unsupported "this line matches" claim about a field the finding does not mention, which neither check catches. Prompt v1.3.0 was verified live (recorded runs and `docs/21`).
 - Next steps: human scoring of the 13 live answers with `outputs/llm_manual_scorecard.csv`; manual 0/1 scoring of the E5 and E6 answers to settle the model and prompt choice (`docs/21`); a rule-level guard for "asserts validity of an unevaluated field"; a server behind the review page with authenticated reviewers; external anchoring of the audit head hash.

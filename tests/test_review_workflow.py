@@ -1,4 +1,4 @@
-import unittest, sys, json, copy, tempfile
+import unittest, unittest.mock, sys, json, copy, tempfile
 from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / 'src'))
@@ -123,6 +123,30 @@ class ReviewWorkflowTests(unittest.TestCase):
         self.assertEqual(changes['R001'], ('FAIL', 'FAIL'))
         # the old decision must not carry over to the new run
         self.assertEqual(review_state(new_results, self.path)[(self.claim['claim_id'], 'R001')], 'unreviewed')
+
+    def test_review_state_parses_an_unchanged_log_once_and_notices_every_append(self):
+        key = (self.claim['claim_id'], 'R001')
+        reads = []
+        real = Path.read_text
+        def counting(path, *args, **kw):
+            if Path(path) == self.path:
+                reads.append(1)
+            return real(path, *args, **kw)
+        def reads_during(call):
+            before = len(reads)
+            out = call()
+            return out, len(reads) - before
+        with unittest.mock.patch.object(Path, 'read_text', counting):
+            first, n1 = reads_during(lambda: review_state(self.results, self.path))
+            second, n2 = reads_during(lambda: review_state(self.results, self.path))
+            self.assertEqual((first[key], second[key], n1, n2), ('unreviewed', 'unreviewed', 1, 0))
+            apply_decisions(self.log, [self.decision()], self.results)
+            third, n3 = reads_during(lambda: review_state(self.results, self.path))
+            fourth, n4 = reads_during(lambda: review_state(self.results, self.path))
+            self.assertEqual((third[key], fourth[key], n3, n4), ('resolved', 'resolved', 1, 0))
+
+    def test_review_state_on_a_missing_log_is_empty_of_decisions(self):
+        self.assertEqual(review_state(self.results, Path(self.tmp.name) / 'nope.jsonl')[(self.claim['claim_id'], 'R001')], 'unreviewed')
 
     def test_recheck_rejects_identical_or_reidentified_claims_and_unknown_rules(self):
         with self.assertRaises(DecisionError):

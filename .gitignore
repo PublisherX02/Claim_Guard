@@ -5,3 +5,4 @@ __pycache__/
 *.pyc
 agentdb.rvf
 agentdb.rvf.lock
+instance/

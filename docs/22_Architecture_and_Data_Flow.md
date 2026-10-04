@@ -174,6 +174,6 @@ flowchart LR
 ## 9. Limits of this design
 
 - Tamper-evident is not immutable: a production system would add write-once storage and an externally held anchor (`docs/16_Audit_Log_Design.md`).
-- Reviewer identity is self-declared. There is no authentication yet (a later phase).
+- Reviewer identity is self-declared in the offline file-based flow. The reviewer API (`src/access/`, SPECS 10d) authenticates with badge, password and authenticator code and takes the reviewer from the session.
 - The hosted model is an external dependency. With no key or no network the system still works using the deterministic template.
 - The threat model and the OWASP mapping are in `docs/20_Security_Audit.md`.
