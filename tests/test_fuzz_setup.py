@@ -1,4 +1,3 @@
-import os
 import sys
 import unittest
 from pathlib import Path
@@ -14,9 +13,8 @@ class FoundationTests(unittest.TestCase):
         self.assertTrue(s.derandomize)
         self.assertIsNone(s.deadline)
 
-    def test_default_profile_is_ci(self):
-        if 'FUZZ_PROFILE' not in os.environ:
-            self.assertEqual(settings().max_examples, settings.get_profile('ci').max_examples)
+    def test_the_loaded_profile_is_the_one_selected(self):
+        self.assertEqual(settings.get_profile(fs.ACTIVE).max_examples, settings().max_examples)
 
     @given(fs.hostile_text)
     def test_hostile_text_is_encodable(self, text):
