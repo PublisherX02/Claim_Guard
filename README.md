@@ -79,6 +79,38 @@ The FHIR route cannot carry authorization details or free-text notes, so R009 re
 
 **Audit log.** It records ingestion, every rule check with its confidence fields, the AI's question (written before the model is called), the AI recommendation, and system and human decisions, as a hash chain plus a separately stored head-hash anchor. This is tamper-*evident*, not immutable: `docs/16_Audit_Log_Design.md` states what production immutability would additionally need (write-once storage, an externally held anchor, authenticated reviewers). Setting `AUDIT_ANCHOR_KEY` signs the anchor so it cannot be forged without the key (`docs/20_Security_Audit.md`).
 
+## Phase 2 deliverables at a glance
+
+| Deliverable | Where | Status |
+|---|---|---|
+| **Detection quality and benchmark** (15 points): macro F1 across rule categories, valid claims preserved | [docs/29_Test_Evaluation_Report.md](docs/29_Test_Evaluation_Report.md); evidence in `outputs/evaluation/`; reproduce with `python scripts/evaluate_phase2.py` | Done |
+| **Test evaluation report** (detection metrics, F1, false-positive rate, latency, limitations) | [docs/29_Test_Evaluation_Report.md](docs/29_Test_Evaluation_Report.md); explanation of the FHIR result below and in [SPECS.md section 10c](SPECS.md) | Done |
+| **Human-in-the-loop and escalation logic** (10 points): routing of low-confidence and high-severity cases, overrides, feedback log | Design agreed (clearance levels, senior approval for high-severity findings, work dispatcher over a task queue); review decisions with recheck already exist from Phase 1 | Not built yet |
+| **Privacy, security and safety guards** (5 points): data minimization, access control, prompt and data guards, graceful handling of malformed FHIR | Built: clinical and fraud guard on AI text, quarantine of malformed FHIR, hash-chained audit log, fuzz-tested boundaries. Not built: access control (badge, password and authenticator login) and identifier masking | Partly |
+| **Privacy and security note** (threat model, access control, least privilege, auditability) | `docs/20_Security_Audit.md` is the Phase 1 audit; the Phase 2 note waits on the access-control work | Not written yet |
+
+### Why FHIR claims do not score 1.0
+
+On the organizers' answer key the engine scores F1 1.0 when it reads claims directly, and the same 600 claims read from CSV folders also score 1.0. Read from FHIR bundles they score **0.9745** (precision 1.0, recall 0.9502, status accuracy 0.9656). The cause is the input, not the rules:
+
+- Rule R009 ("authorization record matches service") must see the authorization record: patient, service, status, valid-from and valid-to dates and maximum quantity.
+- A FHIR bundle in this dataset carries only the authorization **reference number** (`preAuthRef`, present in 327 of the 600 bundles). It holds `Patient`, `Organization`, `Coverage`, `Claim` and `DocumentReference` resources and nothing that holds the record. The importer keeps the reference and creates an empty stub for the record.
+- The rulebook says a missing comparison input leaves the rule `UNABLE_TO_ASSESS`, so the engine abstains. The answer key was computed from the full claim, so it says PASS or FAIL.
+
+All **310** differences in the 9,000 results are this one case: 287 results the key calls PASS and 23 it calls FAIL, all reported as `UNABLE_TO_ASSESS`. Nothing else differs, and no failing result became a PASS. The 23 missed failures are why recall is 439 of 462 (0.9502). The cost is reviewer workload: 134 of the 201 fully clean claims receive an unnecessary abstention on R009 through FHIR. Guessing the missing record would reach 1.0 only by risking silent passes, which the project forbids. The real remedy is to look the authorization up by its reference in a payer registry, which the dataset does not include. Full evidence and breakdown: [SPECS.md section 10c](SPECS.md) and [docs/29, section 4](docs/29_Test_Evaluation_Report.md).
+
+## Phase 2 deliverables and where each lives
+
+| Rubric item | Where it is | Verify |
+|---|---|---|
+| **Macro F1 across rule categories** (five categories, plus macro by severity and over all 15 rules) | `src/eval_metrics.py` (streaming `Tally`), `scripts/eval_sets.py` (nine labelled sets in three evidence tiers), `scripts/evaluate_phase2.py` | `python scripts/evaluate_phase2.py` (about 6 minutes), then `python scripts/render_eval_report.py --check` |
+| **Low false-positive rate on valid claims** | Same code; tables in `docs/29` section 5 with exact 95% upper bounds | 0 of 160, 62 and 24 claims with no failure were flagged (development, validation, stress) |
+| **Latency** | `docs/29` section 8; AI step quoted from the recorded live calls in `outputs/defense/load.json` | Rule engine median 0.66 ms per claim on the test laptop |
+| **Provenance of every example set** (file hash, generator, seed, label origin, commit) | `outputs/evaluation/provenance.json`, table in `docs/29` section 2 | Hashes match the files; evidence names the commit that produced it |
+| **Test evaluation report** | `docs/29_Test_Evaluation_Report.md`, tables generated from the evidence and checked by a test | `python -m unittest discover -s tests -p test_eval_report.py` |
+| **Robustness of the trust boundaries** (supports the safety guards) | `tests/test_fuzz_*.py`, `scripts/fuzz_campaign.py`, [Fuzz testing](#fuzz-testing) | `python scripts/fuzz_campaign.py --examples 3000` (about 6 minutes) |
+| Human-in-the-loop routing, access control, privacy and security note | Not built; see the table above | |
+
 ## Install and run
 
 **Prerequisites.** Python 3.10 or newer (tested on 3.10, 3.12 and 3.14) and git. Windows, macOS and Linux all work. The rule engine needs `yara-x`; the AI step needs `openai` and `pydantic`; everything else is the standard library. No API key, GPU or internet access is needed to run anything below except the optional live model.
@@ -306,4 +338,4 @@ No clinical judgement, medical-necessity decision, fraud accusation, automatic a
 
 ## Status
 
-Phase 1 (ingestion, rule engine, structured output, audit log) is complete. The architecture and data-flow document is `docs/22`, and the demo runs with `python scripts/demo.py`; the recorded video follows `docs/23`. Not yet built: the review interface as a mobile app on a local API server, authentication and the pitch.
+Phase 1 (ingestion, rule engine, structured output, audit log) is complete. Phase 2: the detection evaluation and its report are done (see [Phase 2 deliverables at a glance](#phase-2-deliverables-at-a-glance)); human-in-the-loop routing, access control and the privacy and security note are not built yet. The architecture and data-flow document is `docs/22`, and the demo runs with `python scripts/demo.py`; the recorded video follows `docs/23`. Not yet built: the review interface as a mobile app on a local API server, authentication and the pitch.
