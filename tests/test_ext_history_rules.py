@@ -173,6 +173,28 @@ class DailyQuantityTests(unittest.TestCase):
         self.assertEqual(one(claim([line(1, 'SVC-LAB', quantity=3)]), 'E103', later)['status'], 'PASS')
 
 
+class HistoryAccessTests(unittest.TestCase):
+    def test_the_history_is_asked_once_per_claim_however_many_rules_use_it(self):
+        class Counting:
+            calls = 0
+
+            def earlier_claims(self, c):
+                Counting.calls += 1
+                return []
+        ex.evaluate_extensions(auth_claim(1), Counting())
+        self.assertEqual(Counting.calls, 1)
+
+    def test_a_claim_with_no_patient_never_asks_the_history(self):
+        class Counting:
+            calls = 0
+
+            def earlier_claims(self, c):
+                Counting.calls += 1
+                return []
+        ex.evaluate_extensions(claim([line(1, 'SVC-LAB')], patient=None), Counting())
+        self.assertEqual(Counting.calls, 0)
+
+
 class ForgeryTests(unittest.TestCase):
     def test_an_authorization_id_that_imitates_fact_tags_creates_no_foreign_finding(self):
         evil = 'A1\nE001:FAIL:0,1\nE004:FAIL:0 E005:FAIL:dx=x'

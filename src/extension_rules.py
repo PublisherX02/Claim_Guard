@@ -266,10 +266,31 @@ def _official_limits():
 def _earlier_views(view, history):
     """The earlier claims as cleaned views. A history that answers with anything but a list of claim dicts is a broken store: raise,
     so the history rules become UNABLE_TO_ASSESS instead of reading garbage as "no earlier claims"."""
+    if isinstance(history, _Once):
+        return history.views(view)
     rows = history.earlier_claims(view)
     if not isinstance(rows, (list, tuple)) or not all(isinstance(r, dict) for r in rows):
         raise ExtensionEngineError('claim history returned data that is not a list of claims')
     return [rule_view(r) for r in rows]
+
+
+class _Once:
+    """Asks the real history at most once per evaluated claim, however many rules need the earlier claims, and remembers the answer
+    (or the failure, so every history rule reports the same problem)."""
+
+    def __init__(self, history):
+        self._history, self._done, self._views, self._error = history, False, None, None
+
+    def views(self, view):
+        if not self._done:
+            self._done = True
+            try:
+                self._views = _earlier_views(view, self._history)
+            except Exception as e:  # noqa: BLE001 - replayed to each rule below
+                self._error = e
+        if self._error is not None:
+            raise self._error
+        return self._views
 
 
 def _party(view):
@@ -438,9 +459,10 @@ def evaluate_extensions(c, history=None, tool_errors=None, cat=None):
         if tool_errors is not None:
             tool_errors.append(f'claim view: {type(e).__name__}: {e}')
     details, crashed = {}, {}
+    once = None if history is None else _Once(history)
     for rid, fn in DETAIL_FUNCS.items():
         try:
-            details[rid] = fn(view, cat, history)
+            details[rid] = fn(view, cat, once)
         except Exception as e:  # noqa: BLE001 - isolation is the point
             crashed[rid] = f'{type(e).__name__}: {e}'
             logger.warning('extension rule %s crashed, treating as UNABLE_TO_ASSESS: %r', rid, crashed[rid])
