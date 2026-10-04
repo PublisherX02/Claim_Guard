@@ -4,3 +4,4 @@ hypothesis==6.168.3
 # httpx: the load experiment's HTTP client (scripts/access_experiments.py). Starlette's TestClient uses httpx2, which openai installs,
 # and falls back to httpx.
 httpx==0.28.1
+httpx2==2.13.1

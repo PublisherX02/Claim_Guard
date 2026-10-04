@@ -41,7 +41,10 @@ def _check_names(names):
 def effective_permissions(level, grants, revokes):
     """Level defaults, plus grants, minus revokes (a revoke wins over a grant of the same flag)."""
     level = _check_level(level)
-    return frozenset((LEVEL_DEFAULTS[level] | set(_check_names(grants))) - set(_check_names(revokes)))
+    grants = set(_check_names(grants))
+    if level == ADMIN_LEVEL:
+        grants &= SENSITIVE           # defence in depth: a stored claim grant on an administrator is never honoured
+    return frozenset((LEVEL_DEFAULTS[level] | grants) - set(_check_names(revokes)))
 
 
 def check_user_change(actor_level, target_level, new_level, grants, revokes, self_change):
@@ -58,3 +61,5 @@ def check_user_change(actor_level, target_level, new_level, grants, revokes, sel
         raise PermissionDenied('cannot change your own level')
     if new_level != ADMIN_LEVEL and SENSITIVE.intersection(grants):
         raise PermissionDenied('user management and audit access can only come from level 4')
+    if new_level == ADMIN_LEVEL and set(grants) - SENSITIVE:
+        raise PermissionDenied('a level 4 administrator cannot hold claim-handling permissions (separation of duties)')

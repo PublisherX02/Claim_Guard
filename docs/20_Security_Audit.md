@@ -64,7 +64,7 @@ More than 30 attacks through the real audited pipeline: hidden and blanked field
 
 ## Residual risks, in priority order
 
-1. **Authentication and authorisation** (A01, A07): built for the reviewer API (SPECS 10d) and tested with 20 attacks and 6 races on two stores. The offline file-based flow remains unauthenticated, and the residual risks in SPECS 10d (single-process address throttle, sessions of other devices surviving a password change, no password-reset flow, TLS left to the deployment) are open.
+1. **Authentication and authorisation** (A01, A07): built for the reviewer API (SPECS 10d) and tested with 21 attacks and 6 races on two stores. The offline file-based flow remains unauthenticated, and the residual risks in SPECS 10d (single-process address throttle, sessions of other devices surviving a password change, no password-reset flow, TLS left to the deployment) are open.
 2. **PHI to an external model** (LLM02). Do not use real patient data with the hosted provider.
 3. **Audit log is tamper-evident, not immutable** (A02, A08). Set `AUDIT_ANCHOR_KEY`, keep the anchor and key outside the writer's storage, and use write-once storage for real immutability (`docs/16`).
 4. **No per-run AI spending limit** (LLM10).

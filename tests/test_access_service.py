@@ -293,6 +293,24 @@ class UserManagementTests(unittest.TestCase):
         self.assertEqual(self.w.store.get_user(BADGES[2]).grants, ('claims.decide_high',))
         self.assertIn('claims.decide_high', self.w.principal(2).permissions)
 
+    def test_an_admin_cannot_grant_claim_permissions_to_themself_or_another_admin(self):
+        s, a = self.w.service, self.admin
+        self.create(badge_id='CG-4005', level=4)
+        for target in (BADGES[4], 'CG-4005'):
+            for flag in ('claims.decide', 'claims.decide_high', 'pii.unmask', 'claims.view'):
+                with self.assertRaises(permissions.PermissionDenied, msg=f'{target} {flag}'):
+                    s.update_user(a, target, {'grants': [flag]})
+        self.assertEqual(self.w.store.get_user(BADGES[4]).grants, ())
+        self.assertNotIn('claims.decide_high', self.w.principal(4).permissions)
+
+    def test_promoting_a_user_with_claim_grants_to_administrator_is_refused_until_the_grants_are_cleared(self):
+        s, a = self.w.service, self.admin
+        s.update_user(a, BADGES[2], {'grants': ['claims.decide_high']})
+        with self.assertRaises(permissions.PermissionDenied):
+            s.update_user(a, BADGES[2], {'level': 4})
+        s.update_user(a, BADGES[2], {'level': 4, 'grants': []})
+        self.assertNotIn('claims.decide', self.w.principal(2).permissions)
+
     def test_an_admin_cannot_demote_or_deactivate_themself_even_when_another_admin_exists(self):
         s, a = self.w.service, self.admin
         self.create(badge_id='CG-4005', level=4)

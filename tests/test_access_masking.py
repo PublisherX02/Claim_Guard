@@ -93,6 +93,19 @@ class MapAndScrubTests(unittest.TestCase):
         out = masking.scrub('PAT-12345 and PAT-123', {'PAT-123': 'PAT-AAAAAAAA', 'PAT-12345': 'PAT-BBBBBBBB'})
         self.assertEqual(out, 'PAT-BBBBBBBB and PAT-AAAAAAAA')
 
+    def test_a_differently_cased_copy_of_an_identifier_is_scrubbed_and_detected(self):
+        m = {'pat-aaa111': 'PAT-DEADBEEF'}
+        for variant in ('pat-aaa111', 'PAT-AAA111', 'Pat-Aaa111'):
+            out = masking.scrub({'notes': f'Called patient {variant} today'}, m)
+            self.assertNotIn(variant, json.dumps(out), variant)
+            self.assertIn('PAT-DEADBEEF', json.dumps(out))
+            self.assertEqual(masking.leaks({'x': f'see {variant}'}, {'pat-aaa111'}), {'pat-aaa111'}, variant)
+
+    def test_regex_metacharacters_in_an_identifier_are_matched_literally(self):
+        m = {'A.B+C(1)': 'PAT-DEADBEEF'}
+        self.assertEqual(masking.scrub('x A.B+C(1) y AxBBC1 z', m), 'x PAT-DEADBEEF y AxBBC1 z')
+        self.assertEqual(masking.leaks('AxBBC1', {'A.B+C(1)'}), set())
+
     def test_leaks_finds_a_planted_identifier_anywhere(self):
         self.assertEqual(masking.leaks({'a': [{'b': 'x PAT-1 y'}]}, {'PAT-1', 'PAT-2'}), {'PAT-1'})
         self.assertEqual(masking.leaks({'a': 'clean'}, {'PAT-1'}), set())

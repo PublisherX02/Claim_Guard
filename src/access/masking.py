@@ -53,15 +53,21 @@ def identifier_map(claim, key):
     return mapping
 
 
+def _pattern(mapping):
+    """One case-insensitive alternation, longest identifier first, so a short identifier never eats part of a longer one."""
+    return re.compile('|'.join(re.escape(raw) for raw in sorted(mapping, key=len, reverse=True)), re.IGNORECASE)
+
+
 def scrub(obj, mapping):
     """A deep copy of obj with every raw identifier in every string replaced by its pseudonym."""
-    ordered = sorted(mapping.items(), key=lambda kv: len(kv[0]), reverse=True)
+    if not mapping:
+        return copy.deepcopy(obj)
+    lookup = {raw.casefold(): masked for raw, masked in mapping.items()}
+    pattern = _pattern(mapping)
 
     def walk(o):
         if isinstance(o, str):
-            for raw, masked in ordered:
-                o = o.replace(raw, masked)
-            return o
+            return pattern.sub(lambda m: lookup.get(m.group(0).casefold(), m.group(0)), o)
         if isinstance(o, dict):
             return {k: walk(v) for k, v in o.items()}
         if isinstance(o, list):
@@ -75,7 +81,7 @@ def scrub(obj, mapping):
 def leaks(obj, raw_ids):
     """The raw identifiers that appear anywhere in obj."""
     text = json.dumps(obj, ensure_ascii=False, default=str)
-    return {raw for raw in raw_ids if raw in text}
+    return {raw for raw in raw_ids if re.search(re.escape(raw), text, re.IGNORECASE)}
 
 
 def _strip_free_text(o):

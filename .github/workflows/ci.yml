@@ -46,7 +46,7 @@ jobs:
     name: test (Python ${{ matrix.python }})
     runs-on: ubuntu-latest
     timeout-minutes: 20
-    # A real MongoDB for the user-store contract tests. The credentials belong to this throwaway container only.
+    # A real MongoDB for the user-store contract tests. The password is derived from the run id (no literal credential in the repository) and belongs to this throwaway container only.
     services:
       mongodb:
         image: mongo:7
@@ -54,7 +54,7 @@ jobs:
           - 27017:27017
         env:
           MONGO_INITDB_ROOT_USERNAME: ci
-          MONGO_INITDB_ROOT_PASSWORD: ci-throwaway
+          MONGO_INITDB_ROOT_PASSWORD: ci-${{ github.run_id }}-${{ github.run_attempt }}
         options: >-
           --health-cmd "mongosh --quiet --eval 'db.runCommand({ping:1}).ok'"
           --health-interval 5s
@@ -75,7 +75,7 @@ jobs:
       - name: Full test suite (no API key; MongoDB contract tests must run, not skip)
         env:
           FEATHERLESS_API_KEY: ''
-          MONGO_URI: mongodb://ci:ci-throwaway@localhost:27017/?authSource=admin
+          MONGO_URI: mongodb://ci:ci-${{ github.run_id }}-${{ github.run_attempt }}@localhost:27017/?authSource=admin
           REQUIRE_MONGO: '1'
         run: python -m unittest discover -s tests
       - name: The narrated demo runs end to end

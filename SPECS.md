@@ -364,7 +364,7 @@ Audited against the OWASP Top 10 for LLM Applications (2025) and the OWASP Top 1
 | Supply chain | Exact pins; `pip-audit` clean; no `eval`, `exec`, `subprocess` or `pickle` in our code (a test scans) |
 | Log integrity | Hash chain, anchor, optional HMAC; log forging prevented with `%r` logging; `verify_audit.py` reports whether the anchor is signed and `--require-key` enforces it |
 | Hostile input | Property-based fuzzing of ingestion, the model reply gate, the audit log, the engine, injection, the review page and the reviewer API (sections 10a, 10d) |
-| Identity and access | Badge, password and authenticator login; four clearance levels; hide-not-disable responses with masked identifiers; decisions bound to the session; signed security audit log; 20 attacks and 6 races on two stores (section 10d) |
+| Identity and access | Badge, password and authenticator login; four clearance levels; hide-not-disable responses with masked identifiers; decisions bound to the session; signed security audit log; 21 attacks and 6 races on two stores (section 10d) |
 
 Residual: the offline file-based review flow has no authentication (the reviewer API does, section 10d), protected health information would go to a third-party model with real data, the audit log is not immutable storage, and there is no per-run spending cap.
 
@@ -379,7 +379,7 @@ Residual: the offline file-based review flow has no authentication (the reviewer
 | Phase 2 evaluation | Nine cited example sets in three evidence tiers (organizer key, independent oracle, hand-derived); F1 1.0 on the three public splits, no valid claim flagged, FHIR path 0.9745 (R009 abstains); `docs/29_Test_Evaluation_Report.md`, evidence in `outputs/evaluation/` |
 | Fuzzing | Six trust boundaries, 25 property tests at 3,000 generated examples each plus one regression test, all passing; two defects found and fixed (section 10a) |
 | Security and red team | `docs/20` |
-| Suite | 896 tests, offline (420 of them verified in CI on Python 3.10, 3.12 and 3.14; all 896 passed locally on all three in fresh environments built from `requirements-dev.txt`, 2026-10-04); the committed audit sample's 6,000 result hashes are re-checked |
+| Suite | 909 tests, offline (420 of them verified in CI on Python 3.10, 3.12 and 3.14; all 909 passed locally on all three in fresh environments built from `requirements-dev.txt`, 2026-10-04); the committed audit sample's 6,000 result hashes are re-checked |
 
 **Independent oracle at scale.** `tests/oracle.py` reimplements the 15 rules from `rules/rules.json` and `docs/04` alone; it imports nothing from `src/`, so the engine and the oracle cannot share a bug by construction — a mistake would have to be made independently, the same way, in both. `scripts/status_coverage.py` generates 107,635 claims with `tests/claim_gen.py` (half seeded from a fully valid claim then randomly damaged, half fully independent-random fields), scores each with both the engine and the oracle, and hard-fails on the first disagreement rather than only counting them, so the artifact below is either "0 disagreements" or the run did not complete:
 
@@ -540,11 +540,11 @@ logouts, rejected tokens, refusals, unmasking, decisions and every user change. 
 refuses to start without the key. Events cannot carry anything whose name suggests a secret, values are bounded and JSON-safe, and
 floods of failures, refusals or bad tokens are capped per minute and summarised, so the log cannot be filled by an attacker.
 
-**How it was tested.** 278 tests, run on Python 3.10, 3.12 and 3.14.
+**How it was tested.** 289 tests, run on Python 3.10, 3.12 and 3.14.
 - *One contract suite, two stores.* The in-memory store and a real MongoDB 7 pass the same 20 tests, including 50 parallel
   submissions of one code (exactly one succeeds) and 500 parallel failed-login updates (none lost).
 - *A permission matrix* of every endpoint against no session and each level (85 cells), written out as data.
-- *An attack suite, 20 attacks, on both stores:* brute force and credential stuffing, a spoofed forwarded-for header, replay,
+- *An attack suite, 21 attacks, on both stores:* brute force and credential stuffing, a spoofed forwarded-for header, replay,
   forged, tampered, expired, downgraded and `alg: none` tokens, privilege claims inside a valid signature, session reuse and
   fixation, operator injection (`{"$ne": null}` and others) in every field and path, mass assignment and escalation, malformed
   and raw hostile requests sent as exact bytes, enumeration by response and by time, and data exposure. All hold.
@@ -589,6 +589,14 @@ would show more. These numbers describe this machine, not a deployment.
 - The file-based review flow of Phase 1 (`scripts/run_audited_review.py`, the offline review page) is unauthenticated by design and
   remains for offline demonstration; only the API binds decisions to a verified identity.
 - Claims and results are still read from files, and recheck is not implemented in the API (501).
+- *Found by the final independent review and fixed before merge.* An administrator could grant themself `claims.decide_high` through
+  the user-update call, defeating the rule that whoever administers the system cannot approve its findings: level 4 can now hold only
+  the three administration flags, whoever asks, and a stored claim grant on a level 4 record is not honoured. Masking compared
+  identifiers case-sensitively, and so did its own leak check, so a note saying `ABC123` for patient `abc123` passed both: both are now
+  case-insensitive. The review state re-read the whole decision log on every request; it is now parsed once per change of the file.
+- The security log's event listing (administrators only) still re-reads its file per request, which is acceptable at audit volumes.
+- A code is accepted only in the exact 30-second step in which it is shown, so a code typed in the last second of a step is refused
+  and the user simply tries the next one; widening the window would weaken the replay guarantee.
 
 ## 11. Experiments in detail
 

@@ -18,6 +18,7 @@ Principles (docs/05_Architecture_and_AI.md, docs/01 scope boundaries)
 import argparse
 import copy
 import json
+import threading
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -83,6 +84,32 @@ def apply_decisions(log, decisions, results):
     return log.append_review_decisions(decisions)
 
 
+_LOG_CACHE = {}
+_LOG_CACHE_LOCK = threading.Lock()
+
+
+def _parse_log(log_path):
+    """The log's rows. The log is append-only, so a file whose size and modification time are unchanged parses to the same rows:
+    the parsed result is kept per file and re-read only when either changes (the reviewer API calls this on every request)."""
+    path = Path(log_path)
+    try:
+        st = path.stat()
+    except FileNotFoundError:
+        return []
+    stamp = (st.st_size, st.st_mtime_ns)
+    key = str(path.resolve())
+    with _LOG_CACHE_LOCK:
+        hit = _LOG_CACHE.get(key)
+        if hit and hit[0] == stamp:
+            return hit[1]
+    rows = [json.loads(l) for l in path.read_text(encoding='utf-8').split('\n') if l.strip()]
+    with _LOG_CACHE_LOCK:
+        if len(_LOG_CACHE) > 16:
+            _LOG_CACHE.clear()
+        _LOG_CACHE[key] = (stamp, rows)
+    return rows
+
+
 def review_state(results, log_path):
     """Per-finding queue state derived from the audit log (the log is the source
     of truth; results are never edited). `results` should be each claim's latest
@@ -90,9 +117,7 @@ def review_state(results, log_path):
     run_started event, so a finding that is still failing after a recheck goes
     back to 'unreviewed' instead of inheriting the old run's decision. Within a
     run the latest decision wins."""
-    rows = []
-    if Path(log_path).exists():
-        rows = [json.loads(l) for l in Path(log_path).read_text(encoding='utf-8').split('\n') if l.strip()]
+    rows = _parse_log(log_path)
     run_start = {}
     for row in rows:
         e = row['event']

@@ -90,5 +90,39 @@ class UserChangeTests(unittest.TestCase):
             self.change(revokes=('nope',))
 
 
+class SeparationOfDutiesTests(unittest.TestCase):
+    """Level 4 manages users and reads the audit log; it must never be able to hold claim-handling permissions, whether by
+    granting them to itself, to another administrator, or by promoting a user who already holds them."""
+
+    CLAIM_FLAGS = ('claims.view', 'claims.view_notes', 'claims.decide', 'claims.decide_high', 'claims.recheck', 'pii.unmask')
+
+    def change(self, **kw):
+        base = dict(actor_level=4, target_level=4, new_level=4, grants=(), revokes=(), self_change=False)
+        base.update(kw)
+        return p.check_user_change(**base)
+
+    def test_no_claim_flag_can_be_granted_to_an_administrator(self):
+        for flag in self.CLAIM_FLAGS:
+            for self_change in (True, False):
+                with self.assertRaises(p.PermissionDenied, msg=f'{flag} self={self_change}'):
+                    self.change(grants=(flag,), self_change=self_change)
+
+    def test_promoting_a_user_who_already_holds_claim_grants_is_refused(self):
+        with self.assertRaises(p.PermissionDenied):
+            self.change(target_level=2, new_level=4, grants=('claims.decide_high',))
+
+    def test_an_administrator_may_still_receive_their_own_sensitive_flags_and_revokes(self):
+        self.change(grants=('audit.view',), self_change=True)
+        self.change(revokes=('audit.verify',), self_change=True)
+
+    def test_grants_to_non_administrators_are_unaffected(self):
+        self.change(target_level=2, new_level=2, grants=('claims.decide_high',))
+        self.change(target_level=1, new_level=1, grants=('pii.unmask',))
+
+    def test_the_effective_permissions_of_a_level_four_user_never_include_claim_flags_unless_stored_that_way(self):
+        # defence in depth: even a stored record with such a grant (written outside the service) is not honoured at level 4
+        self.assertEqual(p.effective_permissions(4, ('claims.decide',), ()), p.LEVEL_DEFAULTS[4])
+
+
 if __name__ == '__main__':
     unittest.main()

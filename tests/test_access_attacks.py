@@ -253,6 +253,20 @@ class AttackBase:
         self.assertEqual(w.store.get_user(BADGES[2]).level, 2)
         self.assertEqual(w.store.get_user(BADGES[2]).grants, ())
 
+    def test_an_administrator_cannot_give_themself_or_another_administrator_the_power_to_decide_claims(self):
+        w = self.w
+        admin = w.login_client(4)
+        for target in (BADGES[4], BADGES[2]):
+            for flag in ('claims.decide', 'claims.decide_high', 'pii.unmask'):
+                body = {'grants': [flag]} if target == BADGES[4] else {'level': 4, 'grants': [flag]}
+                self.assertEqual(admin.patch(f'{API}/users/{target}', json=body).status_code, 403, (target, flag))
+        self.assertEqual(w.store.get_user(BADGES[4]).grants, ())
+        self.assertEqual((w.store.get_user(BADGES[2]).level, w.store.get_user(BADGES[2]).grants), (2, ()))
+        me = admin.get(f'{API}/auth/me').json()
+        self.assertNotIn('claims.decide_high', json.dumps(me))
+        self.assertEqual(admin.post(f'{API}/claims/x/findings/R001/decision',
+                                    json={'action': 'confirm_issue', 'reason': 'self-granted?'}).status_code, 403)
+
     def test_a_non_admin_cannot_manage_users_by_any_route(self):
         for level in (1, 2, 3):
             c = self.w.login_client(level)
