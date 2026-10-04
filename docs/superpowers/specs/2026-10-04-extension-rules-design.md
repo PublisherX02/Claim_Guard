@@ -41,14 +41,14 @@ absent gives `NOT_APPLICABLE`.
 
 | Id | Name | Logic | Source (primary, to be verified before citing) | Severity |
 |---|---|---|---|---|
-| E001 | Procedure pair without exception | Two lines on the same date whose service codes form a listed pair, and the secondary line carries no exception modifier (`EDU-SEPARATE`) | CMS NCCI Policy Manual ch. 1 (procedure-to-procedure edits) | medium |
-| E002 | Exception modifier on a never-bundle pair | A listed pair marked `modifier_allowed: false` appears with an exception modifier anyway | CMS NCCI (correct-coding modifier indicator 0) | high |
-| E003 | Situational date dependency | A diagnosis marked `requires_event_date` needs an event date in the notes or attachment text, written `Event date: YYYY-MM-DD`, valid and not after the earliest service date | WEDI SNIP level 4 (situational requirements) | medium |
-| E004 | Route of administration | A service in category `pharmaceutical` (SVC-PHARM) needs a line modifier from the route list (`EDU-ROUTE-ORAL`, `EDU-ROUTE-IV`, `EDU-ROUTE-TOPICAL`) | eClaimLink / DHA data dictionary (drug code with route) | medium |
-| E005 | Primary diagnosis validity | The header diagnosis is marked `secondary_only` and cannot be the primary reason for the claim | Industry diagnosis-sequencing rules (to be sourced) | medium |
-| E101 | Duplicate of an earlier claim | A line equals a line of an earlier claim for the same patient and provider on service code, service date, quantity and net amount | Payer duplicate-claim edits (CARC 18 behaviour) | high |
-| E102 | Authorization exhausted across claims | Units under one authorization id in earlier claims plus this claim exceed that authorization's `max_quantity` | NPHIES authorization tracking; extends our R009 | high |
-| E103 | Daily quantity across claims | Units of one service on one date for one patient in earlier claims plus this claim exceed the service's `max_quantity`, when earlier claims contributed units | CMS Medically Unlikely Edits, date-of-service edits | medium |
+| E001 | Procedure pair without exception | Two lines on the same date whose service codes form a listed pair, and the secondary line carries no exception modifier (`EDU-SEPARATE`) | CMS NCCI Policy Manual ch. 1: column one / column two pairs; confirmed | medium |
+| E002 | Exception modifier on a never-bundle pair | A listed pair marked `modifier_allowed: false` appears with an exception modifier anyway | CMS NCCI modifier indicator 0 (no modifier may bypass) versus 1 (may bypass); confirmed | high |
+| E003 | Situational date dependency | A diagnosis marked `requires_event_date` needs an event date in the notes or attachment text, written `Event date: YYYY-MM-DD`, valid and not after the earliest service date | WEDI SNIP level 4 "if A then B" inter-segment rule; confirmed as a pattern. The diagnosis-to-event-date pairing is our fictional instance, not a published edit | medium |
+| E004 | Route of administration | A service in category `pharmaceutical` (SVC-PHARM) needs a line modifier from the route list (`EDU-ROUTE-ORAL`, `EDU-ROUTE-IV`, `EDU-ROUTE-TOPICAL`) | eClaimLink publishes a Route Of Administration coding set; the rule "a drug line must carry a route" is the research report's claim and **not independently confirmed**, so the card says so | medium |
+| E005 | Primary diagnosis validity | The header diagnosis is marked `secondary_only` and cannot be the primary reason for the claim | ICD-10-CM Official Guidelines: manifestation ("code first") codes cannot be first-listed; confirmed through payer policies that quote them | medium |
+| E101 | Duplicate of an earlier claim | A line equals a line of an earlier claim for the same patient and provider on service code, service date, quantity and net amount | CARC 18 "exact duplicate claim/service"; confirmed | high |
+| E102 | Authorization exhausted across claims | Units under one authorization id in earlier claims plus this claim exceed that authorization's `max_quantity` | Cumulative authorization tracking as in NPHIES (not independently confirmed); extends our R009 | high |
+| E103 | Daily quantity across claims | Units of one service on one date for one patient **and the same provider** in earlier claims plus this claim exceed the service's `max_quantity`, when earlier claims contributed units | CMS MUE date-of-service edits (MAI 2 and 3): units summed per beneficiary, provider and date; confirmed | medium |
 
 E103 deliberately counts only units from earlier claims, so it never overlaps R006/R013 (within one claim) and takes no side on
 the `EDU-SEPARATE` policy question already raised for the mentor.
@@ -84,9 +84,8 @@ A corrected re-submission with the same `claim_id` is never its own history. If 
   `outputs/evaluation/extensions.json` with the producing commit and file hashes.
 
 ## Open items
-Primary sources for E005 (sequencing) and exact wording from the CMS, WEDI, NPHIES and eClaimLink documents must be fetched and
-confirmed before they are cited; the report is a secondary compilation. If a source does not support the rule as described, the
-rule's card says so or the rule is dropped. Pair table contents and the route/exception modifier names are our choices and are
+Source check done 2026-10-04 (results in the table above). Still unconfirmed: the E004 route rule and NPHIES cumulative authorization
+tracking; their cards say so. Exact page citations from the CMS manual are added to `docs/30` when the cards are written. Pair table contents and the route/exception modifier names are our choices and are
 open to the mentor's view.
 
 ## Why this order
