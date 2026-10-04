@@ -1,0 +1,242 @@
+{
+  "environment": {
+    "claims": 600,
+    "commit": "bef7a8ffe37d18534f0fee247ab0decb97463919",
+    "pack_hash": "dafef98d515ff4fda819970692efd5443532164921e8403bcd7cd1df9679eda1",
+    "platform": "Windows-10-10.0.26200-SP0",
+    "python": "3.10.11"
+  },
+  "note": "Rules E001 to E005 use fictional codes outside the six-code teaching catalogue, so they cannot fire on public data by design; E101 to E103 need two claims for one patient and every public patient has exactly one.",
+  "oracle_agreement_on_public_claims": {
+    "agree": 4800,
+    "compared": 4800
+  },
+  "public_claims_status_counts": {
+    "E001": {
+      "NOT_APPLICABLE": 600
+    },
+    "E002": {
+      "NOT_APPLICABLE": 600
+    },
+    "E003": {
+      "NOT_APPLICABLE": 588,
+      "UNABLE_TO_ASSESS": 12
+    },
+    "E004": {
+      "NOT_APPLICABLE": 600
+    },
+    "E005": {
+      "PASS": 588,
+      "UNABLE_TO_ASSESS": 12
+    },
+    "E101": {
+      "PASS": 585,
+      "UNABLE_TO_ASSESS": 15
+    },
+    "E102": {
+      "NOT_APPLICABLE": 273,
+      "PASS": 324,
+      "UNABLE_TO_ASSESS": 3
+    },
+    "E103": {
+      "NOT_APPLICABLE": 14,
+      "PASS": 563,
+      "UNABLE_TO_ASSESS": 23
+    }
+  },
+  "scenarios": {
+    "agree": 29,
+    "cases": [
+      {
+        "expected": "FAIL",
+        "got": "FAIL",
+        "ok": true,
+        "rule": "E001"
+      },
+      {
+        "expected": "PASS",
+        "got": "PASS",
+        "ok": true,
+        "rule": "E001"
+      },
+      {
+        "expected": "NOT_APPLICABLE",
+        "got": "NOT_APPLICABLE",
+        "ok": true,
+        "rule": "E001"
+      },
+      {
+        "expected": "UNABLE_TO_ASSESS",
+        "got": "UNABLE_TO_ASSESS",
+        "ok": true,
+        "rule": "E001"
+      },
+      {
+        "expected": "FAIL",
+        "got": "FAIL",
+        "ok": true,
+        "rule": "E002"
+      },
+      {
+        "expected": "PASS",
+        "got": "PASS",
+        "ok": true,
+        "rule": "E002"
+      },
+      {
+        "expected": "NOT_APPLICABLE",
+        "got": "NOT_APPLICABLE",
+        "ok": true,
+        "rule": "E002"
+      },
+      {
+        "expected": "UNABLE_TO_ASSESS",
+        "got": "UNABLE_TO_ASSESS",
+        "ok": true,
+        "rule": "E002"
+      },
+      {
+        "expected": "FAIL",
+        "got": "FAIL",
+        "ok": true,
+        "rule": "E003"
+      },
+      {
+        "expected": "PASS",
+        "got": "PASS",
+        "ok": true,
+        "rule": "E003"
+      },
+      {
+        "expected": "NOT_APPLICABLE",
+        "got": "NOT_APPLICABLE",
+        "ok": true,
+        "rule": "E003"
+      },
+      {
+        "expected": "UNABLE_TO_ASSESS",
+        "got": "UNABLE_TO_ASSESS",
+        "ok": true,
+        "rule": "E003"
+      },
+      {
+        "expected": "FAIL",
+        "got": "FAIL",
+        "ok": true,
+        "rule": "E004"
+      },
+      {
+        "expected": "PASS",
+        "got": "PASS",
+        "ok": true,
+        "rule": "E004"
+      },
+      {
+        "expected": "NOT_APPLICABLE",
+        "got": "NOT_APPLICABLE",
+        "ok": true,
+        "rule": "E004"
+      },
+      {
+        "expected": "FAIL",
+        "got": "FAIL",
+        "ok": true,
+        "rule": "E005"
+      },
+      {
+        "expected": "PASS",
+        "got": "PASS",
+        "ok": true,
+        "rule": "E005"
+      },
+      {
+        "expected": "UNABLE_TO_ASSESS",
+        "got": "UNABLE_TO_ASSESS",
+        "ok": true,
+        "rule": "E005"
+      },
+      {
+        "expected": "FAIL",
+        "got": "FAIL",
+        "ok": true,
+        "rule": "E101"
+      },
+      {
+        "expected": "PASS",
+        "got": "PASS",
+        "ok": true,
+        "rule": "E101"
+      },
+      {
+        "expected": "UNABLE_TO_ASSESS",
+        "got": "UNABLE_TO_ASSESS",
+        "ok": true,
+        "rule": "E101"
+      },
+      {
+        "expected": "FAIL",
+        "got": "FAIL",
+        "ok": true,
+        "rule": "E102"
+      },
+      {
+        "expected": "PASS",
+        "got": "PASS",
+        "ok": true,
+        "rule": "E102"
+      },
+      {
+        "expected": "NOT_APPLICABLE",
+        "got": "NOT_APPLICABLE",
+        "ok": true,
+        "rule": "E102"
+      },
+      {
+        "expected": "UNABLE_TO_ASSESS",
+        "got": "UNABLE_TO_ASSESS",
+        "ok": true,
+        "rule": "E102"
+      },
+      {
+        "expected": "FAIL",
+        "got": "FAIL",
+        "ok": true,
+        "rule": "E103"
+      },
+      {
+        "expected": "PASS",
+        "got": "PASS",
+        "ok": true,
+        "rule": "E103"
+      },
+      {
+        "expected": "NOT_APPLICABLE",
+        "got": "NOT_APPLICABLE",
+        "ok": true,
+        "rule": "E103"
+      },
+      {
+        "expected": "UNABLE_TO_ASSESS",
+        "got": "UNABLE_TO_ASSESS",
+        "ok": true,
+        "rule": "E103"
+      }
+    ],
+    "disagreement_rate_95pct_upper_bound": 0.0981,
+    "total": 29
+  },
+  "timing": [
+    {
+      "history_claims": 0,
+      "p50_ms": 2.443,
+      "p95_ms": 3.209,
+      "runs": 30
+    },
+    {
+      "history_claims": 10000,
+      "p50_ms": 4.001,
+      "p95_ms": 5.036,
+      "runs": 30
+    }
+  ]
+}
