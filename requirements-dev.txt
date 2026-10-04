@@ -1,0 +1,3 @@
+-r requirements.txt
+# hypothesis: property-based/fuzz tests (tests/test_fuzz_*.py). Dev only; never imported by src/.
+hypothesis==6.168.3
