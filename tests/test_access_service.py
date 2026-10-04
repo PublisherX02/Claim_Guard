@@ -391,5 +391,48 @@ class AuditGateTests(unittest.TestCase):
             self.assertTrue(w.log.verify()['ok'])
 
 
+class ServiceAuditHelpersTests(unittest.TestCase):
+    def test_a_flood_of_forbidden_requests_is_capped_and_resumes_with_a_count(self):
+        with World() as w:
+            w.provision_all()
+            for i in range(400):
+                w.service.note_forbidden(BADGES[1], 'GET', f'/api/v1/users?{i}')
+            forbidden = [e for e in w.log.events(limit=1000) if e['event']['event_type'] == 'forbidden']
+            self.assertLessEqual(len(forbidden), 210)
+            w.clock.advance(61)
+            w.service.note_forbidden(BADGES[1], 'GET', '/api/v1/users')
+            last = [e for e in w.log.events(limit=1000) if e['event']['event_type'] == 'forbidden'][-1]['event']
+            self.assertGreater(last['suppressed_before'], 100)
+            self.assertTrue(w.log.verify()['ok'])
+
+    def test_long_or_odd_paths_never_break_the_audit(self):
+        with World() as w:
+            w.service.note_forbidden('CG-1001', 'GET', 'x' * 5000)
+            w.service.note_forbidden('CG-1001', 'G' * 100, '/a' + chr(0x2028) + 'b' + chr(0) + 'c')
+            self.assertEqual(len(w.log.events(limit=10)), 2)
+
+    def test_record_writes_a_checked_event_and_refuses_bad_ones(self):
+        with World() as w:
+            w.service.record('audit_read', badge_id='CG-4004')
+            with self.assertRaises(ValueError):
+                w.service.record('audit_read', badge_id='CG-4004', password='x')
+            self.assertEqual(len(w.log.events(limit=10)), 1)
+
+    def test_listing_users_needs_the_permission_and_exposes_no_secret(self):
+        with World() as w:
+            w.provision_all()
+            rows = w.service.list_users(w.principal(4))
+            self.assertEqual(len(rows), 4)
+            with self.assertRaises(service.Forbidden):
+                w.service.list_users(w.principal(2))
+
+    def test_a_duplicate_badge_is_its_own_error_type(self):
+        with World() as w:
+            w.provision_all()
+            with self.assertRaises(service.DuplicateUser):
+                w.service.provision_user(BADGES[2], 'Again', 'Fresh-Pass-8642!', 2)
+            self.assertTrue(issubclass(service.DuplicateUser, ValueError))
+
+
 if __name__ == '__main__':
     unittest.main()

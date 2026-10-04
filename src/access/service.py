@@ -32,6 +32,10 @@ class Forbidden(Exception):
     """The principal lacks a permission."""
 
 
+class DuplicateUser(ValueError):
+    """A user with this badge already exists."""
+
+
 @dataclass(frozen=True)
 class Principal:
     user: User
@@ -115,6 +119,24 @@ class AccessService:
             self.log.record(event_type, **fields)
         except OSError:
             raise AuthError('unavailable') from None
+
+    def note_forbidden(self, badge_id, method, path):
+        """Audit a refused request. Capped per window like other failure events; the first one after a capped stretch says how
+        many were left out. Never raises: a refusal must stay a refusal even if the log is unwritable or the path is odd."""
+        allowed, suppressed = self._gate.allow('forbidden')
+        if not allowed:
+            return
+        fields = {'badge_id': badge_id, 'method': _text(method, 10), 'path': _text(path, 200)}
+        if suppressed:
+            fields['suppressed_before'] = suppressed
+        try:
+            self.log.record('forbidden', **fields)
+        except (ValueError, OSError):
+            pass
+
+    def record(self, event_type, **fields):
+        """Write a security event that must not be lost: if it cannot be written the caller's action is refused."""
+        self._must(event_type, **fields)
 
     # ---- sessions -----------------------------------------------------------------------------------------------
     def login(self, badge_id, password, totp_code, client=''):
@@ -226,7 +248,7 @@ class AccessService:
         try:
             self.store.create_user(user)
         except DuplicateBadge:
-            raise ValueError('that badge already exists') from None
+            raise DuplicateUser('that badge already exists') from None
         except StoreUnavailable:
             raise AuthError('unavailable') from None
         return user, totp.provisioning_uri(secret, badge_id)
@@ -237,6 +259,10 @@ class AccessService:
         user, uri = self.provision_user(badge_id, name, password, level, created_by=actor.badge, grants=grants, revokes=revokes)
         self._must('user_created', actor=actor.badge, badge_id=badge_id, level=level)
         return user, uri
+
+    def list_users(self, actor):
+        self.require(actor, 'users.manage')
+        return self.store.list_users()
 
     def update_user(self, actor, badge_id, changes):
         self.require(actor, 'users.manage')
