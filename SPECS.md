@@ -626,6 +626,13 @@ only whole-number quantities while the public data has 1.5; 18 of 4,800 comparis
 found a history store returning an empty dict was read as "no earlier claims"; it now fails closed. (4) The coverage guard on the
 generated oracle test caught that the first generator never produced an E002 failure.
 
+**Final independent review** (a fresh reviewer on the whole branch) found two real defects, fixed test-first: a negative quantity could
+cancel a genuine cross-claim excess (E102, E103 turned FAIL into PASS), and an earlier claim with no submission date sorted as the earliest
+of all. It also found the spec still naming `SVC-PHARM` for E004, a missing deterministic test for FAIL outranking UNABLE, and
+undocumented exact matching of authorization ids; all are corrected. Re-running the oracle test repeatedly then exposed a genuine
+disagreement (an unreadable earlier quantity: E103 reported FAIL on the readable part while the oracle said unable); E103 now skips such a
+group, as E102 does.
+
 **Tests.** An independent oracle compared on 500 generated claim-and-history worlds; scenario tests with the status fixed by
 construction, boundary cases included; Hypothesis fuzzing (arbitrary JSON claims and histories, hostile text, a misbehaving history,
 large inputs), also in `scripts/fuzz_campaign.py`; 21 mutation checks of the tests, 20 caught and one equivalent mutant; a forgery test

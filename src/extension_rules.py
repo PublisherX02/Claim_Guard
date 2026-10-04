@@ -20,12 +20,11 @@ from pathlib import Path
 import yara_x
 
 from engine_core import pointer
-from facts_extractor import _q, rule_view, valid_date
+from facts_extractor import _q, rule_view, valid_date    # _q is private to the official engine, whose file is hash-pinned by tests/test_ext_separation.py
 
 logger = logging.getLogger('extension_rules')
 
 ROOT = Path(__file__).resolve().parents[1]
-PACK_PATH = ROOT / 'rules' / 'extensions.yar'
 CATALOGUE_PATH = ROOT / 'rules' / 'extensions' / 'catalogue.json'
 PRECEDENCE = ['FAIL', 'UNABLE_TO_ASSESS', 'NOT_APPLICABLE', 'PASS']
 _OUTCOMES = (('FAIL', '/{rid}:FAIL:/'), ('PASS', '"{rid}:OK"'), ('UNABLE_TO_ASSESS', '"{rid}:UNKNOWN"'), ('NOT_APPLICABLE', '"{rid}:NA"'))
@@ -254,6 +253,12 @@ def _num(value):
     return d if d.is_finite() else None
 
 
+def _qty(value):
+    """A quantity or limit usable in a sum: finite and not negative. A negative number would silently cancel real units."""
+    n = _num(value)
+    return n if n is not None and n >= 0 else None
+
+
 def _official_limits():
     global _limits
     with _LOCK:
@@ -295,7 +300,9 @@ class _Once:
 
 def _party(view):
     patient, provider = view.get('patient_id'), view.get('provider_id')
-    return provider if isinstance(patient, str) and patient and isinstance(provider, str) and provider else None
+    if not (isinstance(patient, str) and patient and isinstance(provider, str) and provider and valid_date(view.get('submission_date'))):
+        return None
+    return provider
 
 
 def _line_key(row):
@@ -310,7 +317,7 @@ def e101_details(view, cat, history):
         return _unknown('E101', NO_HISTORY)
     provider = _party(view)
     if provider is None:
-        return _unknown('E101', 'The claim has no readable patient or provider, so earlier claims could not be matched.')
+        return _unknown('E101', 'The claim has no readable patient, provider or submission date, so earlier claims could not be matched or ordered.')
     seen = set()
     for prev in _earlier_views(view, history):
         if prev.get('provider_id') == provider:
@@ -346,6 +353,8 @@ def e102_details(view, cat, history):
         return _na('E102', 'No line references an authorization.')
     if history is None:
         return _unknown('E102', NO_HISTORY)
+    if _party(view) is None:
+        return _unknown('E102', 'The claim has no readable patient, provider or submission date, so earlier claims could not be matched or ordered.')
     records = {}
     for k, a in enumerate(view.get('authorizations') or []):
         if isinstance(a, dict) and isinstance(a.get('authorization_id'), str):
@@ -354,11 +363,11 @@ def e102_details(view, cat, history):
     facts, paths, ids, unreadable = [], [], [], False
     for aid, rows in groups.items():
         k, rec = records.get(aid, (None, None))
-        limit = _num(rec.get('max_quantity')) if rec else None
-        used = [_num(r.get('quantity')) for _, r in rows]
+        limit = _qty(rec.get('max_quantity')) if rec else None
+        used = [_qty(r.get('quantity')) for _, r in rows]
         before = []
         for prev in earlier:
-            before += [_num(r.get('quantity')) for _, r in _lines(prev) if r.get('authorization_id') == aid]
+            before += [_qty(r.get('quantity')) for _, r in _lines(prev) if r.get('authorization_id') == aid]
         if limit is None or any(u is None for u in used + before):
             unreadable = True
         elif sum(before) > 0 and sum(before) + sum(used) > limit:       # exceeding it inside one claim alone is R009's finding
@@ -387,7 +396,7 @@ def e103_details(view, cat, history):
         code = row.get('service_code')
         if code not in limits:
             continue
-        day, qty = valid_date(row.get('service_date')), _num(row.get('quantity'))
+        day, qty = valid_date(row.get('service_date')), _qty(row.get('quantity'))
         if day is None or qty is None:
             unreadable = True
             continue
@@ -398,17 +407,22 @@ def e103_details(view, cat, history):
         return _unknown('E103', NO_HISTORY)
     provider = _party(view)
     if provider is None:
-        return _unknown('E103', 'The claim has no readable patient or provider, so earlier claims could not be matched.')
-    earlier_units = {}
+        return _unknown('E103', 'The claim has no readable patient, provider or submission date, so earlier claims could not be matched or ordered.')
+    earlier_units, earlier_bad = {}, set()
     for prev in _earlier_views(view, history):
         if prev.get('provider_id') != provider:
             continue
         for _, r in _lines(prev):
-            code, day, qty = r.get('service_code'), valid_date(r.get('service_date')), _num(r.get('quantity'))
+            code, day, qty = r.get('service_code'), valid_date(r.get('service_date')), _qty(r.get('quantity'))
             if code in limits and day is not None and qty is not None:
                 earlier_units[(code, day)] = earlier_units.get((code, day), Decimal(0)) + qty
+            elif code in limits and day is not None:
+                earlier_bad.add((code, day))
+    unreadable = unreadable or any(key in earlier_bad for key in groups)
     facts, paths, ids = [], [], []
     for (code, day), rows in groups.items():
+        if (code, day) in earlier_bad:               # an unreadable earlier quantity could hide or cancel units: report unable, as E102 does
+            continue
         before = earlier_units.get((code, day), Decimal(0))
         if before > 0 and before + sum(q for _, _, q in rows) > limits[code]:
             facts.append(f'E103:FAIL:{_q(code)}:{day.isoformat()}')

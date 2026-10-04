@@ -81,10 +81,16 @@ question raised for the mentor.
 
 ## "Earlier claim"
 
-Same non-empty `patient_id`, a different `claim_id`, and ordered strictly before this claim by `(submission_date, claim_id)`. The
-order makes a claim's result independent of how many later claims exist, so a batch run is reproducible. A corrected resubmission
+Same non-empty `patient_id`, a different `claim_id`, and ordered strictly before this claim by `(submission_date, claim_id)`, where the
+date is a real `YYYY-MM-DD` day. A claim with a missing or unreadable date cannot be placed: it is never anyone's earlier claim, and for
+the claim itself E101 to E103 report `UNABLE_TO_ASSESS`. The order makes a claim's result independent of how many later claims exist, so a batch run is reproducible. A corrected resubmission
 that reuses a `claim_id` is never its own history. Without history, E101 to E103 report `UNABLE_TO_ASSESS`, and so does a history
 store that returns anything other than a list of claims. The queue work will replace the in-memory history with a database-backed one.
+
+Matching is exact for every identifier (claim, patient, provider, authorization), case and spaces included: `AUTH-1` and `auth-1` are
+different authorizations. That is right for opaque ids but means a mistyped id splits one authorization's usage in two; E102 cannot see
+across them. Quantities and limits used in a sum must be finite and not negative: a negative or unreadable one makes that group
+`UNABLE_TO_ASSESS`, so a single negative line cannot cancel a real excess from earlier claims.
 
 ## Running them
 
@@ -117,6 +123,9 @@ python scripts/extension_experiments.py          # writes outputs/evaluation/ext
 - **Mutation checks**: 21 deliberate breakages (an ignored modifier, a boundary changed from `>` to `>=`, the provider ignored, own units
   forgotten, a raw authorization id placed in a fact line, unable ranked above fail, and others); 20 were caught by a test and the
   21st is an equivalent mutant (equal order keys imply the same claim id, which is already excluded).
+- The independent review found two real defects, both now fixed test-first: a negative quantity could cancel a genuine cross-claim
+  excess and turn FAIL into PASS (E102, E103), and an earlier claim with no submission date sorted as the earliest of all. A third
+  point, that the FAIL-beats-UNABLE precedence had only randomized tests behind it, now has deterministic ones.
 - The evidence run also found that the first oracle only accepted whole-number quantities while the public data has 1.5; the oracle
   now compares exact fractions.
 

@@ -46,6 +46,12 @@ class HistoryTests(unittest.TestCase):
             c = claim('Z', patient=pid, date='2027-01-01')
             self.assertEqual(h.earlier_claims(c), [], pid)
 
+    def test_claims_without_a_readable_date_are_never_earlier_and_never_have_earlier_claims(self):
+        h = ch.InMemoryHistory([claim('A', date='2026-01-01'), claim('B', date=None), claim('C', date='soon'), claim('D', date='2026-02-30')])
+        self.assertEqual(self.ids(h, claim('Z', date='2026-06-01')), ['A'])
+        for bad in (None, '', 'soon', '2026-02-30', 5):
+            self.assertEqual(self.ids(h, claim('Z', date=bad)), [], bad)
+
     def test_a_missing_or_malformed_submission_date_never_raises(self):
         h = ch.InMemoryHistory([claim('A'), {'claim_id': 'B', 'patient_id': 'PAT-1'}, 'junk', None, {'patient_id': 'PAT-1'}])
         for date in (None, '', 5, 'not-a-date'):

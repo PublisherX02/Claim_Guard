@@ -106,21 +106,33 @@ def primary_dx(c):
     return ('FAIL' if dx == SECONDARY else 'PASS'), set()
 
 
+def amount(v):
+    """A quantity or limit usable in a sum: a number that is not negative."""
+    n = number(v)
+    return n if n is not None and n >= 0 else None
+
+
+def orderable(c):
+    return text(c.get('patient_id')) is not None and day(c.get('submission_date')) is not None
+
+
 def earlier(c, everything):
-    me = (c.get('submission_date') or '', c.get('claim_id') or '')
+    if day(c.get('submission_date')) is None:
+        return []
+    me = (day(c.get('submission_date')), c.get('claim_id') or '')
     out = []
     for p in everything:
-        if not isinstance(p, dict) or not text(p.get('patient_id')) or not text(p.get('claim_id')):
+        if not isinstance(p, dict) or not text(p.get('patient_id')) or not text(p.get('claim_id')) or day(p.get('submission_date')) is None:
             continue
         if p['patient_id'] == c.get('patient_id') and text(c.get('patient_id')) and p['claim_id'] != c.get('claim_id') \
-                and ((p.get('submission_date') or ''), p['claim_id']) < me:
+                and (day(p.get('submission_date')), p['claim_id']) < me:
             out.append(p)
     return out
 
 
 def duplicate(c, prior):
     provider = text(c.get('provider_id'))
-    if provider is None or text(c.get('patient_id')) is None:
+    if provider is None or not orderable(c):
         return 'UNABLE_TO_ASSESS', set()
 
     def key(l):
@@ -140,12 +152,14 @@ def authorization(c, prior):
             groups.setdefault(l['authorization_id'], []).append(l)
     if not groups:
         return 'NOT_APPLICABLE', set()
+    if text(c.get('provider_id')) is None or not orderable(c):
+        return 'UNABLE_TO_ASSESS', set()
     fail, unknown = set(), False
     for aid, lines in groups.items():
         record = next((a for a in (c.get('authorizations') or []) if isinstance(a, dict) and a.get('authorization_id') == aid), None)
-        limit = number(record.get('max_quantity')) if record else None
-        used = [number(l.get('quantity')) for l in lines]
-        before = [number(l.get('quantity')) for p in prior for l in rows(p) if l.get('authorization_id') == aid]
+        limit = amount(record.get('max_quantity')) if record else None
+        used = [amount(l.get('quantity')) for l in lines]
+        before = [amount(l.get('quantity')) for p in prior for l in rows(p) if l.get('authorization_id') == aid]
         if limit is None or None in used + before:
             unknown = True
         elif sum(before) > 0 and sum(before) + sum(used) > limit:
@@ -158,7 +172,7 @@ def daily(c, prior):
     for l in rows(c):
         if l.get('service_code') not in LIMITS:
             continue
-        d, q = day(l.get('service_date')), number(l.get('quantity'))
+        d, q = day(l.get('service_date')), amount(l.get('quantity'))
         if d is None or q is None:
             unknown = True
         else:
@@ -166,13 +180,17 @@ def daily(c, prior):
     if not groups and not unknown:
         return 'NOT_APPLICABLE', set()
     provider = text(c.get('provider_id'))
-    if provider is None or text(c.get('patient_id')) is None:
+    if provider is None or not orderable(c):
         return 'UNABLE_TO_ASSESS', set()
     fail = set()
     for (code, d), lines in groups.items():
-        before = sum(number(l.get('quantity')) for p in prior if p.get('provider_id') == provider for l in rows(p)
-                     if l.get('service_code') == code and day(l.get('service_date')) == d and number(l.get('quantity')) is not None)
-        if before > 0 and before + sum(number(l.get('quantity')) for l in lines) > LIMITS[code]:
+        theirs = [amount(l.get('quantity')) for p in prior if p.get('provider_id') == provider for l in rows(p)
+                  if l.get('service_code') == code and day(l.get('service_date')) == d]
+        if None in theirs:
+            unknown = True
+            continue
+        before = sum(theirs)
+        if before > 0 and before + sum(amount(l.get('quantity')) for l in lines) > LIMITS[code]:
             fail |= {l['line_id'] for l in lines}
     return verdict(fail, unknown), fail
 

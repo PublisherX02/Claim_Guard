@@ -173,6 +173,52 @@ class DailyQuantityTests(unittest.TestCase):
         self.assertEqual(one(claim([line(1, 'SVC-LAB', quantity=3)]), 'E103', later)['status'], 'PASS')
 
 
+class ReviewFindingsTests(unittest.TestCase):
+    def test_a_negative_quantity_cannot_cancel_a_real_cross_claim_excess_under_an_authorization(self):
+        earlier = [auth_claim(20, cid='C-0', date='2026-03-01')]
+        self.assertEqual(one(auth_claim(5), 'E102', earlier)['status'], 'FAIL')
+        self.assertEqual(one(auth_claim(-50), 'E102', earlier)['status'], 'UNABLE_TO_ASSESS')
+        self.assertEqual(one(auth_claim(1), 'E102', [auth_claim(-5, cid='C-0', date='2026-03-01')])['status'], 'UNABLE_TO_ASSESS')
+
+    def test_a_negative_quantity_cannot_cancel_a_real_cross_claim_excess_in_a_day(self):
+        earlier = [prior([line(1, 'SVC-LAB', quantity=10)])]
+        self.assertEqual(one(claim([line(1, 'SVC-LAB', quantity=1)]), 'E103', earlier)['status'], 'FAIL')
+        self.assertEqual(one(claim([line(1, 'SVC-LAB', quantity=-100)]), 'E103', earlier)['status'], 'UNABLE_TO_ASSESS')
+        self.assertEqual(one(claim([line(1, 'SVC-LAB', quantity=1)]), 'E103', [prior([line(1, 'SVC-LAB', quantity=-4)])])['status'],
+                         'UNABLE_TO_ASSESS')
+
+    def test_a_group_with_an_unreadable_earlier_quantity_is_never_reported_as_a_fail_or_a_pass(self):
+        broken = prior([line(1, 'SVC-LAB', quantity=2), {**line(2, 'SVC-LAB'), 'quantity': 'many'}])
+        self.assertEqual(one(claim([line(1, 'SVC-LAB', quantity=2)]), 'E103', [broken])['status'], 'UNABLE_TO_ASSESS')
+
+    def test_a_negative_authorization_maximum_is_unreadable(self):
+        self.assertEqual(one(auth_claim(1, auths=({**AUTH, 'max_quantity': -3},)), 'E102', [auth_claim(1, cid='C-0', date='2026-03-01')])['status'],
+                         'UNABLE_TO_ASSESS')
+
+    def test_a_claim_without_a_readable_submission_date_cannot_be_placed_so_the_history_rules_are_unable(self):
+        earlier = [prior([line(1, 'SVC-LAB', quantity=2)]), auth_claim(9, cid='C-0b', date='2026-03-01')]
+        for bad in (None, '', 'soon', '2026-02-30', 20260310):
+            c = claim([line(1, 'SVC-LAB', quantity=2)], date=bad)
+            self.assertEqual(one(c, 'E101', earlier)['status'], 'UNABLE_TO_ASSESS', bad)
+            self.assertEqual(one(c, 'E103', earlier)['status'], 'UNABLE_TO_ASSESS', bad)
+            a = auth_claim(5, date=bad)
+            self.assertEqual(one(a, 'E102', earlier)['status'], 'UNABLE_TO_ASSESS', bad)
+
+    def test_an_earlier_claim_without_a_readable_date_is_not_treated_as_the_earliest(self):
+        target = claim([line(1, 'SVC-LAB', quantity=2)], date='2026-06-15')
+        for bad in (None, '', 'soon', '2026-02-30'):
+            undated = prior([line(1, 'SVC-LAB', quantity=2)], date=bad)
+            self.assertEqual(one(target, 'E101', [undated])['status'], 'PASS', bad)
+
+    def test_a_fail_wins_over_an_unreadable_part_of_the_same_rule(self):
+        pair_violation_and_unreadable = claim([line(1, 'SVC-EXT-PRIMARY'), line(2, 'SVC-EXT-COMPONENT'), line(3, 'SVC-EXT-NEVER', date=None)])
+        self.assertEqual(one(pair_violation_and_unreadable, 'E001')['status'], 'FAIL')
+        dup_and_unreadable = claim([line(1, 'SVC-LAB'), {**line(2, 'SVC-LAB'), 'quantity': 'two'}])
+        self.assertEqual(one(dup_and_unreadable, 'E101', [prior([line(1, 'SVC-LAB')])])['status'], 'FAIL')
+        daily = claim([line(1, 'SVC-LAB', quantity=3), line(2, 'SVC-LAB', date='soon')])
+        self.assertEqual(one(daily, 'E103', [prior([line(1, 'SVC-LAB', quantity=1)])])['status'], 'FAIL')
+
+
 class HistoryAccessTests(unittest.TestCase):
     def test_the_history_is_asked_once_per_claim_however_many_rules_use_it(self):
         class Counting:

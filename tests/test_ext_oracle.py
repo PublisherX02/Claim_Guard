@@ -16,11 +16,11 @@ DATES = st.sampled_from(['2026-03-02'] * 6 + ['2026-03-03'] * 3 + ['2026-03-01',
 CODES = st.sampled_from(['SVC-EXT-PRIMARY'] * 4 + ['SVC-EXT-COMPONENT'] * 4 + ['SVC-EXT-NEVER'] * 2 + ['SVC-EXT-RX'] * 2 +
                         ['SVC-LAB'] * 3 + ['SVC-CONSULT', 'SVC-THERAPY', None])
 MODS = st.sampled_from([None, None, '', 'EDU-SEPARATE', 'EDU-SEPARATE', 'EDU-ROUTE-IV', 'EDU-ROUTE-ORAL', 'x'])
-QTY = st.one_of(*([st.integers(0, 4)] * 6), st.sampled_from([0.5, 1.5, 2.0]), st.just(None))
+QTY = st.one_of(*([st.integers(0, 4)] * 6), st.sampled_from([0.5, 1.5, 2.0, -1, -3]), st.just(None))
 AUTH_IDS = st.sampled_from([None, None, 'A1', 'A1', 'A1', 'A2', ''])
 NOTES = st.sampled_from([None, '', 'x', 'Event date: 2026-03-01', 'Event date: 2026-03-05', 'Event date: 2026-02-30', 'Event date:2026-03-02'])
 DIAGNOSES = st.sampled_from(['DX-EXT-ACCIDENT', 'DX-EXT-ACCIDENT', 'DX-EXT-SECONDARY', 'DX-EDU-01', None, ''])
-SUBMITTED = st.sampled_from(['2026-03-10', '2026-03-11', '2026-04-01', None])
+SUBMITTED = st.sampled_from(['2026-03-10', '2026-03-11', '2026-04-01', None, 'soon'])
 LIMITS = st.one_of(*([st.integers(0, 12)] * 8), st.just(None), st.just('x'))
 
 
@@ -52,7 +52,7 @@ def claims(draw, claim_id):
 def worlds(draw):
     ids = draw(st.lists(st.sampled_from(['C2', 'C3', 'C4']), min_size=0, max_size=3, unique=True))
     cs = [draw(claims('C1'))] + [draw(claims(i)) for i in ids]
-    cs[0]['submission_date'] = draw(st.sampled_from(['2026-04-01'] * 5 + ['2026-03-11', None]))
+    cs[0]['submission_date'] = draw(st.sampled_from(['2026-04-01'] * 8 + ['2026-03-11', None, '2026-02-30']))
     if draw(st.booleans()):                           # a pair scenario: primary plus component or never-bundle partner
         n = len(cs[0]['lines'])
         day = draw(st.sampled_from(['2026-03-02', '2026-03-03']))
@@ -62,9 +62,20 @@ def worlds(draw):
              'unit_price': 1, 'net_amount': 1, 'authorization_id': None},
             {'line_id': f'L{n + 2}', 'service_code': partner, 'service_date': draw(st.sampled_from([day, day, '2026-03-01'])),
              'modifier': draw(st.sampled_from([None, 'EDU-SEPARATE'])), 'quantity': 1, 'unit_price': 1, 'net_amount': 1,
-             'authorization_id': None}]
+             'authorization_id': None},
+            {'line_id': f'L{n + 3}', 'service_code': 'SVC-EXT-RX', 'service_date': day,
+             'modifier': draw(st.sampled_from(['EDU-ROUTE-IV', 'EDU-ROUTE-ORAL', None, 'x'])), 'quantity': 1, 'unit_price': 1,
+             'net_amount': 1, 'authorization_id': None}]
+    if len(cs) > 1 and draw(st.booleans()):           # an authorization used up across two claims of one patient and provider
+        cs[0]['patient_id'], cs[0]['provider_id'], cs[0]['submission_date'] = 'P1', 'V1', '2026-04-01'
+        cs[1].update(patient_id='P1', provider_id='V1', submission_date='2026-03-10')
+        for c, qty in ((cs[0], draw(st.integers(1, 6))), (cs[1], draw(st.integers(1, 6)))):
+            c['lines'] = [{'line_id': 'L1', 'service_code': 'SVC-THERAPY', 'service_date': '2026-03-02', 'modifier': None,
+                           'quantity': qty, 'unit_price': 1, 'net_amount': qty, 'authorization_id': 'A1'}]
+            c['authorizations'] = [{'authorization_id': 'A1', 'max_quantity': draw(st.integers(3, 9))}]
+        return cs
     for other in cs[1:]:
-        other['submission_date'] = draw(st.sampled_from(['2026-03-10', '2026-03-10', '2026-03-11', '2026-04-01']))
+        other['submission_date'] = draw(st.sampled_from(['2026-03-10', '2026-03-10', '2026-03-11', '2026-04-01', None]))
         if draw(st.booleans()):                       # an earlier claim that repeats the target's lines, patient and provider
             other.update(patient_id=cs[0]['patient_id'], provider_id=cs[0]['provider_id'])
             other['lines'] = [dict(l) for l in cs[0]['lines']]
@@ -74,7 +85,7 @@ def worlds(draw):
 
 SEEN = {}
 # statuses a rule can never give by its definition: E005 has no not-applicable case, and E001/E002/E004 cannot be unable except through dates
-IMPOSSIBLE = {('E005', 'NOT_APPLICABLE'), ('E004', 'UNABLE_TO_ASSESS'), ('E101', 'NOT_APPLICABLE'), ('E004', 'UNABLE_TO_ASSESS')}
+IMPOSSIBLE = {('E005', 'NOT_APPLICABLE'), ('E004', 'UNABLE_TO_ASSESS'), ('E101', 'NOT_APPLICABLE')}
 
 
 def compare(test, everything):

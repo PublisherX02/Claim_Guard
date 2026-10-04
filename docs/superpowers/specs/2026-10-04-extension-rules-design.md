@@ -53,7 +53,7 @@ absent gives `NOT_APPLICABLE`.
 | E001 | Procedure pair without exception | Two lines on the same date whose service codes form a listed pair, and the secondary line carries no exception modifier (`EDU-SEPARATE`) | CMS NCCI Policy Manual ch. 1: column one / column two pairs; confirmed | medium |
 | E002 | Exception modifier on a never-bundle pair | A listed pair marked `modifier_allowed: false` appears with an exception modifier anyway | CMS NCCI modifier indicator 0 (no modifier may bypass) versus 1 (may bypass); confirmed | high |
 | E003 | Situational date dependency | A diagnosis marked `requires_event_date` needs an event date in the notes or attachment text, written `Event date: YYYY-MM-DD`, valid and not after the earliest service date | WEDI SNIP level 4 "if A then B" inter-segment rule; confirmed as a pattern. The diagnosis-to-event-date pairing is our fictional instance, not a published edit | medium |
-| E004 | Route of administration | A service in category `pharmaceutical` (SVC-PHARM) needs a line modifier from the route list (`EDU-ROUTE-ORAL`, `EDU-ROUTE-IV`, `EDU-ROUTE-TOPICAL`) | eClaimLink publishes a Route Of Administration coding set; the rule "a drug line must carry a route" is the research report's claim and **not independently confirmed**, so the card says so | medium |
+| E004 | Route of administration | A service in category `pharmaceutical` (the fictional `SVC-EXT-RX`; the official `SVC-PHARM` is deliberately not covered, see "Where the data comes from") needs a line modifier from the route list (`EDU-ROUTE-ORAL`, `EDU-ROUTE-IV`, `EDU-ROUTE-TOPICAL`) | eClaimLink publishes a Route Of Administration coding set; the rule "a drug line must carry a route" is the research report's claim and **not independently confirmed**, so the card says so | medium |
 | E005 | Primary diagnosis validity | The header diagnosis is marked `secondary_only` and cannot be the primary reason for the claim | ICD-10-CM Official Guidelines: manifestation ("code first") codes cannot be first-listed; confirmed through payer policies that quote them | medium |
 | E101 | Duplicate of an earlier claim | A line equals a line of an earlier claim for the same patient and provider on service code, service date, quantity and net amount | CARC 18 "exact duplicate claim/service"; confirmed | high |
 | E102 | Authorization exhausted across claims | Units under one authorization id in earlier claims plus this claim exceed that authorization's `max_quantity`, when earlier claims contributed units | Cumulative authorization tracking as in NPHIES (not independently confirmed); extends our R009 | high |
@@ -64,7 +64,12 @@ claim), R006 or R013, and take no side on the `EDU-SEPARATE` policy question alr
 first public-data experiment showed E102 flagging 8 claims that R009 already fails, because it also counted a single claim's own
 excess; it was narrowed to the cross-claim case.)
 
-**Earlier claim** means: same `patient_id`, a different `claim_id`, and ordered before this one by `(submission_date, claim_id)`.
+**Earlier claim** means: same `patient_id`, a different `claim_id`, and ordered before this one by `(submission_date, claim_id)`, where the
+date must be a real `YYYY-MM-DD` day. A claim whose date is missing or unreadable cannot be placed: it is never anyone's earlier claim and the
+history rules report `UNABLE_TO_ASSESS` for it (found by the final review: an undated claim used to sort as the earliest of all).
+Identifiers (claim, patient, provider, authorization) are matched exactly, case and spaces included. Quantities and limits used in a
+sum must be finite and not negative; a negative or unreadable one makes the group unable rather than letting it cancel real units
+(also from the final review).
 That total order makes the result for a given claim independent of how many later claims exist, and a batch run reproducible.
 A corrected re-submission with the same `claim_id` is never its own history. If no history is supplied, E101..E103 give
 `UNABLE_TO_ASSESS` with the message "claim history not available".

@@ -26,5 +26,21 @@ class OfficialEngineUntouchedTests(unittest.TestCase):
             self.assertEqual(eb.official_results_hash(split), digest, split)
 
 
+class SchemaSeparationTests(unittest.TestCase):
+    def test_the_official_result_schema_rejects_an_extension_result(self):
+        import extension_rules as ex
+        from ext_world import claim, line
+        from schema_subset import validate
+        official = json.loads((ROOT / 'schemas' / 'result.schema.json').read_text(encoding='utf-8'))
+        for result in ex.evaluate_extensions(claim([line(1, 'SVC-LAB')]), None):
+            with self.assertRaises(ValueError):
+                validate(result, official)
+
+    def test_no_extension_rule_id_looks_like_an_official_one(self):
+        import extension_rules as ex
+        for rid in ex.DETAIL_FUNCS:
+            self.assertTrue(rid.startswith('E') and not rid.startswith('R'), rid)
+
+
 if __name__ == '__main__':
     unittest.main()
