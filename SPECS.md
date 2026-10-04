@@ -379,7 +379,7 @@ Residual: the offline file-based review flow has no authentication (the reviewer
 | Phase 2 evaluation | Nine cited example sets in three evidence tiers (organizer key, independent oracle, hand-derived); F1 1.0 on the three public splits, no valid claim flagged, FHIR path 0.9745 (R009 abstains); `docs/29_Test_Evaluation_Report.md`, evidence in `outputs/evaluation/` |
 | Fuzzing | Six trust boundaries, 25 property tests at 3,000 generated examples each plus one regression test, all passing; two defects found and fixed (section 10a) |
 | Security and red team | `docs/20` |
-| Suite | 909 tests, offline (420 of them verified in CI on Python 3.10, 3.12 and 3.14; all 909 passed locally on all three in fresh environments built from `requirements-dev.txt`, 2026-10-04); the committed audit sample's 6,000 result hashes are re-checked |
+| Suite | 1009 tests, offline (420 of them verified in CI on Python 3.10, 3.12 and 3.14; all 1009 passed locally on all three in fresh environments built from `requirements-dev.txt`, 2026-10-04); the committed audit sample's 6,000 result hashes are re-checked |
 
 **Independent oracle at scale.** `tests/oracle.py` reimplements the 15 rules from `rules/rules.json` and `docs/04` alone; it imports nothing from `src/`, so the engine and the oracle cannot share a bug by construction — a mistake would have to be made independently, the same way, in both. `scripts/status_coverage.py` generates 107,635 claims with `tests/claim_gen.py` (half seeded from a fully valid claim then randomly damaged, half fully independent-random fields), scores each with both the engine and the oracle, and hard-fails on the first disagreement rather than only counting them, so the artifact below is either "0 disagreements" or the run did not complete:
 
@@ -597,6 +597,47 @@ would show more. These numbers describe this machine, not a deployment.
 - The security log's event listing (administrators only) still re-reads its file per request, which is acceptable at audit volumes.
 - A code is accepted only in the exact 30-second step in which it is shown, so a code typed in the last second of a step is refused
   and the user simply tries the next one; widening the window would weaken the replay guarantee.
+
+### 10e. Extension rules (advisory)
+
+**What and why.** The mentor said there are more than fifteen rules and gave fifteen. To show the team did not take them as given, eight
+further deterministic checks were built from real claim-validation practice (CMS NCCI and MUE, WEDI SNIP, ICD-10-CM sequencing, CARC 18,
+cumulative authorization tracking). They are advisory: their own pack (`rules/extensions.yar`, generated from the catalogue and kept
+identical by a test), result schema (`schemas/extension_result.schema.json`), output file and ids (`E001` to `E005` on one claim,
+`E101` to `E103` using earlier claims; the `E` prefix avoids the mentor's probable `R016` and up). They never change the official
+verdict. Full rule cards, sources and limits: `docs/30_Extension_Rules.md`.
+
+**Separation, proved by tests.** The ten official engine, rule and schema files are byte-for-byte what they were before the work
+(SHA-256, insensitive to line endings), and the official results on all three public splits hash to the values recorded before it.
+
+**Honesty about the data.** The teaching catalogue has six services and six diagnoses, with no pair tables, drug flags or accident
+flags. The rule logic is real; the attributes are invented, live in a catalogue labelled fictional, and use codes outside the teaching
+catalogue. This was forced by measurement: every pair of real services occurs together on one date in 36 to 54 public claims, so a
+pair rule on real codes would flag dozens of valid claims. Consequently E001 to E005 cannot fire on public data, and the three
+cross-claim rules cannot either (every one of the 600 patients has one claim); all are verified on constructed scenarios.
+
+**"Earlier claim"** is defined once: same non-empty patient, a different claim id, ordered strictly before by (submission date, claim
+id). A claim's result therefore does not depend on later claims. No history, or a history store that returns anything but a list of
+claims, gives `UNABLE_TO_ASSESS`, never a pass.
+
+**Findings during the work.** (1) The first public-data run showed E102 flagging 8 claims that the official R009 already fails (a single
+claim's own excess); it now fires only when earlier claims contributed units, as E103 does. (2) The independent oracle first accepted
+only whole-number quantities while the public data has 1.5; 18 of 4,800 comparisons disagreed until the oracle was fixed. (3) Fuzzing
+found a history store returning an empty dict was read as "no earlier claims"; it now fails closed. (4) The coverage guard on the
+generated oracle test caught that the first generator never produced an E002 failure.
+
+**Tests.** An independent oracle compared on 500 generated claim-and-history worlds; scenario tests with the status fixed by
+construction, boundary cases included; Hypothesis fuzzing (arbitrary JSON claims and histories, hostile text, a misbehaving history,
+large inputs), also in `scripts/fuzz_campaign.py`; 21 mutation checks of the tests, 20 caught and one equivalent mutant; a forgery test
+(an authorization id imitating fact tags creates no foreign finding).
+
+**Evidence** (`outputs/evaluation/extensions.json`): 0 findings on the 600 public claims; engine and oracle agree on 4,800 of 4,800
+results; 29 of 29 constructed scenarios (95% upper bound on the disagreement rate 9.8%); about 5 ms per claim with 50 earlier claims,
+about 9 ms with 10,000 other claims in the history.
+
+**Limits.** Sources for E004 (route of administration) and E102 (NPHIES cumulative tracking) could not be confirmed independently; the
+cards say so. The pair table, modifiers and event-date wording are our choices. Advisory findings are not yet shown in the reviewer
+API or used by routing; that belongs to the queue work, which will also replace the in-memory history with a database-backed one.
 
 ## 11. Experiments in detail
 

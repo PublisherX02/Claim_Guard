@@ -110,6 +110,7 @@ All **310** differences in the 9,000 results are this one case: 287 results the 
 | **Test evaluation report** | `docs/29_Test_Evaluation_Report.md`, tables generated from the evidence and checked by a test | `python -m unittest discover -s tests -p test_eval_report.py` |
 | **Robustness of the trust boundaries** (supports the safety guards) | `tests/test_fuzz_*.py`, `scripts/fuzz_campaign.py`, [Fuzz testing](#fuzz-testing) | `python scripts/fuzz_campaign.py --examples 3000` (about 6 minutes) |
 | **Identity and access** (login with badge, password and authenticator code; four clearance levels; hide-not-disable responses; decisions bound to the session) | `src/access/`, `scripts/access_admin.py`, `scripts/serve_access.py`, [SPECS.md section 10d](SPECS.md), `docs/superpowers/specs/2026-10-04-identity-access-design.md` | `python scripts/access_experiments.py all` runs 25 checks against a real server; evidence in `outputs/defense/access.json` |
+| **Extension rules** (eight advisory checks beyond the mentor's fifteen: procedure pairs and modifiers, event-date and route requirements, diagnosis sequencing, and three that read earlier claims) | `rules/extensions/`, `src/extension_rules.py`, `src/claim_history.py`, `scripts/run_extensions.py`, `docs/30_Extension_Rules.md`, [SPECS.md section 10e](SPECS.md) | `python scripts/extension_experiments.py`; the official engine files and results are pinned by `tests/test_ext_separation.py` |
 | Human-in-the-loop routing by confidence, overrides and feedback log, work dispatcher, privacy and security note | Not built; see the table above | |
 
 ### Running the reviewer API
@@ -164,7 +165,7 @@ This is a narrated tour of the whole pipeline in eight scenes: ingestion of FHIR
 **3. Run the tests**
 
 ```bash
-python -m unittest discover -s tests          # 909 tests, about 2 min, offline, no API key needed
+python -m unittest discover -s tests          # 1009 tests, about 2 min, offline, no API key needed
 python scripts/fuzz_campaign.py --examples 3000   # deeper fuzz run of the six trust boundaries (about 6 min); writes outputs/defense/fuzz.json
 ```
 
@@ -213,7 +214,7 @@ Expected: `evaluate.py` prints status accuracy 1.0 for the development split; `v
 | Independent oracle agreement (rules written again from the rulebook text alone) | **0 disagreements** over 107,635 generated claims (`scripts/status_coverage.py`), plus 37,000 boundary-aware mutants and 123 hand-derived edge cases |
 | Phase 2 detection evaluation | F1 **1.0** on the 50-claim split, the 150-claim validation split and the 400-claim development split; **no valid claim flagged** in any set (0 of 160 development claims with no failure, upper bound 1.85%); 0 disagreements with the independent oracle over 107,635 generated claims, 33,945 mutants and 123 hand-derived boundary cases. Through FHIR, F1 falls to 0.9745 because authorizations are not carried (rule R009 abstains; no failure becomes a pass). Every example set is cited with its label origin. `docs/29_Test_Evaluation_Report.md` |
 | Fuzz testing | **Six trust boundaries**, 25 property tests at 3,000 generated examples each plus one regression test, all passing; two real defects found and fixed (see Fuzz testing below). `outputs/defense/fuzz.json` |
-| Tests | 909, none needing a network or an API key; 54 of them exercise MongoDB and are skipped, loudly, unless `MONGO_URI` is set. 420 were last verified in CI on Python 3.10, 3.12 and 3.14 (commit named in `docs/19`); all 909 then passed locally (with MongoDB) on 3.10, 3.12 and 3.14 in fresh environments built from `requirements-dev.txt` (2026-10-04), and CI confirms after the push |
+| Tests | 1009, none needing a network or an API key; 54 of them exercise MongoDB and are skipped, loudly, unless `MONGO_URI` is set. 420 were last verified in CI on Python 3.10, 3.12 and 3.14 (commit named in `docs/19`); all 1009 then passed locally (with MongoDB) on 3.10, 3.12 and 3.14 in fresh environments built from `requirements-dev.txt` (2026-10-04), and CI confirms after the push |
 | Live AI explanations (Mistral-Nemo-Instruct-2407 via Featherless.ai, prompt v1.6.0 with a closing gate, temperature 0) | **Seven benchmarks, all at 85% or more** on 12 new cases (lowest 93.2%): 97.5% live, 93.3% useful, 100% injection resisted, 100% cover the rule's corrective action, 93.2% cite an observed evidence value, 93.2% name a next step, 0 garbled answers shown. Chosen by four rounds of experiments, see below |
 | Local, free alternative (`gemma3:4b` via Ollama) | Beats the paid, hosted default on every automated metric: 97.2% live vs. 94.4%, 3.0 s vs. 4.1 s median latency, 0 garbled replies across an 84-case stress test. See below |
 | Security | audited against the OWASP Top 10 for LLM Applications and the OWASP Top 10: `docs/20_Security_Audit.md` |
@@ -323,7 +324,7 @@ Also built and tested, but off by default: a **cascade** (fluent model, then a r
 | `rules/` | `core.yar` (compiled rule pack), `rules.json`, `policies.json`, catalogues |
 | `schemas/` | JSON schemas for claims, results and review events |
 | `data/` | 600 synthetic claims in three splits, in JSONL, CSV and FHIR forms, with the public answer key |
-| `tests/` | 909 tests, including `oracle.py` (independent reference implementation), the stress and security suites, and the `test_fuzz_*.py` fuzz tests with their shared `fuzz_strategies.py` |
+| `tests/` | 1009 tests, including `oracle.py` (independent reference implementation), the stress and security suites, and the `test_fuzz_*.py` fuzz tests with their shared `fuzz_strategies.py` |
 | `scripts/` | `demo.py` (narrated tour), audited runs, audit verification, `draw_diagrams.py`, AI evaluation, `fuzz_campaign.py` (deep fuzz run) and the experiment runner |
 | `experiments/` | Raw experiment data and `summary.json`; figures are in `docs/figures/` |
 | `outputs/` | Frozen evidence: metrics, audit samples, recorded live AI runs |
@@ -336,6 +337,7 @@ Also built and tested, but off by default: a **cascade** (fluent model, then a r
 |---|---|
 | [SPECS.md](SPECS.md) | Detailed specification: contracts, rules, the AI step, audit log, security, and every experiment |
 | [BLUEPRINT.md](BLUEPRINT.md) | The project as an information system: the submission deliverables and where each lives, quality characteristics (reliability, security, interoperability, performance, portability, maintainability), the business model canvas with cited desk research, the 12 realisation steps each with its proof of success, the environment tests, and seven UML diagrams |
+| [docs/30_Extension_Rules.md](docs/30_Extension_Rules.md) | The eight advisory extension rules E001 to E005 and E101 to E103: logic, source (confirmed or not), what is invented, tests and evidence |
 | `docs/29_Test_Evaluation_Report.md` | Phase 2 test evaluation: macro F1 by rule category, false positives on valid claims, latency, nine cited example sets, limitations |
 | `docs/27_Decisions_Proofs_and_Defense.md` | Every major decision: what we rejected, the experiment or test that backs it, and the likely challenge with its answer |
 | `docs/04_Rulebook.md` | The 15 fictional rules |
