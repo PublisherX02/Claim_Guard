@@ -92,6 +92,27 @@ _REQUIRED = {
     'advisory_check': {'run_id', 'claim_id', 'check_id', 'detail'},
 }
 
+# Events of the reviewer API's security log (src/access/securitylog.py, which also refuses fields that could carry a secret).
+# This table only says which fields each type must have.
+SECURITY_EVENTS = {
+    'login_success': {'badge_id'},
+    'login_failure': {'reason'},
+    'lockout': {'badge_id'},
+    'logout': {'badge_id'},
+    'token_rejected': {'reason'},
+    'forbidden': {'badge_id', 'method', 'path'},
+    'unmask': {'badge_id', 'claim_id', 'reason'},
+    'user_created': {'actor', 'badge_id', 'level'},
+    'user_updated': {'actor', 'badge_id', 'changes'},
+    'user_unlocked': {'actor', 'badge_id'},
+    'totp_reset': {'actor', 'badge_id'},
+    'password_changed': {'badge_id'},
+    'audit_read': {'badge_id'},
+    'audit_verify': {'badge_id', 'ok'},
+    'decision': {'badge_id', 'claim_id', 'rule_id', 'action'},
+}
+_REQUIRED.update(SECURITY_EVENTS)
+
 
 def _validate_system_event(event):
     kind = event.get('event_type')
