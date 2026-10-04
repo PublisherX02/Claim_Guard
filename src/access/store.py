@@ -44,6 +44,47 @@ def check_text(value, what='identifier'):
     return value
 
 
+def _is_number(v):
+    return type(v) in (int, float)
+
+
+def _text_list(v):
+    return isinstance(v, (tuple, list)) and all(type(x) is str for x in v)
+
+
+_FIELD_CHECKS = {
+    'badge_id': lambda v: type(v) is str and bool(v),
+    'name': lambda v: type(v) is str,
+    'password_hash': lambda v: type(v) is str,
+    'totp_secret_enc': lambda v: type(v) is str,
+    'level': lambda v: type(v) is int and v in (1, 2, 3, 4),
+    'grants': _text_list,
+    'revokes': _text_list,
+    'active': lambda v: type(v) is bool,
+    'failed_attempts': lambda v: type(v) is int and v >= 0,
+    'locked_until': lambda v: v is None or _is_number(v),
+    'must_change_password': lambda v: type(v) is bool,
+    'created_by': lambda v: type(v) is str,
+    'created_at': _is_number,
+    'last_login': lambda v: v is None or _is_number(v),
+}
+
+
+def validate_field(name, value):
+    """Every stored field has exactly one acceptable type; anything else (a dict, a list, a number where text belongs) is
+    refused before it can reach a database query or document."""
+    check = _FIELD_CHECKS.get(name)
+    if check is None or not check(value):
+        raise TypeError(f'{name} has the wrong type')
+
+
+def validate_user(user):
+    if not isinstance(user, User):
+        raise TypeError('user must be a User')
+    for name in _FIELD_CHECKS:
+        validate_field(name, getattr(user, name))
+
+
 def copy_user(user):
     return replace(user, grants=tuple(user.grants), revokes=tuple(user.revokes))
 
@@ -73,9 +114,7 @@ class MemoryStore:
         return True
 
     def create_user(self, user):
-        if not isinstance(user, User):
-            raise TypeError('user must be a User')
-        check_text(user.badge_id, 'badge_id')
+        validate_user(user)
         with self._lock:
             if user.badge_id in self._users:
                 raise DuplicateBadge(user.badge_id)
@@ -96,6 +135,8 @@ class MemoryStore:
         unknown = set(fields) - UPDATABLE
         if unknown:
             raise ValueError(f'cannot update: {", ".join(sorted(unknown))}')
+        for name, value in fields.items():
+            validate_field(name, value)
         with self._lock:
             user = self._users.get(badge_id)
             if user is None:

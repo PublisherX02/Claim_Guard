@@ -180,6 +180,27 @@ class StoreContract:
                     call(value)
         self.assertEqual(st.get_user('CG-0001').failed_attempts, 0)
 
+    def test_wrongly_typed_fields_are_rejected_on_create(self):
+        st = self.make_store()
+        bad_fields = [dict(name=5), dict(name={'$set': 'x'}), dict(password_hash=None), dict(totp_secret_enc=b'x'),
+                      dict(level='2'), dict(level=True), dict(level=0), dict(level=5), dict(grants='abc'), dict(grants=(1,)),
+                      dict(revokes=({'a': 1},)), dict(active='yes'), dict(failed_attempts=-1), dict(failed_attempts=1.5),
+                      dict(locked_until='soon'), dict(must_change_password=1), dict(created_by=None), dict(created_at='now')]
+        for i, over in enumerate(bad_fields):
+            with self.assertRaises(TypeError, msg=repr(over)):
+                st.create_user(make_user(f'CG-{1000 + i}', **over))
+        self.assertEqual(st.list_users(), [])
+
+    def test_wrongly_typed_values_are_rejected_on_update(self):
+        st = self.make_store()
+        st.create_user(make_user('CG-0001'))
+        for field, value in (('name', 5), ('level', '3'), ('level', True), ('level', 9), ('active', 'no'), ('grants', 'x'),
+                             ('grants', [{'$ne': 1}]), ('failed_attempts', -3), ('locked_until', 'x'),
+                             ('password_hash', {'$set': 1}), ('must_change_password', None)):
+            with self.assertRaises(TypeError, msg=f'{field}={value!r}'):
+                st.update_user('CG-0001', **{field: value})
+        self.assertEqual(st.get_user('CG-0001'), make_user('CG-0001'))
+
     def test_create_user_requires_a_user_object(self):
         st = self.make_store()
         for bad in ({'badge_id': 'CG-0001'}, None, 'CG-0001'):

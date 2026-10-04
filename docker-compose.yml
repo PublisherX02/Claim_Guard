@@ -1,0 +1,28 @@
+# MongoDB for the reviewer API's user store (src/access/store_mongo.py).
+# For local development and demos. The published port is bound to localhost only; authentication is on, and the root
+# credentials come from your git-ignored .env file with no defaults, so nothing here can start with a guessable password.
+#
+#   1. put MONGO_ROOT_USER and MONGO_ROOT_PASSWORD in .env (see .env.example)
+#   2. docker compose up -d mongo
+#   3. MONGO_URI=mongodb://<user>:<password>@127.0.0.1:27017/?authSource=admin
+services:
+  mongo:
+    image: mongo:7
+    container_name: claimguard-mongo
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:27017:27017"
+    environment:
+      MONGO_INITDB_ROOT_USERNAME: ${MONGO_ROOT_USER:?set MONGO_ROOT_USER in .env}
+      MONGO_INITDB_ROOT_PASSWORD: ${MONGO_ROOT_PASSWORD:?set MONGO_ROOT_PASSWORD in .env}
+    command: ["mongod", "--auth", "--bind_ip_all"]
+    volumes:
+      - mongo_data:/data/db
+    healthcheck:
+      test: ["CMD", "mongosh", "--quiet", "--eval", "db.runCommand({ping:1}).ok"]
+      interval: 10s
+      timeout: 5s
+      retries: 6
+
+volumes:
+  mongo_data:
