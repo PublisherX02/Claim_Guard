@@ -14,6 +14,7 @@ import json
 import logging
 import re
 import threading
+from decimal import Decimal, InvalidOperation
 from pathlib import Path
 
 import yara_x
@@ -30,6 +31,7 @@ PRECEDENCE = ['FAIL', 'UNABLE_TO_ASSESS', 'NOT_APPLICABLE', 'PASS']
 _OUTCOMES = (('FAIL', '/{rid}:FAIL:/'), ('PASS', '"{rid}:OK"'), ('UNABLE_TO_ASSESS', '"{rid}:UNKNOWN"'), ('NOT_APPLICABLE', '"{rid}:NA"'))
 
 _catalogue = None
+_limits = None
 _compiled = None
 _LOCK = threading.RLock()
 
@@ -230,13 +232,180 @@ def e005_details(view, cat, history):
             'message': 'The header diagnosis may be used as the primary diagnosis.'}
 
 
+# ---------------------------------------------------------------------------------------------------- E101, E102, E103
+NO_HISTORY = 'Claim history is not available, so earlier claims could not be checked.'
+
+
+def _num(value):
+    """A finite number, or None. Booleans are not quantities."""
+    if isinstance(value, bool) or not isinstance(value, (int, float, Decimal)):
+        return None
+    try:
+        d = Decimal(str(value))
+    except InvalidOperation:
+        return None
+    return d if d.is_finite() else None
+
+
+def _official_limits():
+    global _limits
+    with _LOCK:
+        if _limits is None:
+            services = json.loads((ROOT / 'rules' / 'services.json').read_text(encoding='utf-8'))
+            _limits = {code: Decimal(str(v['max_quantity'])) for code, v in services.items()}
+        return _limits
+
+
+def _earlier_views(view, history):
+    out = []
+    for prev in history.earlier_claims(view):
+        try:
+            out.append(rule_view(prev))
+        except Exception:  # noqa: BLE001 - an earlier claim that cannot be read contributes nothing
+            continue
+    return out
+
+
+def _party(view):
+    patient, provider = view.get('patient_id'), view.get('provider_id')
+    return provider if isinstance(patient, str) and patient and isinstance(provider, str) and provider else None
+
+
+def _line_key(row):
+    code, day, qty, net = row.get('service_code'), valid_date(row.get('service_date')), _num(row.get('quantity')), _num(row.get('net_amount'))
+    if not isinstance(code, str) or not code or day is None or qty is None or net is None:
+        return None
+    return code, day, qty, net
+
+
+def e101_details(view, cat, history):
+    if history is None:
+        return _unknown('E101', NO_HISTORY)
+    provider = _party(view)
+    if provider is None:
+        return _unknown('E101', 'The claim has no readable patient or provider, so earlier claims could not be matched.')
+    seen = set()
+    for prev in _earlier_views(view, history):
+        if prev.get('provider_id') == provider:
+            seen.update(k for k in (_line_key(r) for _, r in _lines(prev)) if k is not None)
+    facts, paths, ids, unreadable = [], [], [], False
+    for i, row in _lines(view):
+        key = _line_key(row)
+        if key is None:
+            unreadable = True
+        elif key in seen:
+            facts.append(f'E101:FAIL:{i}')
+            paths += _line_paths(i, 'service_code', 'service_date', 'quantity', 'net_amount')
+            if _line_id(row):
+                ids.append(_line_id(row))
+    if unreadable:
+        facts.append('E101:UNKNOWN')
+    if any(f.startswith('E101:FAIL:') for f in facts):
+        return {'facts': facts, 'evidence_paths': paths, 'line_ids': ids,
+                'message': 'A line is identical (patient, provider, service, date, quantity and amount) to a line of an earlier claim.'}
+    if unreadable:
+        return {'facts': facts, 'evidence_paths': ['/claim_id'], 'line_ids': [],
+                'message': 'A line has an unreadable service, date, quantity or amount, so it could not be compared with earlier claims.'}
+    return {'facts': ['E101:OK'], 'evidence_paths': ['/claim_id'], 'line_ids': [], 'message': 'No line repeats a line of an earlier claim.'}
+
+
+def e102_details(view, cat, history):
+    groups = {}
+    for i, row in _lines(view):
+        aid = row.get('authorization_id')
+        if isinstance(aid, str) and aid:
+            groups.setdefault(aid, []).append((i, row))
+    if not groups:
+        return _na('E102', 'No line references an authorization.')
+    if history is None:
+        return _unknown('E102', NO_HISTORY)
+    records = {}
+    for k, a in enumerate(view.get('authorizations') or []):
+        if isinstance(a, dict) and isinstance(a.get('authorization_id'), str):
+            records.setdefault(a['authorization_id'], (k, a))
+    earlier = _earlier_views(view, history)
+    facts, paths, ids, unreadable = [], [], [], False
+    for aid, rows in groups.items():
+        k, rec = records.get(aid, (None, None))
+        limit = _num(rec.get('max_quantity')) if rec else None
+        used = [_num(r.get('quantity')) for _, r in rows]
+        for prev in earlier:
+            used += [_num(r.get('quantity')) for _, r in _lines(prev) if r.get('authorization_id') == aid]
+        if limit is None or any(u is None for u in used):
+            unreadable = True
+        elif sum(used) > limit:
+            facts.append(f'E102:FAIL:{_q(aid)}')
+            for i, r in rows:
+                paths += _line_paths(i, 'authorization_id', 'quantity')
+                if _line_id(r):
+                    ids.append(_line_id(r))
+            paths.append(f'/authorizations/{k}/max_quantity')
+    if unreadable:
+        facts.append('E102:UNKNOWN')
+    if any(f.startswith('E102:FAIL:') for f in facts):
+        return {'facts': facts, 'evidence_paths': paths, 'line_ids': list(dict.fromkeys(ids)),
+                'message': 'Units under this authorization in earlier claims plus this claim exceed its approved maximum.'}
+    if unreadable:
+        return {'facts': facts, 'evidence_paths': ['/claim_id'], 'line_ids': [],
+                'message': 'An authorization record, its maximum, or a quantity is missing or unreadable, so the total could not be checked.'}
+    return {'facts': ['E102:OK'], 'evidence_paths': ['/claim_id'], 'line_ids': [],
+            'message': 'Units under every referenced authorization stay within its approved maximum.'}
+
+
+def e103_details(view, cat, history):
+    limits = _official_limits()
+    groups, unreadable = {}, False
+    for i, row in _lines(view):
+        code = row.get('service_code')
+        if code not in limits:
+            continue
+        day, qty = valid_date(row.get('service_date')), _num(row.get('quantity'))
+        if day is None or qty is None:
+            unreadable = True
+            continue
+        groups.setdefault((code, day), []).append((i, row, qty))
+    if not groups and not unreadable:
+        return _na('E103', 'No line uses a service with a daily limit.')
+    if history is None:
+        return _unknown('E103', NO_HISTORY)
+    provider = _party(view)
+    if provider is None:
+        return _unknown('E103', 'The claim has no readable patient or provider, so earlier claims could not be matched.')
+    earlier_units = {}
+    for prev in _earlier_views(view, history):
+        if prev.get('provider_id') != provider:
+            continue
+        for _, r in _lines(prev):
+            code, day, qty = r.get('service_code'), valid_date(r.get('service_date')), _num(r.get('quantity'))
+            if code in limits and day is not None and qty is not None:
+                earlier_units[(code, day)] = earlier_units.get((code, day), Decimal(0)) + qty
+    facts, paths, ids = [], [], []
+    for (code, day), rows in groups.items():
+        before = earlier_units.get((code, day), Decimal(0))
+        if before > 0 and before + sum(q for _, _, q in rows) > limits[code]:
+            facts.append(f'E103:FAIL:{_q(code)}:{day.isoformat()}')
+            for i, r, _ in rows:
+                paths += _line_paths(i, 'service_code', 'service_date', 'quantity')
+                if _line_id(r):
+                    ids.append(_line_id(r))
+    if unreadable:
+        facts.append('E103:UNKNOWN')
+    if any(f.startswith('E103:FAIL:') for f in facts):
+        return {'facts': facts, 'evidence_paths': paths, 'line_ids': ids,
+                'message': 'Units of this service on this date for this patient and provider, in earlier claims plus this claim, exceed the daily limit.'}
+    if unreadable:
+        return {'facts': facts, 'evidence_paths': ['/claim_id'], 'line_ids': [],
+                'message': 'A line has an unreadable date or quantity, so the daily total could not be checked.'}
+    return {'facts': ['E103:OK'], 'evidence_paths': ['/claim_id'], 'line_ids': [], 'message': 'Daily totals across claims stay within each service limit.'}
+
+
 def _pending(rid):
     return lambda view, cat, history: _unknown(rid, 'This check is not built yet.')
 
 
 DETAIL_FUNCS = {
     'E001': e001_details, 'E002': e002_details, 'E003': e003_details, 'E004': e004_details, 'E005': e005_details,
-    'E101': _pending('E101'), 'E102': _pending('E102'), 'E103': _pending('E103'),
+    'E101': e101_details, 'E102': e102_details, 'E103': e103_details,
 }
 
 
