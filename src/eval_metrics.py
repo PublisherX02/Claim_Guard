@@ -111,6 +111,7 @@ class Tally:
         self.clean_results = self.clean_false_alarms = 0
         self.disagree = 0
         self.examples = []
+        self.breakdown = Counter()        # (rule, gold, predicted) -> how many times they disagreed
 
     def add_claim(self, claim_id, gold, pred):
         self.n_claims += 1
@@ -122,6 +123,7 @@ class Tally:
             self.pairs[(g, p)] += 1
             if g != p:
                 self.disagree += 1
+                self.breakdown[(rid, g, p)] += 1
                 if len(self.examples) < 10:
                     self.examples.append({'claim_id': claim_id, 'rule_id': rid, 'gold': g, 'predicted': p})
         if len(gold) != len(RULES):       # whole-claim statistics need every rule
@@ -174,7 +176,9 @@ class Tally:
                 'clean_claim_false_abstention': _rate(self.clean_abstain, self.clean_n),
                 'clean_result_false_alarm': _rate(self.clean_false_alarms, self.clean_results),
             },
-            'disagreements': {'count': self.disagree, 'examples': list(self.examples)},
+            'disagreements': {'count': self.disagree, 'examples': list(self.examples),
+                              'breakdown': [{'rule_id': r, 'gold': g, 'predicted': p, 'count': n}
+                                            for (r, g, p), n in sorted(self.breakdown.items())]},
             'fail_error_rate': _rate(sum(c[1] + c[2] for c in self.rule_counts.values()), total),
         }
         if severity:

@@ -114,6 +114,11 @@ class TallyTests(unittest.TestCase):
         self.assertEqual(s['disagreements']['count'], 2)
         self.assertEqual(s['disagreements']['examples'][0]['claim_id'], 'c1')
 
+    def test_breakdown_counts_each_kind_of_disagreement(self):
+        s = self.build().summary()
+        b = {(d['rule_id'], d['gold'], d['predicted']): d['count'] for d in s['disagreements']['breakdown']}
+        self.assertEqual(b, {('R002', 'PASS', 'FAIL'): 1, ('R001', 'FAIL', 'PASS'): 1})
+
     def test_status_accuracy_and_multiclass(self):
         s = self.build().summary()
         self.assertEqual(s['status_accuracy'], 0.5)
