@@ -123,5 +123,101 @@ class PairTests(unittest.TestCase):
         self.assertEqual(statuses(res)['E002'], 'NOT_APPLICABLE')
 
 
+ACC, SEC = 'DX-EXT-ACCIDENT', 'DX-EXT-SECONDARY'
+RX_CODE = 'SVC-EXT-RX'
+ATT = {'attachment_id': 'D1', 'type': 'service-note', 'patient_id': 'PAT-1', 'service_code': 'SVC-CONSULT', 'service_date': '2026-03-02',
+       'document_status': 'final'}
+
+
+def attachment(text):
+    return {**ATT, 'text': text}
+
+
+class EventDateTests(unittest.TestCase):
+    def e3(self, notes='Synthetic claim.', attachments=None, diagnosis=ACC, lines=None):
+        c = claim(lines or [line(1, 'SVC-CONSULT')], diagnosis=diagnosis, notes=notes, attachments=attachments)
+        return run(c)[IDS.index('E003')]
+
+    def test_an_event_date_before_the_first_service_passes(self):
+        self.assertEqual(self.e3('Accident. Event date: 2026-03-01.')['status'], 'PASS')
+
+    def test_an_event_date_equal_to_the_first_service_date_passes(self):
+        self.assertEqual(self.e3('Event date: 2026-03-02')['status'], 'PASS')
+
+    def test_an_event_date_after_the_first_service_fails(self):
+        self.assertEqual(self.e3('Event date: 2026-03-03')['status'], 'FAIL')
+
+    def test_no_event_date_fails(self):
+        for notes in ('Synthetic claim.', '', None):
+            self.assertEqual(self.e3(notes)['status'], 'FAIL', notes)
+
+    def test_the_date_may_be_in_an_attachment(self):
+        r = self.e3(attachments=[attachment('Record. Event date: 2026-02-27')])
+        self.assertEqual(r['status'], 'PASS')
+        self.assertIn('/attachments/0/text', [e['path'] for e in r['evidence']])
+
+    def test_an_impossible_calendar_date_does_not_count(self):
+        for text in ('Event date: 2026-02-30', 'Event date: 2026-13-01', 'Event date: 26-03-01', 'Event date: 2026-03-011'):
+            self.assertEqual(self.e3(text)['status'], 'FAIL', text)
+
+    def test_the_label_is_exact(self):
+        for text in ('event date: 2026-03-01', 'EVENT DATE: 2026-03-01', 'Date of event: 2026-03-01', 'Event  date: 2026-03-01'):
+            self.assertEqual(self.e3(text)['status'], 'FAIL', text)
+
+    def test_one_good_date_among_bad_ones_passes(self):
+        self.assertEqual(self.e3('Event date: 2026-02-30 and later Event date: 2026-03-01')['status'], 'PASS')
+
+    def test_a_diagnosis_without_the_requirement_is_not_applicable(self):
+        for dx in ('DX-EDU-01', SEC, 'anything'):
+            self.assertEqual(self.e3(diagnosis=dx)['status'], 'NOT_APPLICABLE', dx)
+
+    def test_a_missing_diagnosis_is_unable(self):
+        for dx in (None, '', 5):
+            self.assertEqual(self.e3(diagnosis=dx)['status'], 'UNABLE_TO_ASSESS', dx)
+
+    def test_without_any_readable_service_date_it_is_unable_not_pass(self):
+        self.assertEqual(self.e3('Event date: 2026-03-01', lines=[line(1, 'SVC-CONSULT', date='someday')])['status'], 'UNABLE_TO_ASSESS')
+
+    def test_the_earliest_service_date_is_the_one_compared(self):
+        lines = [line(1, 'SVC-CONSULT', date='2026-03-09'), line(2, 'SVC-LAB', date='2026-03-02')]
+        self.assertEqual(self.e3('Event date: 2026-03-05', lines=lines)['status'], 'FAIL')
+
+
+class RouteTests(unittest.TestCase):
+    def e4(self, lines):
+        return run(claim(lines))[IDS.index('E004')]
+
+    def test_a_pharmaceutical_line_with_a_route_modifier_passes(self):
+        for m in ('EDU-ROUTE-ORAL', 'EDU-ROUTE-IV', 'EDU-ROUTE-TOPICAL'):
+            self.assertEqual(self.e4([line(1, RX_CODE, modifier=m)])['status'], 'PASS', m)
+
+    def test_missing_or_wrong_modifier_fails_and_names_only_the_bad_line(self):
+        for m in (None, '', SEPARATE, 'edu-route-oral', 'EDU-ROUTE-ORAL '):
+            r = self.e4([line(1, RX_CODE, modifier='EDU-ROUTE-IV'), line(2, RX_CODE, modifier=m)])
+            self.assertEqual((r['status'], r['affected_line_ids']), ('FAIL', ['L2']), m)
+
+    def test_other_services_are_not_applicable_including_the_official_pharmacy_code(self):
+        self.assertEqual(self.e4([line(1, 'SVC-PHARM'), line(2, 'SVC-CONSULT')])['status'], 'NOT_APPLICABLE')
+        self.assertEqual(self.e4([])['status'], 'NOT_APPLICABLE')
+
+
+class PrimaryDiagnosisTests(unittest.TestCase):
+    def e5(self, dx):
+        return run(claim([line(1, 'SVC-CONSULT')], diagnosis=dx))[IDS.index('E005')]
+
+    def test_a_secondary_only_diagnosis_cannot_be_the_header_diagnosis(self):
+        r = self.e5(SEC)
+        self.assertEqual(r['status'], 'FAIL')
+        self.assertIn('/diagnosis_code', [e['path'] for e in r['evidence']])
+
+    def test_ordinary_and_unlisted_diagnoses_pass(self):
+        for dx in ('DX-EDU-01', ACC, 'unknown-code'):
+            self.assertEqual(self.e5(dx)['status'], 'PASS', dx)
+
+    def test_missing_diagnosis_is_unable(self):
+        for dx in (None, '', 7):
+            self.assertEqual(self.e5(dx)['status'], 'UNABLE_TO_ASSESS', dx)
+
+
 if __name__ == '__main__':
     unittest.main()

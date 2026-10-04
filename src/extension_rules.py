@@ -12,6 +12,7 @@ NOT_APPLICABLE, and an exception inside one rule gives UNABLE_TO_ASSESS for that
 import hashlib
 import json
 import logging
+import re
 import threading
 from pathlib import Path
 
@@ -170,12 +171,71 @@ PASS_MESSAGES = {
 }
 
 
+# ---------------------------------------------------------------------------------------------------- E003, E004, E005
+_EVENT_DATE = re.compile(r'Event date: ?([0-9]{4}-[0-9]{2}-[0-9]{2})(?![0-9])')
+
+
+def _diagnosis(view):
+    dx = view.get('diagnosis_code')
+    return dx if isinstance(dx, str) and dx else None
+
+
+def e003_details(view, cat, history):
+    dx = _diagnosis(view)
+    if dx is None:
+        return _unknown('E003', 'The claim has no readable diagnosis code, so the event-date requirement could not be checked.')
+    if not cat['diagnoses'].get(dx, {}).get('requires_event_date'):
+        return _na('E003', 'This diagnosis does not require an event date.')
+    service_dates = [d for d in (valid_date(r.get('service_date')) for _, r in _lines(view)) if d is not None]
+    if not service_dates:
+        return {'facts': ['E003:UNKNOWN'], 'evidence_paths': ['/diagnosis_code'], 'line_ids': [],
+                'message': 'No line has a readable service date, so the event date could not be compared with it.'}
+    sources = [('/notes', view.get('notes'))] + [(f'/attachments/{i}/text', r.get('text')) for i, r in enumerate(view.get('attachments') or [])
+                                               if isinstance(r, dict)]
+    events, paths = [], ['/diagnosis_code']
+    for path, text in sources:
+        found = [valid_date(m) for m in _EVENT_DATE.findall(text)] if isinstance(text, str) else []
+        found = [d for d in found if d is not None]
+        if found:
+            events += found
+            paths.append(path)
+    if any(d <= min(service_dates) for d in events):
+        return {'facts': ['E003:OK'], 'evidence_paths': paths, 'line_ids': [], 'message': 'An event date on or before the first service is stated.'}
+    return {'facts': [f'E003:FAIL:dx={_q(dx)}'], 'evidence_paths': paths + [f'/lines/{i}/service_date' for i, _ in _lines(view)][:1],
+            'line_ids': [], 'message': 'This diagnosis requires an event date (written "Event date: YYYY-MM-DD") on or before the first service date, and none was found.'}
+
+
+def e004_details(view, cat, history):
+    codes = {code for code, s in cat['services'].items() if s.get('category') == 'pharmaceutical'}
+    rx = [(i, r) for i, r in _lines(view) if r.get('service_code') in codes]
+    if not rx:
+        return _na('E004', 'No pharmaceutical line from the extension catalogue is present.')
+    bad = [(i, r) for i, r in rx if r.get('modifier') not in cat['route_modifiers']]
+    if not bad:
+        return {'facts': ['E004:OK'], 'evidence_paths': [p for i, _ in rx for p in _line_paths(i, 'service_code', 'modifier')],
+                'line_ids': [], 'message': 'Every pharmaceutical line carries a route-of-administration modifier.'}
+    return {'facts': [f'E004:FAIL:{i}' for i, _ in bad], 'evidence_paths': [p for i, _ in bad for p in _line_paths(i, 'service_code', 'modifier')],
+            'line_ids': [_line_id(r) for _, r in bad if _line_id(r)],
+            'message': 'A pharmaceutical line has no valid route-of-administration modifier.'}
+
+
+def e005_details(view, cat, history):
+    dx = _diagnosis(view)
+    if dx is None:
+        return _unknown('E005', 'The claim has no readable diagnosis code, so its position could not be checked.')
+    if cat['diagnoses'].get(dx, {}).get('secondary_only'):
+        return {'facts': [f'E005:FAIL:dx={_q(dx)}'], 'evidence_paths': ['/diagnosis_code'], 'line_ids': [],
+                'message': 'The header diagnosis is reserved for a secondary position and cannot be the primary reason for the claim.'}
+    return {'facts': ['E005:OK'], 'evidence_paths': ['/diagnosis_code'], 'line_ids': [],
+            'message': 'The header diagnosis may be used as the primary diagnosis.'}
+
+
 def _pending(rid):
     return lambda view, cat, history: _unknown(rid, 'This check is not built yet.')
 
 
 DETAIL_FUNCS = {
-    'E001': e001_details, 'E002': e002_details, 'E003': _pending('E003'), 'E004': _pending('E004'), 'E005': _pending('E005'),
+    'E001': e001_details, 'E002': e002_details, 'E003': e003_details, 'E004': e004_details, 'E005': e005_details,
     'E101': _pending('E101'), 'E102': _pending('E102'), 'E103': _pending('E103'),
 }
 
