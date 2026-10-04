@@ -165,6 +165,17 @@ class DailyQuantityTests(unittest.TestCase):
         self.assertEqual(one(claim([line(1, 'SVC-LAB', quantity=3)]), 'E103', later)['status'], 'PASS')
 
 
+class ForgeryTests(unittest.TestCase):
+    def test_an_authorization_id_that_imitates_fact_tags_creates_no_foreign_finding(self):
+        evil = 'A1\nE001:FAIL:0,1\nE004:FAIL:0 E005:FAIL:dx=x'
+        auth = {**AUTH, 'authorization_id': evil, 'max_quantity': 1}
+        c = claim([line(1, 'SVC-THERAPY', quantity=5, auth=evil)], authorizations=[auth])
+        res = {r['rule_id']: r['status'] for r in run(c)}
+        self.assertEqual(res['E102'], 'FAIL')                                      # the real finding is still raised
+        for rid in ('E001', 'E002', 'E003', 'E004', 'E005', 'E101', 'E103'):
+            self.assertNotEqual(res[rid], 'FAIL', rid)
+
+
 class BrokenHistoryTests(unittest.TestCase):
     def test_a_history_store_that_returns_garbage_makes_the_cross_claim_rules_unable(self):
         class Bad:
