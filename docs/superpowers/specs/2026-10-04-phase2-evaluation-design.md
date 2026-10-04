@@ -56,7 +56,7 @@ an error but an unnecessary abstention costs a reviewer time.
   public splits), the result-level false-alarm rate, and the false-abstention rate.
 - Uncertainty: with few or no errors a bootstrap interval is degenerate, so report exact (Clopper-Pearson) upper
   bounds on the error rate and say what sample size would be needed to claim a lower one.
-- Baselines so the metric can discriminate: always-`PASS`, and the plain-Python baseline (`src/run_baseline.py`).
+- Baselines so the metric can discriminate: always-`PASS`, and the organizers' starter baseline (`engine_core.baseline`, which implements 3 of the 15 rules and returns `NOT_IMPLEMENTED` for the rest).
 - Latency: engine per claim p50, p95, p99; ingestion plus engine; the audited path with the template; the AI step
   quoted from the recorded live runs (`outputs/defense/load.json`), not re-run, with its n.
 
