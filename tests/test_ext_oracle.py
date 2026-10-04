@@ -16,7 +16,7 @@ DATES = st.sampled_from(['2026-03-02'] * 6 + ['2026-03-03'] * 3 + ['2026-03-01',
 CODES = st.sampled_from(['SVC-EXT-PRIMARY'] * 4 + ['SVC-EXT-COMPONENT'] * 4 + ['SVC-EXT-NEVER'] * 2 + ['SVC-EXT-RX'] * 2 +
                         ['SVC-LAB'] * 3 + ['SVC-CONSULT', 'SVC-THERAPY', None])
 MODS = st.sampled_from([None, None, '', 'EDU-SEPARATE', 'EDU-SEPARATE', 'EDU-ROUTE-IV', 'EDU-ROUTE-ORAL', 'x'])
-QTY = st.one_of(*([st.integers(0, 4)] * 6), st.just(None))
+QTY = st.one_of(*([st.integers(0, 4)] * 6), st.sampled_from([0.5, 1.5, 2.0]), st.just(None))
 AUTH_IDS = st.sampled_from([None, None, 'A1', 'A1', 'A1', 'A2', ''])
 NOTES = st.sampled_from([None, '', 'x', 'Event date: 2026-03-01', 'Event date: 2026-03-05', 'Event date: 2026-02-30', 'Event date:2026-03-02'])
 DIAGNOSES = st.sampled_from(['DX-EXT-ACCIDENT', 'DX-EXT-ACCIDENT', 'DX-EXT-SECONDARY', 'DX-EDU-01', None, ''])

@@ -91,10 +91,18 @@ class AuthorizationTests(unittest.TestCase):
         self.assertEqual(one(auth_claim(3), 'E102', earlier)['status'], 'FAIL')
         self.assertEqual(one(auth_claim(2), 'E102', earlier)['status'], 'PASS')
 
-    def test_two_lines_under_one_authorization_in_this_claim_add_up_too(self):
+    def test_two_lines_under_one_authorization_in_this_claim_add_up_with_earlier_units(self):
+        earlier = [auth_claim(1, cid='C-0', date='2026-03-01')]
+        c = claim([line(1, 'SVC-THERAPY', quantity=5, auth='AUTH-1'), line(2, 'SVC-THERAPY', quantity=5, auth='AUTH-1')],
+                  authorizations=[AUTH])
+        r = one(c, 'E102', earlier)
+        self.assertEqual((r['status'], r['affected_line_ids']), ('FAIL', ['L1', 'L2']))
+
+    def test_exceeding_the_maximum_inside_one_claim_alone_is_r009s_business_not_this_rules(self):
         c = claim([line(1, 'SVC-THERAPY', quantity=6, auth='AUTH-1'), line(2, 'SVC-THERAPY', quantity=5, auth='AUTH-1')],
                   authorizations=[AUTH])
-        self.assertEqual(one(c, 'E102')['status'], 'FAIL')
+        self.assertEqual(one(c, 'E102')['status'], 'PASS')
+        self.assertEqual(one(auth_claim(11), 'E102')['status'], 'PASS')
 
     def test_a_later_claim_does_not_count(self):
         later = [auth_claim(9, cid='C-9', date='2026-05-01')]
@@ -170,9 +178,11 @@ class ForgeryTests(unittest.TestCase):
         evil = 'A1\nE001:FAIL:0,1\nE004:FAIL:0 E005:FAIL:dx=x'
         auth = {**AUTH, 'authorization_id': evil, 'max_quantity': 1}
         c = claim([line(1, 'SVC-THERAPY', quantity=5, auth=evil)], authorizations=[auth])
-        res = {r['rule_id']: r['status'] for r in run(c)}
+        earlier = claim([line(1, 'SVC-THERAPY', quantity=1, auth=evil)], claim_id='C-0', date='2026-03-01', authorizations=[auth])
+        res = {r['rule_id']: r['status'] for r in run(c, [earlier])}
         self.assertEqual(res['E102'], 'FAIL')                                      # the real finding is still raised
-        for rid in ('E001', 'E002', 'E003', 'E004', 'E005', 'E101', 'E103'):
+        self.assertEqual(res['E103'], 'FAIL')                                      # a genuine cross-claim finding, not a forged one
+        for rid in ('E001', 'E002', 'E003', 'E004', 'E005', 'E101'):
             self.assertNotEqual(res[rid], 'FAIL', rid)
 
 

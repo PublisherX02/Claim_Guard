@@ -56,11 +56,13 @@ absent gives `NOT_APPLICABLE`.
 | E004 | Route of administration | A service in category `pharmaceutical` (SVC-PHARM) needs a line modifier from the route list (`EDU-ROUTE-ORAL`, `EDU-ROUTE-IV`, `EDU-ROUTE-TOPICAL`) | eClaimLink publishes a Route Of Administration coding set; the rule "a drug line must carry a route" is the research report's claim and **not independently confirmed**, so the card says so | medium |
 | E005 | Primary diagnosis validity | The header diagnosis is marked `secondary_only` and cannot be the primary reason for the claim | ICD-10-CM Official Guidelines: manifestation ("code first") codes cannot be first-listed; confirmed through payer policies that quote them | medium |
 | E101 | Duplicate of an earlier claim | A line equals a line of an earlier claim for the same patient and provider on service code, service date, quantity and net amount | CARC 18 "exact duplicate claim/service"; confirmed | high |
-| E102 | Authorization exhausted across claims | Units under one authorization id in earlier claims plus this claim exceed that authorization's `max_quantity` | Cumulative authorization tracking as in NPHIES (not independently confirmed); extends our R009 | high |
+| E102 | Authorization exhausted across claims | Units under one authorization id in earlier claims plus this claim exceed that authorization's `max_quantity`, when earlier claims contributed units | Cumulative authorization tracking as in NPHIES (not independently confirmed); extends our R009 | high |
 | E103 | Daily quantity across claims | Units of one service on one date for one patient **and the same provider** in earlier claims plus this claim exceed the service's `max_quantity`, when earlier claims contributed units | CMS MUE date-of-service edits (MAI 2 and 3): units summed per beneficiary, provider and date; confirmed | medium |
 
-E103 deliberately counts only units from earlier claims, so it never overlaps R006/R013 (within one claim) and takes no side on
-the `EDU-SEPARATE` policy question already raised for the mentor.
+E102 and E103 deliberately fire only when earlier claims contributed units, so they never overlap R009 (authorization within one
+claim), R006 or R013, and take no side on the `EDU-SEPARATE` policy question already raised for the mentor. (Ruling, 2026-10-04: the
+first public-data experiment showed E102 flagging 8 claims that R009 already fails, because it also counted a single claim's own
+excess; it was narrowed to the cross-claim case.)
 
 **Earlier claim** means: same `patient_id`, a different `claim_id`, and ordered before this one by `(submission_date, claim_id)`.
 That total order makes the result for a given claim independent of how many later claims exist, and a batch run reproducible.

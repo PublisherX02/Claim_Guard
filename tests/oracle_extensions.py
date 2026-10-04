@@ -2,10 +2,11 @@
 
 It shares no code with src/extension_rules.py (no fact tags, no YARA, no rule_view, no claim_history): it works on plain dicts with
 the simplest loops that express each sentence of the spec, and receives the *whole* list of known claims so it also re-derives which
-claims are "earlier". It assumes well-typed input (strings, ints and None); malformed input is the fuzz suite's job.
+claims are "earlier". It assumes well-typed input (strings, numbers and None); malformed input is the fuzz suite's job.
 """
 import datetime
 import re
+from fractions import Fraction
 
 PRIMARY, COMPONENT, NEVER, RX = 'SVC-EXT-PRIMARY', 'SVC-EXT-COMPONENT', 'SVC-EXT-NEVER', 'SVC-EXT-RX'
 PAIRS = ((PRIMARY, COMPONENT, True), (PRIMARY, NEVER, False))
@@ -25,7 +26,10 @@ def day(text):
 
 
 def number(v):
-    return v if isinstance(v, int) and not isinstance(v, bool) else None
+    """An exact rational for ints and floats (1.5 is 3/2), so sums compare exactly; None for anything else, booleans included."""
+    if isinstance(v, bool) or not isinstance(v, (int, float)):
+        return None
+    return Fraction(str(v))
 
 
 def text(v):
@@ -141,10 +145,10 @@ def authorization(c, prior):
         record = next((a for a in (c.get('authorizations') or []) if isinstance(a, dict) and a.get('authorization_id') == aid), None)
         limit = number(record.get('max_quantity')) if record else None
         used = [number(l.get('quantity')) for l in lines]
-        used += [number(l.get('quantity')) for p in prior for l in rows(p) if l.get('authorization_id') == aid]
-        if limit is None or None in used:
+        before = [number(l.get('quantity')) for p in prior for l in rows(p) if l.get('authorization_id') == aid]
+        if limit is None or None in used + before:
             unknown = True
-        elif sum(used) > limit:
+        elif sum(before) > 0 and sum(before) + sum(used) > limit:
             fail |= {l['line_id'] for l in lines}
     return verdict(fail, unknown), fail
 

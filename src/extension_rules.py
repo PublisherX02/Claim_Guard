@@ -60,8 +60,15 @@ def pack_source():
     return '\n'.join(blocks)
 
 
+_pack_hash = None
+
+
 def pack_hash():
-    return hashlib.sha256(pack_source().encode('utf-8')).hexdigest()
+    global _pack_hash
+    with _LOCK:
+        if _pack_hash is None:
+            _pack_hash = hashlib.sha256(pack_source().encode('utf-8')).hexdigest()
+        return _pack_hash
 
 
 def _compiled_rules():
@@ -328,11 +335,12 @@ def e102_details(view, cat, history):
         k, rec = records.get(aid, (None, None))
         limit = _num(rec.get('max_quantity')) if rec else None
         used = [_num(r.get('quantity')) for _, r in rows]
+        before = []
         for prev in earlier:
-            used += [_num(r.get('quantity')) for _, r in _lines(prev) if r.get('authorization_id') == aid]
-        if limit is None or any(u is None for u in used):
+            before += [_num(r.get('quantity')) for _, r in _lines(prev) if r.get('authorization_id') == aid]
+        if limit is None or any(u is None for u in used + before):
             unreadable = True
-        elif sum(used) > limit:
+        elif sum(before) > 0 and sum(before) + sum(used) > limit:       # exceeding it inside one claim alone is R009's finding
             facts.append(f'E102:FAIL:{_q(aid)}')
             for i, r in rows:
                 paths += _line_paths(i, 'authorization_id', 'quantity')
