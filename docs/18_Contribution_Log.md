@@ -38,7 +38,7 @@ skills (brainstorm -> written spec -> written plan -> execute) were used.
 | Stress testing (2026-09-24 to 2026-09-26): independent oracle, boundary table, differential and hostile-input suites | all code and tests | asked to recheck everything and stress the rules against what the judges score |
 | Security audit and red team (2026-09-26): OWASP mapping, fixes, replay and advisory checks | all code, tests, `docs/20` | asked for a security audit against the AI and cyber Top 10 lists and for a red-team run, then to fix what it found |
 | AI experiments (2026-09-26): runner, analysis, experiments in four rounds, garbled-output guard, model cascade, citation repair, closing gate, prompts v1.4.0 to v1.6.0, new default model, `docs/21` | all code, analysis and text; ran 2,136 live calls with the team's key | asked for temperature and optimization experiments with variables, figures and documentation; the design and decision rules were written before the runs |
-| `TEAM.md` and `README.md` | drafted | asked for a team explainer of what was built and on what grounds, and a clean README; the team must fill in roles and names |
+| `README.md` | drafted | asked for a clean README; the team must fill in roles and names |
 
 **How AI output was checked:** every module has offline unit tests; the engine is compared
 with the organizers' labels on all three public splits and with the handbook's worked

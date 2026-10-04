@@ -1,6 +1,6 @@
 # SPECS.md: ClaimGuard AI technical specification
 
-The detailed specification of what the system does, how each part is configured, and how the AI step was chosen and tuned. Read [README.md](README.md) first for the overview and [TEAM.md](TEAM.md) for the reasons behind the decisions. Where a statement rests on data, the source is named; the raw audit trail of the experiments is `docs/21_Experiments.md` and `experiments/raw/`.
+The detailed specification of what the system does, how each part is configured, and how the AI step was chosen and tuned. Read [README.md](README.md) first for the overview and `docs/27_Decisions_Proofs_and_Defense.md` for the reasons behind the decisions. Where a statement rests on data, the source is named; the raw audit trail of the experiments is `docs/21_Experiments.md` and `experiments/raw/`.
 
 **Contents**
 
@@ -363,6 +363,7 @@ Audited against the OWASP Top 10 for LLM Applications (2025) and the OWASP Top 1
 | Secrets | `.env` git-ignored and scanned; the key never enters a prompt, log or experiment record |
 | Supply chain | Exact pins; `pip-audit` clean; no `eval`, `exec`, `subprocess` or `pickle` in our code (a test scans) |
 | Log integrity | Hash chain, anchor, optional HMAC; log forging prevented with `%r` logging |
+| Hostile input | Property-based fuzzing of ingestion, the model reply gate, the audit log, the engine, injection and the review page (section 10a) |
 
 Residual: no authentication, protected health information would go to a third-party model with real data, the audit log is not immutable storage, and there is no per-run spending cap.
 
@@ -374,8 +375,9 @@ Residual: no authentication, protected health information would go to a third-pa
 | Handbook worked cases | 10 of 10 exact |
 | Independent oracle (`tests/oracle.py`) | **0 disagreements** over 107,635 generated claims (`scripts/status_coverage.py`), plus 37,000 boundary-aware mutants and 123 hand-derived boundary cases |
 | Hostile inputs | Runner, ingestion, review page, audit log, AI providers |
+| Fuzzing | Six trust boundaries, 25 property tests at 3,000 generated examples each plus one regression test, all passing; two defects found and fixed (section 10a) |
 | Security and red team | `docs/20` |
-| Suite | 489 tests, offline (420 of them verified on Python 3.10, 3.12 and 3.14 in CI; the rest run on 3.10 locally so far); the committed audit sample's 6,000 result hashes are re-checked |
+| Suite | 523 tests, offline (420 of them verified in CI on Python 3.10, 3.12 and 3.14; all 523 passed locally on all three in fresh environments built from `requirements-dev.txt`, 2026-10-04); the committed audit sample's 6,000 result hashes are re-checked |
 
 **Independent oracle at scale.** `tests/oracle.py` reimplements the 15 rules from `rules/rules.json` and `docs/04` alone; it imports nothing from `src/`, so the engine and the oracle cannot share a bug by construction — a mistake would have to be made independently, the same way, in both. `scripts/status_coverage.py` generates 107,635 claims with `tests/claim_gen.py` (half seeded from a fully valid claim then randomly damaged, half fully independent-random fields), scores each with both the engine and the oracle, and hard-fails on the first disagreement rather than only counting them, so the artifact below is either "0 disagreements" or the run did not complete:
 
@@ -386,6 +388,27 @@ The same run's per-rule status coverage: every rule reaches every status it can 
 ![Status coverage per rule across 107,635 generated claims, with what each status means](docs/figures/status_coverage.png)
 
 Raw counts: `outputs/status_coverage.json`. Full writeup, including the fuzzer gap that motivated this: `docs/19_Stress_Testing_and_Judging_Coverage.md` section 2b.
+
+### 10a. Fuzz testing
+
+Property-based tests generate hostile input for the six places where untrusted data crosses a boundary and check an invariant that must always hold. They live in `tests/test_fuzz_*.py`, share profiles and strategies in `tests/fuzz_strategies.py`, use Hypothesis (dev-only, `requirements-dev.txt`), mock the model, and need no network. `FUZZ_PROFILE=ci` (the default) is a fixed seed with 60 examples per test; `deep` is selected by `scripts/fuzz_campaign.py`.
+
+| Surface | Generated input | Invariant that must always hold |
+|---|---|---|
+| Ingestion (JSONL, FHIR, CSV) | mutated bytes, NUL, BOM, CRLF, U+2028, huge and deeply nested values, hostile CSV cells | never an uncaught exception; every record is accepted or quarantined with a reason; a garbage line never costs its valid neighbours |
+| Model reply and closing gate | any JSON shape, wrong types, extra keys, hostile text, providers that raise | the output passes the per-finding schema or the template is used; the finding is untouched; a failure stays flagged for a human |
+| Audit log | a flipped byte, a deleted or swapped row, a truncated file, forged rows appended with a valid chain, a corrupted anchor | strict verification fails; it never raises anything but `ValueError` |
+| Rule engine | random and mutated claims | same status as the independent oracle on every claim that passes ingestion; a rule that crashes reports `UNABLE_TO_ASSESS`, never `PASS` |
+| Injection | hostile text and rule tags (`R009:MISMATCH:`) placed in any string field | no verdict changes; the engine still agrees with the oracle |
+| Review page | HTML and script payloads, arbitrary evidence values | one script block; the data round-trips exactly; no raw `<`, `>`, `&`, U+2028 or U+2029 in the embedded data |
+
+`python scripts/fuzz_campaign.py --examples 3000` ran 25 property tests at 3,000 generated examples each, plus one fixed-case regression test, over all six surfaces. All passed (about 6.5 minutes; raw result in `outputs/defense/fuzz.json`). In an ordinary test run a fixed-seed profile of 60 examples per test is used, which adds about 8 seconds and is deterministic.
+
+**Two real defects were found and fixed.** `audit.verify` raised a raw `KeyError`, `AttributeError` or `TypeError` for a record that is valid JSON but not an audit row; it already failed closed, but `verify_audit.py` printed a traceback instead of a broken-chain message. `make_review.build` embedded raw U+2028 and U+2029 inside a JavaScript string, which only newer browsers accept; they are now escaped. Each has a regression test that failed first.
+
+**Limits.** This is generated-input testing, not coverage-guided fuzzing. The model is mocked, so live-model behaviour rests on the earlier experiments. The engine-versus-oracle comparison skips claims that ingestion would quarantine. A change to JSON whitespace only is not tampering, because the audit hash covers the parsed record. A clean run is evidence, not proof: the CSV-folder reader catches `OSError`, `KeyError` and `ValueError` only, and nothing else escaped in 3,000 examples.
+
+How to run: `python -m unittest discover -s tests -p "test_fuzz_*.py"` for the fast profile, `python scripts/fuzz_campaign.py --examples 3000` for the deep run. Design: `docs/superpowers/specs/2026-10-04-fuzz-testing-design.md`.
 
 ## 11. Experiments in detail
 
@@ -642,4 +665,5 @@ Needs `FEATHERLESS_API_KEY` in `.env`. Raw replies are committed; the key, provi
 - The mentor-held 200 claims are unavailable.
 - Live AI answers have not been scored by a person (sheet ready).
 - The audit log is not immutable storage; a keyed anchor and an external copy of it are needed for that.
+- Fuzzing is generated-input testing against a mocked model, not coverage-guided fuzzing; the limits are listed in section 10a.
 - No architecture diagram made by the team, demo video, pitch or runbook yet.

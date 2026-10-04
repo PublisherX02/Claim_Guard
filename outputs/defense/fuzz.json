@@ -1,0 +1,48 @@
+{
+  "started": "2026-10-04T11:04:21.375126+00:00",
+  "profile": "deep",
+  "surfaces": {
+    "test_fuzz_ingest": {
+      "status": "pass",
+      "tests": 6,
+      "seconds": 136.6,
+      "examples_per_test": 3000,
+      "output_tail": "----------------------------------------------------------------------\nRan 6 tests in 136.576s\n\nOK\n"
+    },
+    "test_fuzz_llm_output": {
+      "status": "pass",
+      "tests": 3,
+      "seconds": 35.5,
+      "examples_per_test": 3000,
+      "output_tail": "----------------------------------------------------------------------\nRan 3 tests in 35.348s\n\nOK\n"
+    },
+    "test_fuzz_audit_log": {
+      "status": "pass",
+      "tests": 7,
+      "seconds": 79.1,
+      "examples_per_test": 3000,
+      "output_tail": "----------------------------------------------------------------------\nRan 7 tests in 79.072s\n\nOK\n"
+    },
+    "test_fuzz_engine": {
+      "status": "pass",
+      "tests": 3,
+      "seconds": 29.8,
+      "examples_per_test": 3000,
+      "output_tail": "----------------------------------------------------------------------\nRan 3 tests in 29.823s\n\nOK\n"
+    },
+    "test_fuzz_injection": {
+      "status": "pass",
+      "tests": 3,
+      "seconds": 73.3,
+      "examples_per_test": 3000,
+      "output_tail": "----------------------------------------------------------------------\nRan 3 tests in 73.341s\n\nOK\n"
+    },
+    "test_fuzz_review_page": {
+      "status": "pass",
+      "tests": 4,
+      "seconds": 31.3,
+      "examples_per_test": 3000,
+      "output_tail": "----------------------------------------------------------------------\nRan 4 tests in 31.337s\n\nOK\n"
+    }
+  }
+}

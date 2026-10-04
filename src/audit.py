@@ -8,8 +8,10 @@ def verify(path):
     if not Path(path).exists():return previous,count
     for line in Path(path).read_text(encoding='utf-8').split('\n'):  # not splitlines(): U+2028 in a reviewer's reason must not split a record
         if not line.strip():continue
-        row=json.loads(line);claimed=row.pop('hash')
-        if row['previous_hash']!=previous or digest(row)!=claimed:raise ValueError(f'Audit chain invalid at event {count+1}')
+        row=json.loads(line)
+        try:claimed=row.pop('hash');linked=row['previous_hash']==previous
+        except (KeyError,TypeError,AttributeError) as e:raise ValueError(f'Audit chain invalid at event {count+1}: malformed record') from e  # valid JSON, not an audit row
+        if not linked or digest(row)!=claimed:raise ValueError(f'Audit chain invalid at event {count+1}')
         previous=claimed;count+=1
     return previous,count
 def append(path,events):

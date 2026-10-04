@@ -4,7 +4,7 @@ from pathlib import Path
 from engine_core import load_jsonl
 
 def build(rows):
-    data=json.dumps(rows,ensure_ascii=False).replace('<','\\u003c').replace('>','\\u003e').replace('&','\\u0026')
+    data=json.dumps(rows,ensure_ascii=False).replace('<','\\u003c').replace('>','\\u003e').replace('&','\\u0026').replace('\u2028','\\u2028').replace('\u2029','\\u2029')
     return '''<!doctype html><html lang="en"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>ClaimGuard AI | Review lab</title>
 <style>body{font:15px system-ui;margin:0;background:#f3f6fa;color:#192b41}header{background:#112c43;color:white;padding:24px 6%}main{max-width:1120px;margin:auto;padding:24px}h1{margin:0 0 8px}select,input,button,textarea{font:inherit;padding:9px;border:1px solid #bdcbd7;border-radius:5px}button{background:#0c786e;color:white;cursor:pointer}article{background:white;padding:18px;margin:14px 0;border-radius:8px;border-left:5px solid #bdcbd7}article.FAIL{border-color:#b54432}article.UNABLE_TO_ASSESS{border-color:#b07810}pre{white-space:pre-wrap;word-break:break-word;background:#f3f6fa;padding:10px}label{display:inline-block;margin:4px}textarea{width:95%;display:block;margin-top:8px}.tag{font-size:12px;font-weight:700;color:#566879}small{display:block;margin-top:8px}#count{margin-top:14px}</style>
 <header><h1>ClaimGuard AI</h1>Student review lab | Synthetic claims | Human decisions remain separate from rule results</header><main>

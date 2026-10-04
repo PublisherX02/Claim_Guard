@@ -117,7 +117,7 @@ The first round could not settle the choice: the fluent models sometimes derail 
 4. Action coverage at least 50% and value citation at least 50% among live answers.
 5. Median latency of a live answer at most 4 seconds.
 
-Among arms that qualify, the higher action coverage wins, then the lower p95 latency. If the cascade and its own tier 1 both qualify, the cascade is chosen only if its live rate is at least 5 points higher; otherwise the simpler single model. **If no arm qualifies, the current default stays and we say so.** If an arm other than A is adopted it is adopted deliberately: prompt version bump, code defaults changed together with the tests that pin them, a new frozen live run on the 25 supplied and 11 variant cases, and updates to `docs/17`, this file and `TEAM.md`.
+Among arms that qualify, the higher action coverage wins, then the lower p95 latency. If the cascade and its own tier 1 both qualify, the cascade is chosen only if its live rate is at least 5 points higher; otherwise the simpler single model. **If no arm qualifies, the current default stays and we say so.** If an arm other than A is adopted it is adopted deliberately: prompt version bump, code defaults changed together with the tests that pin them, a new frozen live run on the 25 supplied and 11 variant cases, and updates to `docs/17` and this file.
 
 **Manual scoring.** Independently of the rule above, a blind sheet (`experiments/manual_scoring_sheet_e8.csv`, arm labels hidden, shuffled) is exported for the team to score with the 0/1 rubric of `docs/07`. The mechanical rule decides the default now; human scoring is what a judge will trust and can overturn it.
 

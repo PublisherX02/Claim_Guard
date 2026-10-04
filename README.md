@@ -24,7 +24,7 @@ The engine decides and the model only explains. The trusted core has no network 
 
 ![Data flow of one claim, 15 steps](docs/figures/dataflow.png)
 
-> **New to the project? Read [TEAM.md](TEAM.md)** for what we built and why each decision was made. **[SPECS.md](SPECS.md)** is the detailed specification, including every experiment. **[BLUEPRINT.md](BLUEPRINT.md)** is the project as an information system: deliverables, business canvas, realisation steps and UML.
+> **New to the project? Start with [SPECS.md](SPECS.md)**, the detailed specification, including every experiment. **[BLUEPRINT.md](BLUEPRINT.md)** is the project as an information system: deliverables, business canvas, realisation steps and UML.
 
 ## How it works (text form)
 
@@ -91,11 +91,11 @@ cd Claim_Guard
 
 # with uv (recommended)
 uv venv --python 3.10 .venv
-uv pip install --python .venv -r requirements.txt
+uv pip install --python .venv -r requirements-dev.txt   # runtime packages plus Hypothesis, which the fuzz tests need
 
 # or with plain pip
 python -m venv .venv
-.venv/bin/pip install -r requirements.txt          # Windows: .venv\Scripts\pip install -r requirements.txt
+.venv/bin/pip install -r requirements-dev.txt      # Windows: .venv\Scripts\pip install -r requirements-dev.txt
 ```
 
 On Windows use `.venv\Scripts\python.exe` wherever the commands below say `python`; on macOS and Linux use `.venv/bin/python` (or activate the environment).
@@ -111,7 +111,8 @@ This is a narrated tour of the whole pipeline in eight scenes: ingestion of FHIR
 **3. Run the tests**
 
 ```bash
-python -m unittest discover -s tests          # 489 tests, about 2 min, offline, no API key needed
+python -m unittest discover -s tests          # 523 tests, about 2 min, offline, no API key needed
+python scripts/fuzz_campaign.py --examples 3000   # deeper fuzz run of the six trust boundaries (about 6 min); writes outputs/defense/fuzz.json
 ```
 
 **4. Optional: live AI explanations.** Without a key, the explanation is a deterministic template, so every command here works offline. To use the hosted model:
@@ -157,7 +158,8 @@ Expected: `evaluate.py` prints status accuracy 1.0 for the development split; `v
 |---|---|
 | Status accuracy, issue precision and recall, all 15 rules | **1.0** on the development, validation and stress splits (9,000 of 9,000 results) |
 | Independent oracle agreement (rules written again from the rulebook text alone) | **0 disagreements** over 107,635 generated claims (`scripts/status_coverage.py`), plus 37,000 boundary-aware mutants and 123 hand-derived edge cases |
-| Tests | 489, all offline. 420 were last verified on Python 3.10, 3.12 and 3.14 in CI (commit named in `docs/19`); the 69 added since then have run on Python 3.10 locally and on CI after the next push |
+| Fuzz testing | **Six trust boundaries**, 25 property tests at 3,000 generated examples each plus one regression test, all passing; two real defects found and fixed (see Fuzz testing below). `outputs/defense/fuzz.json` |
+| Tests | 523, all offline. 420 were last verified in CI on Python 3.10, 3.12 and 3.14 (commit named in `docs/19`); all 523 then passed locally on 3.10, 3.12 and 3.14 in fresh environments built from `requirements-dev.txt` (2026-10-04), and CI confirms after the push |
 | Live AI explanations (Mistral-Nemo-Instruct-2407 via Featherless.ai, prompt v1.6.0 with a closing gate, temperature 0) | **Seven benchmarks, all at 85% or more** on 12 new cases (lowest 93.2%): 97.5% live, 93.3% useful, 100% injection resisted, 100% cover the rule's corrective action, 93.2% cite an observed evidence value, 93.2% name a next step, 0 garbled answers shown. Chosen by four rounds of experiments, see below |
 | Local, free alternative (`gemma3:4b` via Ollama) | Beats the paid, hosted default on every automated metric: 97.2% live vs. 94.4%, 3.0 s vs. 4.1 s median latency, 0 garbled replies across an 84-case stress test. See below |
 | Security | audited against the OWASP Top 10 for LLM Applications and the OWASP Top 10: `docs/20_Security_Audit.md` |
@@ -183,7 +185,26 @@ found cases that failed differently.
 
 ![Model comparison: gemma3:4b, medgemma-4b-it, Mistral-Nemo, qwen3:4b — live rate and latency](docs/figures/model_comparison.png)
 
-Full write-up, including the exact fault-injection tests behind each finding: `SPECS.md` section 6a, `TEAM.md` section 6a.
+Full write-up, including the exact fault-injection tests behind each finding: `SPECS.md` section 6a.
+
+## Fuzz testing
+
+Property-based tests generate hostile input for the six places where untrusted data crosses a boundary and check an invariant that must always hold. They use Hypothesis (a dev-only dependency in `requirements-dev.txt`), the model is mocked, and nothing needs a network.
+
+| Surface | Generated input | Invariant that must always hold |
+|---|---|---|
+| Ingestion (JSONL, FHIR, CSV) | mutated bytes, NUL, BOM, CRLF, U+2028, huge and deeply nested values, hostile CSV cells | never an uncaught exception; every record is accepted or quarantined with a reason; a garbage line never costs its valid neighbours |
+| Model reply and closing gate | any JSON shape, wrong types, extra keys, hostile text, providers that raise | the output passes the per-finding schema or the template is used; the finding is untouched; a failure stays flagged for a human |
+| Audit log | a flipped byte, a deleted or swapped row, a truncated file, forged rows appended with a valid chain, a corrupted anchor | strict verification fails; it never raises anything but `ValueError` |
+| Rule engine | random and mutated claims | same status as the independent oracle on every claim that passes ingestion; a rule that crashes reports `UNABLE_TO_ASSESS`, never `PASS` |
+| Injection | hostile text and rule tags (`R009:MISMATCH:`) placed in any string field | no verdict changes; the engine still agrees with the oracle |
+| Review page | HTML and script payloads, arbitrary evidence values | one script block; the data round-trips exactly; no raw `<`, `>`, `&`, U+2028 or U+2029 in the embedded data |
+
+`python scripts/fuzz_campaign.py --examples 3000` ran 25 property tests at 3,000 generated examples each, plus one fixed-case regression test, over all six surfaces. All passed (about 6.5 minutes; raw result in `outputs/defense/fuzz.json`). In an ordinary test run a fixed-seed profile of 60 examples per test is used, which adds about 8 seconds and is deterministic.
+
+**Two real defects were found and fixed.** `audit.verify` raised a raw `KeyError`, `AttributeError` or `TypeError` for a record that is valid JSON but not an audit row; it already failed closed, but `verify_audit.py` printed a traceback instead of a broken-chain message. `make_review.build` embedded raw U+2028 and U+2029 inside a JavaScript string, which only newer browsers accept; they are now escaped. Each has a regression test that failed first.
+
+**Limits.** This is generated-input testing, not coverage-guided fuzzing. The model is mocked, so live-model behaviour rests on the earlier experiments. The engine-versus-oracle comparison skips claims that ingestion would quarantine. A change to JSON whitespace only is not tampering, because the audit hash covers the parsed record. A clean run is evidence, not proof: the CSV-folder reader catches `OSError`, `KeyError` and `ValueError` only, and nothing else escaped in 3,000 examples.
 
 ## How the AI explanation was chosen: experiments
 
@@ -244,11 +265,12 @@ Also built and tested, but off by default: a **cascade** (fluent model, then a r
 | Path | What is in it |
 |---|---|
 | `src/` | The system: `ingest.py`, `fhir_adapter.py`, `csv_to_jsonl.py` (ingestion); `facts_extractor.py`, `yara_engine.py` (rules); `llm_adapter.py`, `claim_review.py` (bounded AI); `audit_log.py`, `review_workflow.py` (audit and review); `advisory.py` (checks outside the 15 rules); `make_review.py` (offline review page) |
+| `requirements-dev.txt` | `requirements.txt` plus Hypothesis, needed to run the test suite |
 | `rules/` | `core.yar` (compiled rule pack), `rules.json`, `policies.json`, catalogues |
 | `schemas/` | JSON schemas for claims, results and review events |
 | `data/` | 600 synthetic claims in three splits, in JSONL, CSV and FHIR forms, with the public answer key |
-| `tests/` | 489 tests, including `oracle.py` (independent reference implementation) and the stress and security suites |
-| `scripts/` | `demo.py` (narrated tour), audited runs, audit verification, `draw_diagrams.py`, AI evaluation and the experiment runner |
+| `tests/` | 523 tests, including `oracle.py` (independent reference implementation), the stress and security suites, and the `test_fuzz_*.py` fuzz tests with their shared `fuzz_strategies.py` |
+| `scripts/` | `demo.py` (narrated tour), audited runs, audit verification, `draw_diagrams.py`, AI evaluation, `fuzz_campaign.py` (deep fuzz run) and the experiment runner |
 | `experiments/` | Raw experiment data and `summary.json`; figures are in `docs/figures/` |
 | `outputs/` | Frozen evidence: metrics, audit samples, recorded live AI runs |
 | `docs/` | Numbered documents; see the index below |
@@ -258,7 +280,6 @@ Also built and tested, but off by default: a **cascade** (fluent model, then a r
 
 | Read | For |
 |---|---|
-| [TEAM.md](TEAM.md) | What we built and why; onboarding for teammates |
 | [SPECS.md](SPECS.md) | Detailed specification: contracts, rules, the AI step, audit log, security, and every experiment |
 | [BLUEPRINT.md](BLUEPRINT.md) | The project as an information system: the submission deliverables and where each lives, quality characteristics (reliability, security, interoperability, performance, portability, maintainability), the business model canvas with cited desk research, the 12 realisation steps each with its proof of success, the environment tests, and seven UML diagrams |
 | `docs/27_Decisions_Proofs_and_Defense.md` | Every major decision: what we rejected, the experiment or test that backs it, and the likely challenge with its answer |
