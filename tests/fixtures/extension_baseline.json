@@ -1,0 +1,19 @@
+{
+  "files": {
+    "rules/core.yar": "e56e71930fb0949f33369501ab3af855068633b2aa436035203e3a1f574dd044",
+    "rules/diagnoses.json": "08e5c2bb2f5e14136d4ccf010ab25eb33225755b1780182fdd2c786f5c37c2fc",
+    "rules/policies.json": "6e27283c7e4f7e01f32277ff1edde4f8f92fd4b7f3f8c9fb5c440fb2fd8de76c",
+    "rules/rules.json": "14bba10d487d182cb0cfd1df115eef296a3107b1b482724cb7399541626a1233",
+    "rules/services.json": "1a7c3e7eed90b68e857a74e3d8b69fe3687e9910771936fd307116444bf50b09",
+    "schemas/result.schema.json": "b576e88aa14b4d94f645c15350a1bc5fa82007fb7efcf2cbaf1f5d3e4a34109d",
+    "src/engine_core.py": "5e07f623cbea4c3abfffde6498bc127d3990aa266aa44b86782a56478b704a48",
+    "src/evaluate.py": "5d4896255483898433536e182cfcc6c354042173cd086eed8003d02c0cd27f10",
+    "src/facts_extractor.py": "8de1083d6411a7112d6062de983a077eda36ba9d2ef5dcd2ccf342cc33e00794",
+    "src/yara_engine.py": "32d279eb38a2a8c387af91541e5db91eb2069c1d5f49c935b50548d33ef8a05d"
+  },
+  "results": {
+    "development": "269fc2c8c28a400062c0321b48bae186dec40847286b793d49593ddd94f7d4b0",
+    "stress": "f08585f16dd555bf7a4279ba8e0444abf8fc447168072b61ac94697a68c8f88e",
+    "validation": "c48abfff4566cecb5f4f5b4d75d3251b054cc6502a56571457b20a3374b62ebc"
+  }
+}

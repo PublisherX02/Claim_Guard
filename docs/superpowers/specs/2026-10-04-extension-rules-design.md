@@ -31,9 +31,18 @@ the history interface defined here).
 ## Where the data comes from, honestly
 The fictional catalogue has six services and six diagnoses, with no code-pair tables, drug flags or accident flags. The rule
 *logic* below is real and cited; the *attributes it needs* are invented and live in `rules/extensions/catalogue.json`, never in
-the official rule files. Every attribute is labelled fictional in that file and in the documentation. Because 328 of the 600
-public claims put several services on one date, the pair table is chosen so that it **flags no valid public claim**; the
-experiment reports how many public claims each extension rule fires on, and the number is published whatever it is.
+the official rule files. Every attribute is labelled fictional in that file and in the documentation.
+
+**Measured on the 600 public claims (2026-10-04):** all 15 pairs of the six real services occur together on one date in 36 to 54
+claims each; 170 claims carry a `SVC-PHARM` line and none has a route modifier; all six diagnoses are used by 90 to 109 claims;
+every one of the 600 patients has exactly one claim. Any pair, route or accident rule defined on the real codes would therefore
+flag dozens of claims the organizers consider valid, and the cross-claim rules cannot fire on public data at all. Decision: the
+single-claim rules (E001 to E005) are defined only on **fictional codes outside the six-code teaching catalogue**
+(`SVC-EXT-PRIMARY`, `SVC-EXT-COMPONENT`, `SVC-EXT-NEVER`, `SVC-EXT-RX`, `DX-EXT-ACCIDENT`, `DX-EXT-SECONDARY`). They show what a
+larger catalogue would need and are verified on constructed scenarios; on public data they fire on 0 claims by design, and the
+official R011 independently flags those codes as outside the official catalogue, which is correct. The history rules (E101 to
+E103) use the real codes and the official limits, and are verified on constructed multi-claim scenarios, because the public set has
+no patient with two claims. All of this is stated in the documentation rather than hidden.
 
 ## The eight rules
 Status semantics follow the official engine: a missing input gives `UNABLE_TO_ASSESS`, never `PASS`; a rule whose trigger is
