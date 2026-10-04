@@ -1,5 +1,5 @@
 {
-  "commit": "f69260c5aba8c1d15248b9cbb0caf3633183515d",
+  "commit": "6be428c1789c7463c67788774dcb411525fe17a8",
   "sets": [
     {
       "set_id": "S1",
@@ -23,7 +23,7 @@
       "claims": 400,
       "results": 6000,
       "notes": {},
-      "commit": "f69260c5aba8c1d15248b9cbb0caf3633183515d"
+      "commit": "6be428c1789c7463c67788774dcb411525fe17a8"
     },
     {
       "set_id": "S2",
@@ -47,7 +47,7 @@
       "claims": 150,
       "results": 2250,
       "notes": {},
-      "commit": "f69260c5aba8c1d15248b9cbb0caf3633183515d"
+      "commit": "6be428c1789c7463c67788774dcb411525fe17a8"
     },
     {
       "set_id": "S3",
@@ -71,7 +71,7 @@
       "claims": 50,
       "results": 750,
       "notes": {},
-      "commit": "f69260c5aba8c1d15248b9cbb0caf3633183515d"
+      "commit": "6be428c1789c7463c67788774dcb411525fe17a8"
     },
     {
       "set_id": "S4",
@@ -93,7 +93,7 @@
       "notes": {
         "duplicates_of_s1_s3": 10
       },
-      "commit": "f69260c5aba8c1d15248b9cbb0caf3633183515d"
+      "commit": "6be428c1789c7463c67788774dcb411525fe17a8"
     },
     {
       "set_id": "S5",
@@ -122,9 +122,10 @@
       "results": 9000,
       "notes": {
         "ingested": 600,
-        "quarantined": 0
+        "rejected_by_ingestion": 0,
+        "no_label": 0
       },
-      "commit": "f69260c5aba8c1d15248b9cbb0caf3633183515d"
+      "commit": "6be428c1789c7463c67788774dcb411525fe17a8"
     },
     {
       "set_id": "S6",
@@ -201,9 +202,10 @@
       "results": 9000,
       "notes": {
         "ingested": 600,
-        "quarantined": 0
+        "rejected_by_ingestion": 0,
+        "no_label": 0
       },
-      "commit": "f69260c5aba8c1d15248b9cbb0caf3633183515d"
+      "commit": "6be428c1789c7463c67788774dcb411525fe17a8"
     },
     {
       "set_id": "S7",
@@ -230,7 +232,7 @@
         "attempted": 108726,
         "scored": 107635
       },
-      "commit": "f69260c5aba8c1d15248b9cbb0caf3633183515d"
+      "commit": "6be428c1789c7463c67788774dcb411525fe17a8"
     },
     {
       "set_id": "S8",
@@ -257,7 +259,7 @@
         "attempted": 37000,
         "scored": 33945
       },
-      "commit": "f69260c5aba8c1d15248b9cbb0caf3633183515d"
+      "commit": "6be428c1789c7463c67788774dcb411525fe17a8"
     },
     {
       "set_id": "S9",
@@ -277,7 +279,7 @@
       "claims": 123,
       "results": 140,
       "notes": {},
-      "commit": "f69260c5aba8c1d15248b9cbb0caf3633183515d"
+      "commit": "6be428c1789c7463c67788774dcb411525fe17a8"
     }
   ]
 }
