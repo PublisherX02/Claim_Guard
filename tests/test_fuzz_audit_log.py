@@ -20,6 +20,14 @@ def make_log(tmp, n=8):
     return path
 
 
+def parsed(raw):
+    """The rows a log holds, or None when it no longer parses: the hash covers parsed content, not raw bytes."""
+    try:
+        return [json.loads(l) for l in raw.decode('utf-8').split(chr(10)) if l.strip()]
+    except ValueError:
+        return None
+
+
 def detected(path):
     try:
         verify_with_anchor(path, strict=True)
@@ -36,7 +44,10 @@ class AuditTamperFuzz(unittest.TestCase):
             raw = bytearray(path.read_bytes())
             i = where % len(raw)
             assume(raw[i] != value)
+            before = parsed(bytes(raw))
             raw[i] = value
+            # a flip that only changes JSON whitespace (space -> tab after a colon) leaves the same record: not a tamper
+            assume(parsed(bytes(raw)) != before)
             path.write_bytes(bytes(raw))
             self.assertTrue(detected(path))
 
