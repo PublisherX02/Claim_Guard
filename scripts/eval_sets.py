@@ -179,3 +179,69 @@ def provenance_entry(es, root, commit, claims, results):
         'files': [{'path': f, 'sha256': file_sha256(root / f)} for f in es.files],
         'claims': claims, 'results': results, 'notes': dict(es.notes), 'commit': commit,
     }
+
+
+def generated_set(root, n_claims=107635, seed=20260927):
+    root = Path(root)
+    import random
+
+    import oracle
+    from claim_gen import random_claim
+
+    s = EvalSet('S7', 'B', 'generated claims', 'engine', 'independent_oracle',
+                'tests/oracle.py: a second implementation of the 15 rules written from docs/04 alone',
+                f'tests/claim_gen.py random_claim, seed {seed}, same loop as scripts/status_coverage.py',
+                'the oracle shares our reading of the rulebook, so this measures agreement between two implementations, not accuracy',
+                [_rel(root, root / 'tests' / 'claim_gen.py'), _rel(root, root / 'tests' / 'oracle.py')], None)
+
+    def items():
+        pack = oracle.load_rules_pack(root)
+        rng = random.Random(seed)
+        attempted = kept = 0
+        s.notes.update(attempted=0, scored=0)
+        while kept < n_claims:
+            c = random_claim(rng)
+            attempted += 1
+            try:
+                validate_transport(c)
+            except Exception:
+                continue                      # ingestion would quarantine it; the engine never scores it
+            c['claim_id'] = f'CG-GEN-{kept:06d}'   # random ids collide at this size, and a collision would overwrite a label
+            kept += 1
+            s.notes.update(attempted=attempted, scored=kept)
+            yield c, oracle.evaluate(c, pack)
+    s.items = items
+    return s
+
+
+def mutant_set(root, attempts=37000, seed=20261004):
+    root = Path(root)
+    import random
+
+    import oracle
+    from test_stress_differential import mutate
+
+    s = EvalSet('S8', 'B', 'boundary-aware mutants of the public claims', 'engine', 'independent_oracle',
+                'tests/oracle.py (see S7)',
+                f'mutate() from tests/test_stress_differential.py applied to the 600 public claims, seed {seed}, {attempts} attempts',
+                'mutants of real claims; same shared-reading caveat as S7',
+                [_rel(root, root / 'tests' / 'test_stress_differential.py'), _rel(root, root / 'tests' / 'oracle.py')], None)
+
+    def items():
+        pack = oracle.load_rules_pack(root)
+        pool = [c for sp in SPLITS for c in load_jsonl(root / 'data' / sp / 'claims.jsonl')]
+        rng = random.Random(seed)
+        kept = 0
+        s.notes.update(attempted=attempts, scored=0)
+        for _ in range(attempts):
+            m = mutate(rng.choice(pool), rng)
+            try:
+                validate_transport(m)
+            except Exception:
+                continue
+            m['claim_id'] = f'CG-MUT-{kept:06d}'
+            kept += 1
+            s.notes['scored'] = kept
+            yield m, oracle.evaluate(m, pack)
+    s.items = items
+    return s
