@@ -51,7 +51,8 @@ def main(argv=None, env=None, out=None, run=None, store=None, data_dir=None, cla
         say('error: the database cannot be reached')
         return 2
     if args.dev:
-        say(f'DEV MODE: users live in memory; generated secrets are kept in {stack.data_dir / "dev_secrets.json"}. Do not use real data.')
+        where = 'in the configured database' if stack.settings.mongo_uri else 'in memory (lost on exit)'
+        say(f'DEV MODE: users live {where}; generated secrets are kept in {stack.data_dir / "dev_secrets.json"}. Do not use real data.')
     say(f'listening on {args.host}:{args.port}')
     if run is None:
         import uvicorn

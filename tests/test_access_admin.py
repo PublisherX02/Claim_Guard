@@ -188,6 +188,16 @@ class BootstrapAndServeTests(unittest.TestCase):
         self.assertEqual(calls[0]['port'], 9443)
         self.assertFalse(calls[0]['server_header'])
         self.assertIn('DEV MODE', out.getvalue())
+        self.assertIn('in memory', out.getvalue())
+
+    def test_the_dev_banner_does_not_claim_memory_when_a_database_is_configured(self):
+        out = io.StringIO()
+        fake = store.MemoryStore()                                   # stands in for the database, so no connection is attempted
+        env = {**DEV_ENV, 'MONGO_URI': 'mongodb://example.invalid:27017'}
+        serve_access.main(['--dev'], env=env, out=out, run=lambda *a, **k: None, store=fake, data_dir=self.tmp.name,
+                          claims_path=ROOT / 'data' / 'stress' / 'claims.jsonl')
+        self.assertIn('configured database', out.getvalue())
+        self.assertNotIn('in memory', out.getvalue())
 
 
 if __name__ == '__main__':
