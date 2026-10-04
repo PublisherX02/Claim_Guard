@@ -60,12 +60,39 @@ class RenderTests(unittest.TestCase):
     def test_no_disagreements_says_so(self):
         self.assertIn('No disagreements', r.render_tables(METRICS, PROV)['disagreements'])
 
+    def test_a_set_with_no_claims_is_left_out_of_the_metric_tables(self):
+        import copy
+        m = copy.deepcopy(METRICS)
+        m['sets']['S4'] = copy.deepcopy(m['sets']['S3'])
+        m['sets']['S4']['summary']['claims'] = 0
+        t = r.render_tables(m, PROV)
+        for name in ('tier_a', 'baselines', 'valid_claims', 'categories'):
+            self.assertNotIn('S4', t[name], name)
+
+    def test_hand_derived_sets_are_not_in_the_valid_claims_table(self):
+        import copy
+        m = copy.deepcopy(METRICS)
+        m['sets']['S9'] = copy.deepcopy(m['sets']['S3'])
+        m['sets']['S9']['meta'] = {'tier': 'C', 'name': 'boundary', 'path': 'engine', 'label_kind': 'hand_derived'}
+        self.assertNotIn('S9', r.render_tables(m, PROV)['valid_claims'])
+
+    def test_the_ai_step_line_cites_its_source_without_nested_parentheses(self):
+        line = r.render_tables(METRICS, PROV)['latency'].splitlines()[-1]
+        self.assertIn('117 calls. Source: outputs/defense/load.json', line)
+
     def test_apply_replaces_blocks_and_keeps_prose(self):
         doc = 'intro\n<!-- TABLE:latency -->\nold\n<!-- /TABLE:latency -->\noutro'
         out = r.apply_tables(doc, {'latency': 'NEW'})
         self.assertIn('NEW', out)
         self.assertNotIn('old', out)
         self.assertTrue(out.startswith('intro') and out.endswith('outro'))
+
+    def test_an_empty_block_is_filled_and_rerendering_is_stable(self):
+        nl = chr(10)
+        doc = nl.join(['a', '<!-- TABLE:latency -->', '<!-- /TABLE:latency -->', 'b'])
+        once = r.apply_tables(doc, {'latency': 'NEW'})
+        self.assertEqual(once, nl.join(['a', '<!-- TABLE:latency -->', 'NEW', '<!-- /TABLE:latency -->', 'b']))
+        self.assertEqual(r.apply_tables(once, {'latency': 'NEW'}), once)
 
     def test_missing_marker_is_an_error(self):
         with self.assertRaises(KeyError):

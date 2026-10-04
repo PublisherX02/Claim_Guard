@@ -47,6 +47,10 @@ def _sets(metrics, pred):
     return sorted(items, key=lambda kv: int(kv[0][1:]))
 
 
+def _nonempty(s):
+    return s['summary']['claims'] > 0
+
+
 def render_tables(metrics, provenance):
     t = {}
     t['provenance'] = table(
@@ -55,7 +59,7 @@ def render_tables(metrics, provenance):
           '; '.join(f'{k}={v}' for k, v in e['notes'].items()) or '-',
           ', '.join(f['sha256'][:8] for f in e['files']), e['limitation']]
          for e in sorted(provenance['sets'], key=lambda e: int(e['set_id'][1:]))])
-    tier_a = _sets(metrics, lambda m: m['tier'] == 'A')
+    tier_a = [(sid, s) for sid, s in _sets(metrics, lambda m: m['tier'] == 'A') if _nonempty(s)]
     t['tier_a'] = table(
         ['Set', 'Name', 'Claims', 'Results', 'Precision', 'Recall', 'F1 (FAIL)', 'Status accuracy', 'Disagreements',
          'Macro F1 by category', 'Categories undefined (no FAIL)', 'Macro F1 by severity', 'Macro F1 over rules'],
@@ -82,9 +86,9 @@ def render_tables(metrics, provenance):
         rows.append(row)
     t['per_rule'] = table(['Rule'] + [f'{sid} F1 (gold FAIL count)' for sid, _ in per_sets], rows)
     rows = []
-    for sid, s in _sets(metrics, lambda m: True):
+    for sid, s in _sets(metrics, lambda m: m['label_kind'] != 'hand_derived'):
         v = s['summary']['valid_claims']
-        if not any(x['n'] for x in v.values()):
+        if not _nonempty(s) or not any(x['n'] for x in v.values()):
             continue
         rows.append([sid, s['meta']['name'], rate_cell(v['claims_without_fail']), rate_cell(v['clean_claims']),
                      rate_cell(v['clean_claim_false_abstention']), rate_cell(v['clean_result_false_alarm'])])
@@ -93,6 +97,8 @@ def render_tables(metrics, provenance):
          'Fully clean claims: engine abstained', 'Results on fully clean claims: false alarms'], rows)
     rows = []
     for sid, s in _sets(metrics, lambda m: True):
+        if not _nonempty(s):
+            continue
         for name, b in (s['baselines'] or {}).items():
             o = b['overall']
             rows.append([sid, name, o['precision'], o['recall'], o['f1'], b['status_accuracy']])
@@ -117,7 +123,7 @@ def render_tables(metrics, provenance):
     env = lat['environment']
     ai = metrics['ai_step_recorded']
     ai_line = (f"AI explanation step, recorded live calls: median {fmt(ai['seconds']['median'])} s, p95 {fmt(ai['seconds']['p95'])} s, "
-               f"{ai['seconds']['calls']} calls ({ai['source']}).") if ai.get('seconds') else 'AI step latency: no recorded run found.'
+               f"{ai['seconds']['calls']} calls. Source: {ai['source']}.") if ai.get('seconds') else 'AI step latency: no recorded run found.'
     t['latency'] = (table(['Path', 'n', 'mean ms', 'p50 ms', 'p95 ms', 'p99 ms', 'max ms'], rows)
                     + f"\n\nMeasured on {env['platform']}, Python {env['python']}, {env['cpus']} CPUs; latency is machine-dependent "
                       f"and not deterministic.\n\n{ai_line}")
@@ -126,10 +132,10 @@ def render_tables(metrics, provenance):
 
 def apply_tables(doc, tables):
     for name, text in tables.items():
-        pattern = re.compile(r'(<!-- TABLE:%s -->\n).*?(\n<!-- /TABLE:%s -->)' % (re.escape(name), re.escape(name)), re.DOTALL)
+        pattern = re.compile(r'(<!-- TABLE:%s -->)\n.*?\n?(<!-- /TABLE:%s -->)' % (re.escape(name), re.escape(name)), re.DOTALL)
         if not pattern.search(doc):
             raise KeyError(name)
-        doc = pattern.sub(lambda m: m.group(1) + text + m.group(2), doc, count=1)
+        doc = pattern.sub(lambda m: m.group(1) + '\n' + text + '\n' + m.group(2), doc, count=1)
     return doc
 
 
