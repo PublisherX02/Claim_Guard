@@ -68,7 +68,7 @@ How to use this in a defense: state the decision in one sentence, give the proof
 
 | Decision | Proof | Weak spot and answer |
 |---|---|---|
-| **523 offline tests (420 verified on Python 3.10, 3.12, 3.14 in CI)** | CI green on all 6 jobs at commit `0aac644`, when the suite was 420 tests; the 103 added since ran on 3.10 locally | CI was red on every run from its first commit until the audit-lock fix. We found it, fixed it and say so, rather than hiding it |
+| **523 offline tests (420 verified on Python 3.10, 3.12, 3.14 in CI)** | CI green on all 6 jobs at commit `0aac644`, when the suite was 420 tests; the 103 added since passed locally on 3.10, 3.12 and 3.14 in fresh environments (2026-10-04) | CI was red on every run from its first commit until the audit-lock fix. We found it, fixed it and say so, rather than hiding it |
 | **Demo is offline and scripted** (`scripts/demo.py`, 8 scenes, about 2 s) | Video kit in `docs/23` | Video is being filmed from that script |
 
 ## H. Architecture comparison (Architecture A vs Architecture B)
