@@ -257,13 +257,12 @@ def _official_limits():
 
 
 def _earlier_views(view, history):
-    out = []
-    for prev in history.earlier_claims(view):
-        try:
-            out.append(rule_view(prev))
-        except Exception:  # noqa: BLE001 - an earlier claim that cannot be read contributes nothing
-            continue
-    return out
+    """The earlier claims as cleaned views. A history that answers with anything but a list of claim dicts is a broken store: raise,
+    so the history rules become UNABLE_TO_ASSESS instead of reading garbage as "no earlier claims"."""
+    rows = history.earlier_claims(view)
+    if not isinstance(rows, (list, tuple)) or not all(isinstance(r, dict) for r in rows):
+        raise ExtensionEngineError('claim history returned data that is not a list of claims')
+    return [rule_view(r) for r in rows]
 
 
 def _party(view):

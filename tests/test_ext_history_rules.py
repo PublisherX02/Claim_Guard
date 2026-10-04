@@ -165,5 +165,29 @@ class DailyQuantityTests(unittest.TestCase):
         self.assertEqual(one(claim([line(1, 'SVC-LAB', quantity=3)]), 'E103', later)['status'], 'PASS')
 
 
+class BrokenHistoryTests(unittest.TestCase):
+    def test_a_history_store_that_returns_garbage_makes_the_cross_claim_rules_unable(self):
+        class Bad:
+            def __init__(self, answer):
+                self.answer = answer
+
+            def earlier_claims(self, c):
+                return self.answer
+        c = auth_claim(1)
+        for answer in ({}, 5, 'x', None, [None], [1, 2], {'a': 1}):
+            res = ex.evaluate_extensions(c, Bad(answer))
+            for rid in ('E101', 'E102', 'E103'):
+                self.assertEqual(res[IDS.index(rid)]['status'], 'UNABLE_TO_ASSESS', (rid, answer))
+
+    def test_a_history_store_that_raises_makes_them_unable_and_reports_the_error(self):
+        class Down:
+            def earlier_claims(self, c):
+                raise ConnectionError('store down')
+        errors = []
+        res = ex.evaluate_extensions(auth_claim(1), Down(), tool_errors=errors)
+        self.assertEqual([res[IDS.index(r)]['status'] for r in ('E101', 'E102', 'E103')], ['UNABLE_TO_ASSESS'] * 3)
+        self.assertEqual(len(errors), 3)
+
+
 if __name__ == '__main__':
     unittest.main()
