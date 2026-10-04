@@ -111,7 +111,8 @@ This is a narrated tour of the whole pipeline in eight scenes: ingestion of FHIR
 **3. Run the tests**
 
 ```bash
-python -m unittest discover -s tests          # 489 tests, about 2 min, offline, no API key needed
+python -m unittest discover -s tests          # 523 tests, about 2 min, offline, no API key needed
+python scripts/fuzz_campaign.py --examples 3000   # deeper fuzz run of the six trust boundaries (about 6 min); writes outputs/defense/fuzz.json
 ```
 
 **4. Optional: live AI explanations.** Without a key, the explanation is a deterministic template, so every command here works offline. To use the hosted model:
@@ -157,7 +158,7 @@ Expected: `evaluate.py` prints status accuracy 1.0 for the development split; `v
 |---|---|
 | Status accuracy, issue precision and recall, all 15 rules | **1.0** on the development, validation and stress splits (9,000 of 9,000 results) |
 | Independent oracle agreement (rules written again from the rulebook text alone) | **0 disagreements** over 107,635 generated claims (`scripts/status_coverage.py`), plus 37,000 boundary-aware mutants and 123 hand-derived edge cases |
-| Tests | 489, all offline. 420 were last verified on Python 3.10, 3.12 and 3.14 in CI (commit named in `docs/19`); the 69 added since then have run on Python 3.10 locally and on CI after the next push |
+| Tests | 523, all offline. 420 were last verified on Python 3.10, 3.12 and 3.14 in CI (commit named in `docs/19`); the 103 added since then have run on Python 3.10 locally and on CI after the next push |
 | Live AI explanations (Mistral-Nemo-Instruct-2407 via Featherless.ai, prompt v1.6.0 with a closing gate, temperature 0) | **Seven benchmarks, all at 85% or more** on 12 new cases (lowest 93.2%): 97.5% live, 93.3% useful, 100% injection resisted, 100% cover the rule's corrective action, 93.2% cite an observed evidence value, 93.2% name a next step, 0 garbled answers shown. Chosen by four rounds of experiments, see below |
 | Local, free alternative (`gemma3:4b` via Ollama) | Beats the paid, hosted default on every automated metric: 97.2% live vs. 94.4%, 3.0 s vs. 4.1 s median latency, 0 garbled replies across an 84-case stress test. See below |
 | Security | audited against the OWASP Top 10 for LLM Applications and the OWASP Top 10: `docs/20_Security_Audit.md` |
@@ -247,7 +248,7 @@ Also built and tested, but off by default: a **cascade** (fluent model, then a r
 | `rules/` | `core.yar` (compiled rule pack), `rules.json`, `policies.json`, catalogues |
 | `schemas/` | JSON schemas for claims, results and review events |
 | `data/` | 600 synthetic claims in three splits, in JSONL, CSV and FHIR forms, with the public answer key |
-| `tests/` | 489 tests, including `oracle.py` (independent reference implementation) and the stress and security suites |
+| `tests/` | 523 tests, including `oracle.py` (independent reference implementation) and the stress and security suites |
 | `scripts/` | `demo.py` (narrated tour), audited runs, audit verification, `draw_diagrams.py`, AI evaluation and the experiment runner |
 | `experiments/` | Raw experiment data and `summary.json`; figures are in `docs/figures/` |
 | `outputs/` | Frozen evidence: metrics, audit samples, recorded live AI runs |

@@ -39,3 +39,6 @@ Surfaces 1 to 6 in that order, one commit each, tests under `tests/fuzz/`, share
 ## Risks
 Hypothesis can find genuine bugs in Phase 1 code; fixing them is in scope, redesigning is not. The engine's
 precedence order is untested by data (docs/27), so surface 4 reports it rather than asserting on it.
+
+## Implementation notes (2026-10-04)
+Tests are flat `tests/test_fuzz_*.py` modules (the repo discovers flat files), not `tests/fuzz/`. Run a single module with `python -m unittest discover -s tests -p test_fuzz_ingest.py`; the dotted `tests.<module>` form resolves to another package on this machine.
