@@ -78,15 +78,21 @@ compose file runs one node. Tasks are keyed by `claim_id + input_hash`; a duplic
 - **CI** gains a Redis service next to MongoDB and a `REQUIRE_REDIS` gate (the Redis-backed tests fail rather than skip).
 
 ## The dispatcher
-- **Agents pull.** `POST /work/next` takes the caller's badge, finds the pool they may decide (eligibility above, plus the lane
-  order set by the administrator), and returns a **random slice** (default 25) as a **lease** with an expiry (default 30 minutes).
-  Claims are taken with a conditional `find_one_and_update`, so two agents can never hold the same claim, even in parallel.
+- **Each agent has a personal inbox that the dispatcher keeps filled.** No agent waits to ask. A dispatch task deals claims from
+  the `ready` pool into the inbox of every agent on shift until each holds the slice size (default 25); when an inbox falls below
+  a low-water mark (default 10) it is topped up at once. Claims move pool to inbox with a conditional `find_one_and_update`, so two
+  agents can never hold the same claim, even in parallel. Each inbox entry is a **lease** that expires if the agent goes silent
+  (default 30 minutes without a heartbeat or decision); expired entries return to the pool and are dealt to someone else. The agent's
+  screen (`GET /work/inbox`) simply lists their inbox; `POST /work/next` remains as a manual top-up.
+- **Dealing is stratified-random, so workloads come out even.** Eligible claims are shuffled with a logged seed, then dealt like
+  cards in priority order across the agents who may take them, so every inbox receives a similar total of score points as well as
+  a similar count. Randomness decides which claims, never how much work. Unevenness is reported by the experiment.
 - **Aging.** Priority is the score plus a bonus per hour waited, so the hard lane cannot starve behind new arrivals; the random draw
-  is weighted by priority within the eligible pool.
+  is replaced by dealing in priority order.
 - **Conflict of interest.** An agent never receives a claim whose earlier version they decided, or for the same patient pseudonym
   where the administrator has marked a relationship (kept as an exclusion list in the routing configuration).
-- **Reproducible draws.** Each draw logs the seed, the SHA-256 of the sorted eligible claim ids, the agent's eligibility at that
-  moment, and the slice returned. A test replays a logged draw and must obtain the identical slice.
+- **Reproducible deals.** Each deal logs the seed, the SHA-256 of the sorted eligible claim ids, the badges and eligibility of the
+  agents on shift at that moment, and the resulting assignments. A test replays a logged deal and must obtain identical inboxes.
 - **Expiry and reassignment.** An expired lease returns its undecided claims to `ready`; each reassignment is logged.
 - **Two-person sign-off for high severity** (last task, isolated, cut first if time is short): a high-severity finding confirmed or
   dismissed by one L3 becomes `awaiting_countersign` and resolves only when a *different* L3 agrees; a disagreement escalates
@@ -104,7 +110,10 @@ who is on shift, so a shortage of L3 agents is visible before it hurts.
 
 ## AI explanation step
 A Celery task per flagged claim. It runs only for lanes A and B. Limits: a per-minute rate and a daily budget (administrator
-setting); beyond them the claim is `explanation_skipped` and dispatched with the deterministic text. Output goes through the
+setting); a **circuit breaker** around the model call (opens after 5 consecutive failures, or an error rate of 50% over a 60-second
+window of at least 20 calls; retries only transient errors such as 429 and 503, with exponential backoff and jitter; 15 to 30
+seconds of cooldown, then a half-open probe; fatal errors such as 400 to 404 are never retried) and a hard 90-second ceiling per
+explanation; beyond any of these the claim is `explanation_skipped` and dispatched with the deterministic text. Output goes through the
 existing clinical and fraud guard; on failure the deterministic text is used and the failure is logged. Each outcome (AI used,
 cache hit, skipped, guard-rejected) is a state event.
 
@@ -134,7 +143,7 @@ change invalidates entries.
 7. Hash-chained log and anchor cover receipts, configuration changes and draws.
 
 ## Testing
-- Contract suite on the in-memory and real MongoDB stores; Redis/Celery tests gated by `REQUIRE_REDIS`.
+- Contract suite on the in-memory and real MongoDB stores; Redis/Celery tests gated by `REQUIRE_REDIS`; the circuit breaker is tested with a fake clock and a fake model that fails, slows and recovers.
 - Routing formula against the independent oracle; property tests: every claim reaches exactly one terminal state; no claim is in
   two leases; a leased claim is always eligible for its holder; expired leases return claims; replaying a logged draw reproduces it.
 - Fault injection: crash between the atomic write and the publish; worker killed after acking; duplicate delivery; Redis lost;
@@ -147,9 +156,14 @@ change invalidates entries.
 
 ## Differences from the first sketch (recorded decisions)
 Lanes come from a severity-weighted score, not a bare count; green claims are verified by a human; the AI never blocks;
-agents pull leases rather than being pushed work; the administrator sets capacity, never individual assignments; the engine runs
+work is pushed into personal inboxes that stay topped up (no waiting), with expiring leases so an absent agent never strands claims; the administrator sets capacity, never individual assignments; the engine runs
 inline at intake; and a cache exists only where it is provably safe.
 
+## Shadow-mode model (undecided; mentor question pending)
+The shadow predictor stays a plain interface (`predict_clear(receipt) -> probability`) with a trivial baseline (always "clear")
+until enough human decisions exist. The candidate models go to the mentor; none is built in this sub-project. Whatever is chosen is
+trained only on human decisions already in the log, evaluated with a bound, and never able to change a claim's route.
+
 ## Open risks to report honestly
-High-severity concentration on L3 (above); Celery needs Linux workers (Docker) so the Windows demo runs eager; random slices with
-aging trade strict fairness for no starvation; shadow-mode agreement can only be measured once humans have decided enough claims.
+High-severity concentration on L3 (above); Celery needs Linux workers (Docker) so the Windows demo runs eager; dealing by priority with
+aging trades strict first-come order for no starvation; shadow-mode agreement can only be measured once humans have decided enough claims.
