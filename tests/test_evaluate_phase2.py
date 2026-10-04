@@ -64,6 +64,26 @@ class ScoreSetTests(unittest.TestCase):
         self.assertEqual(r['summary']['disagreements']['count'], 0)
 
 
+class RecordedAiStepTests(unittest.TestCase):
+    def write(self, tmp, text):
+        d = Path(tmp) / 'outputs' / 'defense'
+        d.mkdir(parents=True)
+        (d / 'load.json').write_text(text, encoding='utf-8')
+
+    def test_reads_the_recorded_numbers(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            self.write(tmp, json.dumps({'ai_step_seconds': {'median': 1.0, 'p95': 2.0, 'calls': 3}}))
+            self.assertEqual(ev.recorded_ai_step(tmp), {'median': 1.0, 'p95': 2.0, 'calls': 3})
+
+    def test_a_missing_file_a_missing_key_and_bad_json_all_give_none(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            self.assertIsNone(ev.recorded_ai_step(tmp))
+        for text in ('{}', '{"ai_step_seconds": null}', 'not json', '[]'):
+            with tempfile.TemporaryDirectory() as tmp:
+                self.write(tmp, text)
+                self.assertIsNone(ev.recorded_ai_step(tmp), text)
+
+
 class RunAllTests(unittest.TestCase):
     def test_small_run_writes_both_files_with_every_set_cited(self):
         with tempfile.TemporaryDirectory() as tmp:

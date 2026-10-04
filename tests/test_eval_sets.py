@@ -94,11 +94,20 @@ class FormatVariantTests(unittest.TestCase):
         self.assertEqual((self.fhir.set_id, self.csv.set_id), ('S5', 'S6'))
         self.assertEqual((self.fhir.path, self.csv.path), ('ingest_fhir', 'ingest_csv'))
 
-    def test_every_record_is_accepted_or_counted_as_quarantined(self):
+    def test_every_record_is_accepted_or_counted_under_its_own_reason(self):
         for s in (self.fhir, self.csv):
             items = drain(s)
-            self.assertEqual(len(items) + s.notes['quarantined'], 600)
+            self.assertEqual(len(items) + s.notes['rejected_by_ingestion'] + s.notes['no_label'], 600)
             self.assertEqual(s.notes['ingested'], len(items))
+
+    def test_a_missing_label_is_not_blamed_on_ingestion(self):
+        gold = {sp: es.organizer_gold(ROOT, sp) for sp in es.SPLITS}
+        gold['stress'] = {}                      # the answer key for the stress split is "lost"
+        csv = es.format_variant_sets(ROOT, gold_by_split=gold)[1]
+        items = drain(csv)
+        self.assertEqual(len(items), 550)
+        self.assertEqual(csv.notes['no_label'], 50)
+        self.assertEqual(csv.notes['rejected_by_ingestion'], 0)
 
     def test_gold_comes_from_the_organizer_key_for_the_same_claim_id(self):
         organizer = {}

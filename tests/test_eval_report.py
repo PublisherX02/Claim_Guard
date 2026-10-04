@@ -39,6 +39,11 @@ class RenderTests(unittest.TestCase):
         t = r.render_tables(METRICS, PROV)
         self.assertIn('n/a', t['categories'])
 
+    def test_the_fail_detection_error_rate_is_shown_with_its_bound(self):
+        text = r.render_tables(METRICS, PROV)['tier_a']
+        self.assertIn('FAIL-detection errors', text)
+        self.assertIn('0/30', text)
+
     def test_provenance_table_cites_the_hash_prefix(self):
         self.assertIn('aaaaaaaa', r.render_tables(METRICS, PROV)['provenance'])
 

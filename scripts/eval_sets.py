@@ -122,9 +122,9 @@ def organizer_sets(root):
     return sets
 
 
-def format_variant_sets(root):
+def format_variant_sets(root, gold_by_split=None):
     root = Path(root)
-    gold_by_split = {sp: organizer_gold(root, sp) for sp in SPLITS}
+    gold_by_split = gold_by_split or {sp: organizer_gold(root, sp) for sp in SPLITS}
     out = []
     for set_id, fmt, path_name, label, limit in (
             ('S5', FHIR, 'ingest_fhir', 'FHIR bundles',
@@ -141,16 +141,19 @@ def format_variant_sets(root):
                     'src/ingest.py reads the file; the claim that results is scored by the engine', limit, files, None)
 
         def items(s=s, fmt=fmt):
-            s.notes.update(ingested=0, quarantined=0)
+            s.notes.update(ingested=0, rejected_by_ingestion=0, no_label=0)
             for sp in SPLITS:
                 src = root / 'data' / sp / ('fhir_bundles.jsonl' if fmt == FHIR else 'csv')
                 for it in ingest(src, fmt):
-                    gold = gold_by_split[sp].get(it.claim['claim_id']) if it.accepted else None
-                    if it.accepted and gold:
-                        s.notes['ingested'] += 1
-                        yield it.claim, gold
-                    else:
-                        s.notes['quarantined'] += 1
+                    if not it.accepted:
+                        s.notes['rejected_by_ingestion'] += 1     # ingestion quarantined the record
+                        continue
+                    gold = gold_by_split[sp].get(it.claim['claim_id'])
+                    if not gold:
+                        s.notes['no_label'] += 1                  # ingested fine, but the answer key has no entry for it
+                        continue
+                    s.notes['ingested'] += 1
+                    yield it.claim, gold
         s.items = items
         out.append(s)
     return out

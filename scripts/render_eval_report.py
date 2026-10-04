@@ -62,12 +62,14 @@ def render_tables(metrics, provenance):
     tier_a = [(sid, s) for sid, s in _sets(metrics, lambda m: m['tier'] == 'A') if _nonempty(s)]
     t['tier_a'] = table(
         ['Set', 'Name', 'Claims', 'Results', 'Precision', 'Recall', 'F1 (FAIL)', 'Status accuracy', 'Disagreements',
-         'Macro F1 by category', 'Categories undefined (no FAIL)', 'Macro F1 by severity', 'Macro F1 over rules'],
+         'Macro F1 by category', 'Categories undefined (no FAIL)', 'Macro F1 by severity', 'Macro F1 over rules',
+         'FAIL-detection errors (FP + FN) over all results'],
         [[sid, s['meta']['name'], s['summary']['claims'], s['summary']['results'], s['summary']['overall']['precision'],
           s['summary']['overall']['recall'], s['summary']['overall']['f1'], s['summary']['status_accuracy'],
           s['summary']['disagreements']['count'], s['summary']['macro_category']['macro_f1'],
           ', '.join(s['summary']['macro_category']['excluded']) or '-',
-          s['summary'].get('macro_severity', {}).get('macro_f1'), s['summary']['macro_rule']['macro_f1']]
+          s['summary'].get('macro_severity', {}).get('macro_f1'), s['summary']['macro_rule']['macro_f1'],
+          rate_cell(s['summary']['fail_error_rate'])]
          for sid, s in tier_a])
     rows = []
     for sid, s in tier_a:

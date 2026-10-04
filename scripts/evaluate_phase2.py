@@ -88,6 +88,15 @@ def measure_latency(root, cfg, repeats=3, audited_claims=100):
     }
 
 
+def recorded_ai_step(root):
+    """Median, p95 and call count of the recorded live AI explanation calls, or None if that record is absent or malformed."""
+    try:
+        value = json.loads((Path(root) / 'outputs' / 'defense' / 'load.json').read_text(encoding='utf-8'))['ai_step_seconds']
+    except (OSError, ValueError, KeyError, TypeError):
+        return None
+    return value if isinstance(value, dict) else None
+
+
 def run_all(root, out_dir, generated=107635, mutant_attempts=37000, repeats=3, audited_claims=100):
     root, out_dir = Path(root), Path(out_dir)
     cfg = config(root)
@@ -108,8 +117,7 @@ def run_all(root, out_dir, generated=107635, mutant_attempts=37000, repeats=3, a
         latency = measure_latency(root, cfg, repeats, audited_claims)
     finally:
         logging.disable(logging.NOTSET)
-    load_path = root / 'outputs' / 'defense' / 'load.json'
-    ai = json.loads(load_path.read_text(encoding='utf-8'))['ai_step_seconds'] if load_path.exists() else None
+    ai = recorded_ai_step(root)
     out = {'commit': commit, 'sets': metrics, 'latency': latency,
            'ai_step_recorded': {'seconds': ai, 'source': 'outputs/defense/load.json (live Mistral-Nemo calls, recorded earlier; not re-run here)'}}
     out_dir.mkdir(parents=True, exist_ok=True)
