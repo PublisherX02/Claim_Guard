@@ -362,7 +362,7 @@ Audited against the OWASP Top 10 for LLM Applications (2025) and the OWASP Top 1
 | Unbounded consumption | Prompt limits, `max_tokens`, timeout, one retry, bounded concurrency |
 | Secrets | `.env` git-ignored and scanned; the key never enters a prompt, log or experiment record |
 | Supply chain | Exact pins; `pip-audit` clean; no `eval`, `exec`, `subprocess` or `pickle` in our code (a test scans) |
-| Log integrity | Hash chain, anchor, optional HMAC; log forging prevented with `%r` logging |
+| Log integrity | Hash chain, anchor, optional HMAC; log forging prevented with `%r` logging; `verify_audit.py` reports whether the anchor is signed and `--require-key` enforces it |
 | Hostile input | Property-based fuzzing of ingestion, the model reply gate, the audit log, the engine, injection and the review page (section 10a) |
 
 Residual: no authentication, protected health information would go to a third-party model with real data, the audit log is not immutable storage, and there is no per-run spending cap.
@@ -378,7 +378,7 @@ Residual: no authentication, protected health information would go to a third-pa
 | Phase 2 evaluation | Nine cited example sets in three evidence tiers (organizer key, independent oracle, hand-derived); F1 1.0 on the three public splits, no valid claim flagged, FHIR path 0.9745 (R009 abstains); `docs/29_Test_Evaluation_Report.md`, evidence in `outputs/evaluation/` |
 | Fuzzing | Six trust boundaries, 25 property tests at 3,000 generated examples each plus one regression test, all passing; two defects found and fixed (section 10a) |
 | Security and red team | `docs/20` |
-| Suite | 595 tests, offline (420 of them verified in CI on Python 3.10, 3.12 and 3.14; all 595 passed locally on all three in fresh environments built from `requirements-dev.txt`, 2026-10-04); the committed audit sample's 6,000 result hashes are re-checked |
+| Suite | 618 tests, offline (420 of them verified in CI on Python 3.10, 3.12 and 3.14; all 618 passed locally on all three in fresh environments built from `requirements-dev.txt`, 2026-10-04); the committed audit sample's 6,000 result hashes are re-checked |
 
 **Independent oracle at scale.** `tests/oracle.py` reimplements the 15 rules from `rules/rules.json` and `docs/04` alone; it imports nothing from `src/`, so the engine and the oracle cannot share a bug by construction — a mistake would have to be made independently, the same way, in both. `scripts/status_coverage.py` generates 107,635 claims with `tests/claim_gen.py` (half seeded from a fully valid claim then randomly damaged, half fully independent-random fields), scores each with both the engine and the oracle, and hard-fails on the first disagreement rather than only counting them, so the artifact below is either "0 disagreements" or the run did not complete:
 

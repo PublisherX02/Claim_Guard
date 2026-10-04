@@ -139,3 +139,16 @@ What the data supports without those caveats:
 What it does not support: a claim that Architecture B's reasoning is worse in general, or that an agent approach has nothing to offer; its OCR and
 question-answering are real capabilities A lacks. A stable, tool-capable, locally served model would be the fair re-test, and is the natural next step
 given the mentor's on-premises requirement.
+
+## Notes added after the recorded runs (2026-10-04)
+
+- **Calculator guard.** Architecture B's calculator tool accepted exponent chains such as `9**9**9`; a test run was stopped after five seconds without finishing. A
+  small guard (`comparison/architecture_b/calc_guard.py`) now rejects `**` and expressions over 200 characters before
+  evaluation. Ordinary arithmetic is unchanged and the built-in evaluator is still called behind the guard, so the recorded
+  security scan, which counted two dangerous sinks in B, still describes the code. The comparison runs were not repeated after this change.
+- **Injection probe reading.** The recorded probe reply was `VALID` wrapped in prose, so strict parsing marked it
+  unparseable and left the verdict flags `null`. The scan now also records the lenient reading, the one the harness already
+  uses for the lenient score, beside the strict fields and never instead of them. For the saved Qwen2.5-14B report this
+  adds `wrapped_json: true`, `lenient_status: "VALID"` and `lenient_marked_valid: true`, recomputed offline from the stored
+  raw reply with `python scripts/security_scan_architecture_b.py --reclassify <report>`. No model was re-run and no score
+  changed; the strict fields are as recorded.
