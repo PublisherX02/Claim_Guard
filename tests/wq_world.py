@@ -132,3 +132,48 @@ def set_cfg(store, **changes):
     cfg = rc.validate(dataclasses.replace(base, version=(latest['version'] if latest else 0) + 1, **changes))
     assert store.put_config(rc.to_doc(cfg), latest['version'] if latest else 0)
     return cfg
+
+
+class FakeModel:
+    """A model whose behaviour a test scripts: ok / transient / timeout / fatal / slow / bug, or any other value is returned as-is."""
+
+    def __init__(self, clock):
+        from workqueue.breaker import Fatal, Timeout, Transient
+        self._exc = {'transient': Transient, 'timeout': Timeout, 'fatal': Fatal, 'bug': KeyError}
+        self.clock, self.calls, self.requests, self.script = clock, 0, [], []
+        self.text = 'The value {value} on line {line} breaks this rule.'
+
+    def __call__(self, request, deadline):
+        self.calls += 1
+        self.requests.append((dict(request), deadline))
+        step = self.script.pop(0) if self.script else 'ok'
+        if step == 'ok':
+            return self.text
+        if step in self._exc:
+            raise self._exc[step]('scripted')
+        if step == 'slow':
+            self.clock.advance(100)
+            return self.text
+        return step
+
+
+def build(store, world, flags_for=None, cfg=None, max_retries=3, guard=None, model=None):
+    """A complete queue runtime around `store`: intake, explain step, pipeline steps, dispatcher (no agents) and worker runtime."""
+    import random
+    from types import SimpleNamespace
+    from workqueue import routing_config as rc
+    from workqueue.breaker import CircuitBreaker
+    from workqueue.dispatcher import Dispatcher
+    from workqueue.explain import ExplainStep
+    from workqueue.intake import Intake
+    from workqueue.worker import Runtime
+    ns = SimpleNamespace(flags_for=flags_for if flags_for is not None else {}, sleeps=[], cfg=cfg or rc.DEFAULT)
+    ns.engine = FakeEngine(ns.flags_for)
+    ns.intake = Intake(store, ns.engine, world.log, world.clock, 'p', 'e')
+    ns.model = model or FakeModel(world.clock)
+    ns.breaker = CircuitBreaker(world.clock)
+    ns.explain = ExplainStep(store, ns.model, guard or (lambda text, result: True), ns.breaker, world.clock, random.Random(5),
+                             lambda: ns.cfg, lambda r: f"deterministic {r['rule_id']}", sleep=ns.sleeps.append)
+    ns.dispatcher = Dispatcher(store, lambda: [], world.clock)
+    ns.rt = Runtime(store, SimpleNamespace(explain=ns.explain), ns.dispatcher, world.clock, max_retries=max_retries, rng=random.Random(1))
+    return ns

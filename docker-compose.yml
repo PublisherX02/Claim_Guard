@@ -5,6 +5,7 @@
 #   1. put MONGO_ROOT_USER and MONGO_ROOT_PASSWORD in .env (see .env.example)
 #   2. docker compose up -d mongo
 #   3. MONGO_URI=mongodb://<user>:<password>@127.0.0.1:27017/?authSource=admin
+#   4. the work queue also needs Redis (broker only): docker compose up -d redis, then REDIS_URL=redis://127.0.0.1:6379/0
 services:
   mongo:
     image: mongo:7
