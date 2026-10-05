@@ -110,6 +110,10 @@ SECURITY_EVENTS = {
     'audit_read': {'badge_id'},
     'audit_verify': {'badge_id', 'ok'},
     'decision': {'badge_id', 'claim_id', 'rule_id', 'action'},
+    'routing_config_changed': {'actor', 'version', 'before', 'after'},
+    'lease_expired': {'claim_id', 'badge_id'},
+    'claim_dealt': {'deal_id', 'claim_id', 'badge_id'},
+    'claim_decided_green': {'badge_id', 'claim_id', 'action'},
 }
 _REQUIRED.update(SECURITY_EVENTS)
 
