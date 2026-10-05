@@ -104,3 +104,31 @@ def store_makers():
             return st, done
         out.append(('mongo', mongo))
     return out
+
+
+def queue_doc(claim_id, version=1, score=4, eligibility='decide_high', patient='P1', lane='A', created=1000.0, input_hash=None):
+    """A document for put_triaged with a chosen receipt (no engine needed)."""
+    return {'claim_id': claim_id, 'version': version, 'input_hash': input_hash or f'h-{claim_id}-{version}',
+            'claim': good_claim(claim_id, patient=patient),
+            'results': results_of(None, claim_id),
+            'receipt': {'claim_id': claim_id, 'input_hash': input_hash or f'h-{claim_id}-{version}', 'lane': lane,
+                        'eligibility': eligibility, 'score': score, 'config_version': 1, 'created_at': created, 'statuses': {}}}
+
+
+def put_ready(store, claim_id, now=1000.0, **kw):
+    """Store a claim and walk it to `ready` at time `now`."""
+    version = kw.get('version', 1)
+    assert store.put_triaged(queue_doc(claim_id, created=now, **kw))
+    assert store.transition(claim_id, version, 'triaged', 'ready', 'system:t', now)
+    return store.get(claim_id, version)
+
+
+def set_cfg(store, **changes):
+    """Write the next routing configuration version with the given changes on top of the latest."""
+    from workqueue import routing_config as rc
+    latest = store.latest_config()
+    base = rc.from_doc(latest) if latest else rc.DEFAULT
+    import dataclasses
+    cfg = rc.validate(dataclasses.replace(base, version=(latest['version'] if latest else 0) + 1, **changes))
+    assert store.put_config(rc.to_doc(cfg), latest['version'] if latest else 0)
+    return cfg
