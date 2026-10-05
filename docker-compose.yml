@@ -24,5 +24,19 @@ services:
       timeout: 5s
       retries: 6
 
+  # Redis is only the Celery broker for the work queue (src/workqueue). The truth lives in MongoDB, so nothing is persisted.
+  redis:
+    image: redis:7
+    container_name: claimguard-redis
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:6379:6379"
+    command: ["redis-server", "--save", "", "--appendonly", "no"]
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 6
+
 volumes:
   mongo_data:
