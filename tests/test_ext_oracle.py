@@ -10,7 +10,7 @@ import extension_rules as ex
 import oracle_extensions as oracle
 from claim_history import InMemoryHistory
 from ext_world import CLEAN
-from hypothesis import HealthCheck, given, settings, strategies as st
+from hypothesis import HealthCheck, example, given, settings, strategies as st
 
 DATES = st.sampled_from(['2026-03-02'] * 6 + ['2026-03-03'] * 3 + ['2026-03-01', '2026-02-30', None, '', 'soon'])
 CODES = st.sampled_from(['SVC-EXT-PRIMARY'] * 4 + ['SVC-EXT-COMPONENT'] * 4 + ['SVC-EXT-NEVER'] * 2 + ['SVC-EXT-RX'] * 2 +
@@ -83,6 +83,22 @@ def worlds(draw):
     return cs
 
 
+def _pinned_line(i, code, date, modifier):
+    return {'line_id': f'L{i}', 'service_code': code, 'service_date': date, 'modifier': modifier, 'quantity': 1,
+            'unit_price': 1, 'net_amount': 1, 'authorization_id': None}
+
+
+def _pair_world(partner, modifier, partner_date):
+    return [dict(CLEAN, claim_id='C1', lines=[_pinned_line(1, 'SVC-EXT-PRIMARY', '2026-03-02', None),
+                                              _pinned_line(2, partner, partner_date, modifier)])]
+
+
+# every status of E001 and E002 depends on one of these shapes, and random sampling of them varies a lot from run to run
+PAIR_SHAPES = [_pair_world(partner, modifier, date)
+               for partner in ('SVC-EXT-COMPONENT', 'SVC-EXT-NEVER')
+               for modifier in (None, 'EDU-SEPARATE')
+               for date in ('2026-03-02', None)]
+
 SEEN = {}
 # statuses a rule can never give by its definition: E005 has no not-applicable case, and E001/E002/E004 cannot be unable except through dates
 IMPOSSIBLE = {('E005', 'NOT_APPLICABLE'), ('E004', 'UNABLE_TO_ASSESS'), ('E101', 'NOT_APPLICABLE')}
@@ -100,6 +116,14 @@ def compare(test, everything):
             test.assertEqual(len(got[rid]['affected_line_ids']), len(set(got[rid]['affected_line_ids'])))
 
 
+def pin_examples(shapes):
+    def wrap(fn):
+        for shape in shapes:
+            fn = example(shape)(fn)
+        return fn
+    return wrap
+
+
 class OracleAgreementTests(unittest.TestCase):
     @classmethod
     def tearDownClass(cls):
@@ -110,6 +134,7 @@ class OracleAgreementTests(unittest.TestCase):
             assert not [m for m in missing if m not in IMPOSSIBLE], missing
 
     @settings(max_examples=500, deadline=None, suppress_health_check=[HealthCheck.too_slow, HealthCheck.filter_too_much])
+    @pin_examples(PAIR_SHAPES)
     @given(worlds())
     def test_the_engine_and_the_oracle_agree_on_status_and_affected_lines(self, everything):
         compare(self, everything)
