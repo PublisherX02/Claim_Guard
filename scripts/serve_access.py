@@ -30,6 +30,7 @@ def main(argv=None, env=None, out=None, run=None, store=None, data_dir=None, cla
     parser.add_argument('--host', default='127.0.0.1')
     parser.add_argument('--port', type=int, default=8443)
     parser.add_argument('--dev', action='store_true')
+    parser.add_argument('--queue', action='store_true', help='also serve the work queue routes (needs the queue database)')
     parser.add_argument('--ssl-keyfile')
     parser.add_argument('--ssl-certfile')
     try:
@@ -43,7 +44,8 @@ def main(argv=None, env=None, out=None, run=None, store=None, data_dir=None, cla
         say('error: refusing to listen on a non-local address without TLS (give --ssl-keyfile and --ssl-certfile)')
         return 2
     try:
-        app, stack = bootstrap.build_app(env, dev=args.dev, store=store, data_dir=data_dir, claims_path=claims_path, bind_host=args.host)
+        app, stack = bootstrap.build_app(env, dev=args.dev, store=store, data_dir=data_dir, claims_path=claims_path, bind_host=args.host,
+                                       queue=args.queue)
     except config.ConfigError as e:
         say(f'configuration error: {e}')
         return 2

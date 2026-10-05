@@ -14,8 +14,8 @@ from workqueue import states
 NOW = 1000.0
 
 
-def make_doc(claim_id='C1', version=1, input_hash='h1', lane='A', eligibility='decide', score=2, patient='P1', created=NOW):
-    return {
+def make_doc(claim_id='C1', version=1, input_hash='h1', lane='A', eligibility='decide', score=2, patient='P1', created=NOW, pack=None):
+    doc = {
         'claim_id': claim_id, 'version': version, 'input_hash': input_hash,
         'claim': {'claim_id': claim_id, 'patient_id': patient, 'provider_id': 'V1', 'submission_date': '2026-03-10',
                   'lines': [{'line_id': 'L1', 'service_code': 'SVC-LAB', 'quantity': 1}], 'authorizations': [], 'notes': 'n',
@@ -24,6 +24,9 @@ def make_doc(claim_id='C1', version=1, input_hash='h1', lane='A', eligibility='d
         'receipt': {'claim_id': claim_id, 'input_hash': input_hash, 'lane': lane, 'eligibility': eligibility, 'score': score,
                     'config_version': 1, 'created_at': created, 'statuses': {'R001': 'FAIL'}},
     }
+    if pack is not None:
+        doc['receipt']['rule_pack_hash'] = pack
+    return doc
 
 
 def race(count, fn):
@@ -98,6 +101,24 @@ class StoreContract:
         self.store.put_triaged(make_doc(input_hash='h1'))
         self.assertFalse(self.store.put_triaged(make_doc(input_hash='h2')))
         self.assertEqual(self.store.get('C1')['input_hash'], 'h1')
+
+    def test_the_same_body_under_a_new_rule_pack_is_the_next_version_but_under_the_same_pack_it_is_a_duplicate(self):
+        self.assertTrue(self.store.put_triaged(make_doc(pack='p1')))
+        self.assertFalse(self.store.put_triaged(make_doc(version=2, pack='p1')))        # same body, same pack: a duplicate
+        self.assertTrue(self.store.put_triaged(make_doc(version=2, pack='p2')))         # same body, new pack: version 2
+        self.assertFalse(self.store.put_triaged(make_doc(version=3, pack='p2')))
+        self.assertFalse(self.store.put_triaged(make_doc(version=2, input_hash='other', pack='p3')))   # the version number is taken
+        self.assertEqual([self.store.get('C1', v)['receipt']['rule_pack_hash'] for v in (1, 2)], ['p1', 'p2'])
+
+    def test_advisory_results_are_stored_beside_the_official_ones_and_default_to_none(self):
+        self.store.put_triaged(make_doc('C1'))
+        self.assertEqual(self.store.get('C1')['advisory'], [])
+        with_advice = make_doc('C2'); with_advice['advisory'] = [{'rule_id': 'E101', 'status': 'PASS'}]
+        self.assertTrue(self.store.put_triaged(with_advice))
+        self.assertEqual(self.store.get('C2')['advisory'], [{'rule_id': 'E101', 'status': 'PASS'}])
+        bad = make_doc('C3'); bad['advisory'] = {'rule_id': 'E101'}
+        with self.assertRaises(ValueError):
+            self.store.put_triaged(bad)
 
     def test_parallel_intake_of_one_claim_stores_it_once(self):
         wins = [r for r in race(30, lambda i: self.store.put_triaged(make_doc())) if r is True]

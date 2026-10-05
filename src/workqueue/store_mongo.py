@@ -15,8 +15,8 @@ import pymongo
 from pymongo import ReturnDocument
 from pymongo.errors import DuplicateKeyError, PyMongoError
 
-import claim_history
 from . import states
+from .history import StoreHistory
 from .store import (StoreUnavailable, check_config_doc, check_decision, check_id_doc, check_number, check_set_fields, check_text,
                     check_version, lane_key, prepare_new_doc, project_history)
 
@@ -68,7 +68,7 @@ class MongoQueueStore:
     @_guarded
     def ensure_indexes(self):
         self._claims.create_index([('claim_id', 1), ('version', 1)], unique=True)
-        self._claims.create_index([('claim_id', 1), ('input_hash', 1)], unique=True)
+        self._claims.create_index([('claim_id', 1), ('input_hash', 1), ('receipt.rule_pack_hash', 1)], unique=True)
         self._claims.create_index([('state', 1), ('state_at', 1)])
         self._claims.create_index('lease.badge_id')
         self._claims.create_index('enqueue_pending')
@@ -287,21 +287,4 @@ class MongoQueueStore:
         raise StoreUnavailable('counter contention')
 
 
-class MongoHistory:
-    """Earlier claims of the same patient from the queue database: the same answer InMemoryHistory gives for the same data."""
-
-    def __init__(self, store):
-        self._store = store
-
-    def earlier_claims(self, claim):
-        pid = claim.get('patient_id') if isinstance(claim, dict) else None
-        if not isinstance(pid, str) or not pid:
-            return []
-        me, mine = claim_history.order_key(claim), claim.get('claim_id')
-        if me is None:
-            return []
-        rows = [c for c in self._store.claims_for_patient(pid)
-                if isinstance(c.get('claim_id'), str) and c['claim_id'] and c['claim_id'] != mine
-                and claim_history.order_key(c) is not None and claim_history.order_key(c) < me]
-        rows.sort(key=claim_history.order_key)
-        return rows
+MongoHistory = StoreHistory      # the same class: it works over any queue store

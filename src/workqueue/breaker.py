@@ -31,6 +31,10 @@ class Fatal(Exception):
     """A failure that retrying cannot fix; it never counts toward opening."""
 
 
+class NotConfigured(Fatal):
+    """No model has been set up. Claims keep the engine's own explanation; nothing is wrong, nothing is retried."""
+
+
 class CircuitBreaker:
     def __init__(self, clock, consecutive=5, error_rate=0.5, window=60.0, min_calls=20, cooldown=20.0):
         self._clock = clock

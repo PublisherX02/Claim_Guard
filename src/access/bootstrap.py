@@ -28,6 +28,7 @@ class Stack:
     securitylog: SecurityLog
     service: AccessService
     data_dir: Path
+    queue: object = None
 
 
 def _data_dir(env, data_dir):
@@ -57,7 +58,7 @@ def _with_dev_secrets(env, directory):
     return env
 
 
-def build_stack(env, dev=False, store=None, data_dir=None, bind_host='127.0.0.1'):
+def build_stack(env, dev=False, store=None, data_dir=None, bind_host='127.0.0.1', clock=None):
     directory = _data_dir(env, data_dir)
     if dev:
         env = _with_dev_secrets(env, directory)
@@ -72,10 +73,10 @@ def build_stack(env, dev=False, store=None, data_dir=None, bind_host='127.0.0.1'
         else:
             raise config.ConfigError('MONGO_URI is required')
     log = SecurityLog(directory / 'security_audit.jsonl', settings.audit_anchor_key)
-    return Stack(settings, store, log, AccessService(store, settings, log), directory)
+    return Stack(settings, store, log, AccessService(store, settings, log, **({'clock': clock} if clock else {})), directory)
 
 
-def build_app(env, dev=False, store=None, data_dir=None, claims_path=None, bind_host='127.0.0.1'):
+def build_app(env, dev=False, store=None, data_dir=None, claims_path=None, bind_host='127.0.0.1', queue=False, queue_store=None):
     from audit_log import AuditLog
     from engine_core import config as engine_config
 
@@ -83,5 +84,10 @@ def build_app(env, dev=False, store=None, data_dir=None, claims_path=None, bind_
     review_log = AuditLog(stack.data_dir / 'review_audit.jsonl')
     path = claims_path or env.get('CLAIMS_PATH') or ROOT / 'data' / 'development' / 'claims.jsonl'
     claims = claimstore.FileClaimStore.from_jsonl(path, engine_config(ROOT))
-    app = api.create_app(stack.service, claims, review_log, stack.securitylog, stack.settings)
+    service = None
+    if queue:
+        from workqueue import bootstrap as queue_bootstrap
+        stack.queue = queue_bootstrap.build_queue(stack, env, dev=dev, queue_store=queue_store)
+        service = stack.queue.service
+    app = api.create_app(stack.service, claims, review_log, stack.securitylog, stack.settings, queue=service)
     return app, stack

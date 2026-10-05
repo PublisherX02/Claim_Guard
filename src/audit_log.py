@@ -115,6 +115,7 @@ SECURITY_EVENTS = {
     'lease_reclaimed': {'claim_id', 'badge_id', 'reason'},
     'claim_dealt': {'deal_id', 'claim_id', 'badge_id'},
     'claim_decided_green': {'badge_id', 'claim_id', 'action'},
+    'queue_admin': {'actor', 'command'},
     'triage_receipt': {'claim_id', 'input_hash', 'result_hash', 'lane', 'score', 'config_version'},
 }
 _REQUIRED.update(SECURITY_EVENTS)

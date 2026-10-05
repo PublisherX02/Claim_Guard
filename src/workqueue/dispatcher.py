@@ -129,6 +129,11 @@ class Dispatcher:
             return rc.DEFAULT
         raise ValueError(f'routing configuration version {version} is not stored')
 
+    def _superseded(self, doc):
+        """True when a newer version of this claim exists (a corrected or re-evaluated submission): the old one is never dealt."""
+        latest = self.store.get(doc['claim_id'])
+        return latest is not None and latest['version'] > doc['version']
+
     def _history_of(self, doc):
         """Badges that decided an earlier version of this claim, and badges whose lease on this version already ran out."""
         prior = set()
@@ -149,7 +154,7 @@ class Dispatcher:
         loads = {a.badge_id: _load_of(self.store.inbox(a.badge_id)) for a in considered}
         considered = [a for a in considered if loads[a.badge_id]['count'] < cfg.slice_size
                       and (full or loads[a.badge_id]['count'] < cfg.low_water)]
-        ready = self.store.by_state('ready', MAX_POOL)
+        ready = [d for d in self.store.by_state('ready', MAX_POOL) if not self._superseded(d)]
         snaps = []
         for d in ready:
             prior, avoid = self._history_of(d)
@@ -216,12 +221,14 @@ class Dispatcher:
             holder = (doc.get('lease') or {}).get('badge_id', '')
             agent = by_badge.get(holder)
             need = DECIDE_HIGH if doc['receipt']['eligibility'] == 'decide_high' or doc.get('escalated') else DECIDE
-            if agent is not None and agent.active and need in agent.permissions:
+            reason = 'superseded' if self._superseded(doc) else None
+            if reason is None and agent is not None and agent.active and need in agent.permissions:
                 continue
-            if leases.release(self.store, doc, now, 'system:dispatcher', reason='agent_ineligible') is not None:
+            reason = reason or 'agent_ineligible'
+            if leases.release(self.store, doc, now, 'system:dispatcher', reason=reason) is not None:
                 count += 1
                 if self.log is not None:
-                    self.log.record('lease_reclaimed', claim_id=doc['claim_id'], badge_id=holder, reason='agent_ineligible')
+                    self.log.record('lease_reclaimed', claim_id=doc['claim_id'], badge_id=holder, reason=reason)
         return count
 
     # ---- reproducibility

@@ -67,7 +67,7 @@ class MongoSpecifics(unittest.TestCase):
     def test_the_indexes_that_make_the_guarantees_exist(self):
         claims = self.indexes('claims')
         self.assertTrue(any(i.get('unique') and i['key'] == [('claim_id', 1), ('version', 1)] for i in claims.values()))
-        self.assertTrue(any(i.get('unique') and i['key'] == [('claim_id', 1), ('input_hash', 1)] for i in claims.values()))
+        self.assertTrue(any(i.get('unique') and i['key'] == [('claim_id', 1), ('input_hash', 1), ('receipt.rule_pack_hash', 1)] for i in claims.values()))
         configs = self.indexes('configs')
         self.assertTrue(any(i.get('unique') and i['key'] == [('version', 1)] for i in configs.values()))
         counters = self.indexes('counters')

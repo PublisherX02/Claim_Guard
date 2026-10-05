@@ -17,11 +17,32 @@ from . import breaker as brk
 from . import triage
 
 OUTCOMES = ('ai_used', 'cache_hit', 'skipped_budget', 'skipped_rate', 'skipped_breaker', 'skipped_timeout', 'skipped_guard',
-            'skipped_error', 'skipped_none')
+            'skipped_error', 'skipped_none', 'skipped_no_model')
 PLACEHOLDERS = ('{value}', '{line}')
 MAX_TEMPLATE_CHARS = 1500
 MAX_VALUE_CHARS = 200
 _PLACEHOLDER = re.compile(r'\{value\}|\{line\}')
+
+
+def no_model(request, deadline):
+    """The model used when none is configured: every claim keeps the engine's own explanation."""
+    raise brk.NotConfigured('no model is configured')
+
+
+def deterministic_text(result):
+    """The engine's own explanation of a finding (what a claim keeps whenever the AI step is skipped)."""
+    text = result.get('explanation')
+    return text if isinstance(text, str) and text.strip() else f"{result.get('rule_id')}: {result.get('status')}"
+
+
+def default_guard(text, result):
+    """The existing grounding guard (clinical, fraud, approval and garbled-text checks) applied to a filled-in explanation."""
+    import llm_adapter
+    try:
+        llm_adapter.check_grounding({'explanation': text}, result)
+    except ValueError:
+        return False
+    return True
 
 
 def backoff(attempt, base=1.0, cap=30.0, *, rng):
@@ -76,6 +97,8 @@ class ExplainStep:
                 text = self.breaker.call(lambda: self.model(request, deadline))
             except brk.Open:
                 return None, 'skipped_breaker'
+            except brk.NotConfigured:
+                return None, 'skipped_no_model'
             except brk.Fatal:
                 return None, 'skipped_error'
             except brk.Transient as e:
@@ -110,7 +133,7 @@ class ExplainStep:
             return fallback, 'template', limited, limited
         template, why = self._ask(result, deadline)
         if template is None:
-            stop = why if why in ('skipped_breaker', 'skipped_timeout') else None
+            stop = why if why in ('skipped_breaker', 'skipped_timeout', 'skipped_no_model') else None
             return fallback, 'template', why, stop
         filled = fill(template, result)
         if not self.guard(filled, result):

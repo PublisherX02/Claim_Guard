@@ -6,7 +6,8 @@ how this twin is checked against the real database. Every method refuses non-tex
 {"$ne": null} must never reach a database query.
 
 Document: {claim_id, version, input_hash, claim, results, receipt, state, state_at, enqueue_pending, lease, events, decided_by,
-shadow, explanation, decisions, escalated}. Unique on (claim_id, version) and on (claim_id, input_hash).
+shadow, explanation, decisions, escalated}. Unique on (claim_id, version) and on (claim_id, input_hash, receipt.rule_pack_hash): the same claim body
+under a new rule pack is the next version, never a duplicate.
 """
 import copy
 import math
@@ -17,6 +18,7 @@ from access.store import StoreUnavailable, check_text  # noqa: F401 - re-exporte
 from . import states
 
 NEW_DOC_KEYS = frozenset({'claim_id', 'version', 'input_hash', 'claim', 'results', 'receipt'})
+OPTIONAL_DOC_KEYS = frozenset({'advisory'})
 SETTABLE = frozenset({'lease', 'decided_by', 'shadow', 'explanation', 'enqueue_pending', 'escalated'})
 HISTORY_FIELDS = ('claim_id', 'patient_id', 'provider_id', 'submission_date', 'lines', 'authorizations', 'notes',
                   'diagnosis_code', 'attachments')
@@ -44,8 +46,10 @@ def check_set_fields(set_fields):
 
 def prepare_new_doc(doc):
     """Validate a document handed to put_triaged and return the full stored form (state triaged, outbox marker set)."""
-    if type(doc) is not dict or set(doc) != NEW_DOC_KEYS:
-        raise ValueError('a new claim document must have exactly: ' + ', '.join(sorted(NEW_DOC_KEYS)))
+    if type(doc) is not dict or not NEW_DOC_KEYS <= set(doc) <= NEW_DOC_KEYS | OPTIONAL_DOC_KEYS:
+        raise ValueError('a new claim document must have: ' + ', '.join(sorted(NEW_DOC_KEYS)) + ' (and may have advisory)')
+    if 'advisory' in doc and type(doc['advisory']) is not list:
+        raise ValueError('advisory must be a list')
     check_text(doc['claim_id'], 'claim_id'); check_text(doc['input_hash'], 'input_hash')
     if not doc['claim_id'] or not doc['input_hash']:
         raise ValueError('claim_id and input_hash must not be empty')
@@ -57,6 +61,7 @@ def prepare_new_doc(doc):
     for key in ('lane', 'eligibility'):
         check_text(receipt.get(key), key)
     full = copy.deepcopy(doc)
+    full.setdefault('advisory', [])
     full.update(state='triaged', state_at=now, enqueue_pending=True, lease=None, decided_by=None, shadow=None, explanation=None,
                 decisions=[], escalated=False,
                 events=[states.make_event('received', 'triaged', 'system:intake', now,
@@ -135,7 +140,8 @@ class MemoryQueueStore:
         full = prepare_new_doc(doc)
         with self._lock:
             for d in self._docs.values():
-                if d['claim_id'] == full['claim_id'] and (d['input_hash'] == full['input_hash'] or d['version'] == full['version']):
+                if d['claim_id'] == full['claim_id'] and (d['version'] == full['version'] or (
+                        d['input_hash'] == full['input_hash'] and d['receipt'].get('rule_pack_hash') == full['receipt'].get('rule_pack_hash'))):
                     return False
             self._docs[(full['claim_id'], full['version'])] = full
             return True
