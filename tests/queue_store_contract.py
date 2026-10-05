@@ -286,6 +286,72 @@ class StoreContract:
         self.assertFalse(self.store.bump('other', 'w1', 1))
         self.assertFalse(self.store.bump('zero', 'w', 0))
 
+    # ---- decisions and the holder guard
+    def leased(self, badge='B1', expires=NOW + 100):
+        self.ready()
+        return self.store.lease('C1', 1, badge, NOW + 3, expires)
+
+    def test_a_decision_is_recorded_only_for_the_holder_of_an_unexpired_lease(self):
+        self.leased()
+        decision = {'rule_id': 'R001', 'action': 'confirm_issue', 'actor': 'B1', 'at': NOW + 4}
+        self.assertIsNone(self.store.add_decision('C1', 1, 'B2', NOW + 4, decision))                  # someone else's claim
+        self.assertIsNone(self.store.add_decision('C1', 1, 'B1', NOW + 100, decision))                # the lease has run out (<=)
+        self.assertIsNone(self.store.add_decision('NOPE', 1, 'B1', NOW + 4, decision))
+        self.assertEqual(self.store.get('C1')['decisions'], [])
+        doc = self.store.add_decision('C1', 1, 'B1', NOW + 99.9, decision)
+        self.assertEqual(doc['decisions'], [decision])
+        self.assertEqual(self.store.get('C1')['decisions'], [decision])
+        self.store.add_decision('C1', 1, 'B1', NOW + 5, dict(decision, action='dismiss_with_reason'))
+        self.assertEqual([d['action'] for d in self.store.get('C1')['decisions']], ['confirm_issue', 'dismiss_with_reason'])
+
+    def test_a_decision_is_refused_when_the_claim_is_not_leased(self):
+        self.ready()
+        self.assertIsNone(self.store.add_decision('C1', 1, 'B1', NOW + 4, {'rule_id': 'R001'}))
+        self.store.put_triaged(make_doc('C2'))
+        self.assertIsNone(self.store.add_decision('C2', 1, 'B1', NOW + 4, {'rule_id': 'R001'}))
+
+    def test_a_malformed_decision_is_refused(self):
+        self.leased()
+        for bad in (None, {}, 'x', ['a'], {'a': object()}, {'a': {'b': {'c': {'d': 1}}}}, {'a': float('nan')}):
+            with self.assertRaises((ValueError, TypeError), msg=repr(bad)):
+                self.store.add_decision('C1', 1, 'B1', NOW + 4, bad)
+        self.assertEqual(self.store.get('C1')['decisions'], [])
+
+    def test_fifty_racing_decisions_against_one_expiry_leave_a_consistent_document(self):
+        self.leased()
+
+        def act(i):
+            if i % 2:
+                return self.store.add_decision('C1', 1, 'B1', NOW + 4, {'rule_id': 'R001', 'n': i})
+            return self.store.transition('C1', 1, 'leased', 'ready', 'system:expiry', NOW + 4, set_fields={'lease': None})
+        race(50, act)
+        final = self.store.get('C1')
+        recorded = len(final['decisions'])
+        self.assertEqual(final['state'], 'ready')           # exactly one expiry won, then no decision could follow it
+        self.assertTrue(all(d['rule_id'] == 'R001' for d in final['decisions']))
+        self.assertLessEqual(recorded, 25)
+        self.assertEqual(len(final['events']), 5)
+
+    def test_a_transition_with_a_holder_only_applies_to_that_holders_lease(self):
+        self.leased('B1')
+        self.assertIsNone(self.store.transition('C1', 1, 'leased', 'decided', 'B2', NOW + 5, set_fields={'decided_by': 'B2'}, holder='B2'))
+        self.assertEqual(self.store.get('C1')['state'], 'leased')
+        done = self.store.transition('C1', 1, 'leased', 'decided', 'B1', NOW + 6, set_fields={'decided_by': 'B1'}, holder='B1')
+        self.assertEqual((done['state'], done['decided_by']), ('decided', 'B1'))
+
+    def test_a_holder_guard_fails_when_the_claim_was_re_dealt_to_someone_else(self):
+        self.leased('B1')
+        self.store.transition('C1', 1, 'leased', 'ready', 'system:expiry', NOW + 10, set_fields={'lease': None})
+        self.store.lease('C1', 1, 'B2', NOW + 11, NOW + 500)
+        self.assertIsNone(self.store.transition('C1', 1, 'leased', 'decided', 'B1', NOW + 12, set_fields={'decided_by': 'B1'}, holder='B1'))
+        self.assertEqual(self.store.get('C1')['lease']['badge_id'], 'B2')
+
+    def test_the_escalated_flag_can_be_set_with_a_move_and_starts_false(self):
+        self.assertTrue(self.store.put_triaged(make_doc()))
+        self.assertIs(self.store.get('C1')['escalated'], False)
+        d = self.store.transition('C1', 1, 'triaged', 'ready', 'system:t', NOW + 1, set_fields={'escalated': True})
+        self.assertIs(d['escalated'], True)
+
     # ---- hostile identifiers
     def test_every_method_refuses_a_query_object_or_other_non_text_as_an_identifier(self):
         s = self.store
@@ -298,6 +364,8 @@ class StoreContract:
                 lambda: s.claims_for_patient(bad), lambda: s.get_deal(bad), lambda: s.pop_dead_letter(bad),
                 lambda: s.cache_get(bad), lambda: s.cache_put(bad, 'x'), lambda: s.cache_put('k', bad),
                 lambda: s.bump(bad, 'w', 1), lambda: s.bump('c', bad, 1),
+                lambda: s.add_decision(bad, 1, 'B1', 1.0, {'a': 1}), lambda: s.add_decision('C1', 1, bad, 1.0, {'a': 1}),
+                lambda: s.transition('C1', 1, 'triaged', 'ready', 'a', 1.0, holder=(bad if bad is not None else 7)),
             ]
             for i, call in enumerate(calls):
                 with self.assertRaises((TypeError, ValueError, states.IllegalTransition), msg=f'{bad!r} call {i}'):

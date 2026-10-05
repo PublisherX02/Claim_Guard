@@ -6,7 +6,7 @@ how this twin is checked against the real database. Every method refuses non-tex
 {"$ne": null} must never reach a database query.
 
 Document: {claim_id, version, input_hash, claim, results, receipt, state, state_at, enqueue_pending, lease, events, decided_by,
-shadow, explanation}. Unique on (claim_id, version) and on (claim_id, input_hash).
+shadow, explanation, decisions, escalated}. Unique on (claim_id, version) and on (claim_id, input_hash).
 """
 import copy
 import math
@@ -17,7 +17,7 @@ from access.store import StoreUnavailable, check_text  # noqa: F401 - re-exporte
 from . import states
 
 NEW_DOC_KEYS = frozenset({'claim_id', 'version', 'input_hash', 'claim', 'results', 'receipt'})
-SETTABLE = frozenset({'lease', 'decided_by', 'shadow', 'explanation', 'enqueue_pending'})
+SETTABLE = frozenset({'lease', 'decided_by', 'shadow', 'explanation', 'enqueue_pending', 'escalated'})
 HISTORY_FIELDS = ('claim_id', 'patient_id', 'provider_id', 'submission_date', 'lines', 'authorizations', 'notes',
                   'diagnosis_code', 'attachments')
 
@@ -58,9 +58,16 @@ def prepare_new_doc(doc):
         check_text(receipt.get(key), key)
     full = copy.deepcopy(doc)
     full.update(state='triaged', state_at=now, enqueue_pending=True, lease=None, decided_by=None, shadow=None, explanation=None,
+                decisions=[], escalated=False,
                 events=[states.make_event('received', 'triaged', 'system:intake', now,
                                           {'lane': receipt['lane'], 'score': receipt.get('score', 0)})])
     return full
+
+
+def check_decision(decision):
+    if type(decision) is not dict or not decision:
+        raise ValueError('a decision must be a non-empty object')
+    states.check_detail(decision)
 
 
 def check_config_doc(doc, expected_version):
@@ -86,7 +93,8 @@ def lane_key(doc):
 class QueueStore(Protocol):
     def put_triaged(self, doc): ...
     def get(self, claim_id, version=None): ...
-    def transition(self, claim_id, version, frm, to, actor, now, detail=None, set_fields=None): ...
+    def transition(self, claim_id, version, frm, to, actor, now, detail=None, set_fields=None, holder=None): ...
+    def add_decision(self, claim_id, version, badge_id, now, decision): ...
     def pending_outbox(self, limit): ...
     def clear_outbox(self, claim_id, version): ...
     def by_state(self, state, limit=1000): ...
@@ -145,19 +153,35 @@ class MemoryQueueStore:
             doc = self._docs.get((claim_id, version))
             return copy.deepcopy(doc) if doc else None
 
-    def transition(self, claim_id, version, frm, to, actor, now, detail=None, set_fields=None):
+    def transition(self, claim_id, version, frm, to, actor, now, detail=None, set_fields=None, holder=None):
         check_text(claim_id, 'claim_id'); check_version(version)
         check_text(frm, 'state'); check_text(to, 'state'); check_text(actor, 'actor'); check_number(now, 'now')
+        if holder is not None:
+            check_text(holder, 'badge_id')
         event = states.make_event(frm, to, actor, now, detail)
         fields = check_set_fields(set_fields)
         with self._lock:
             doc = self._docs.get((claim_id, version))
             if doc is None or doc['state'] != frm:
                 return None
+            if holder is not None and (not doc['lease'] or doc['lease']['badge_id'] != holder):
+                return None
             doc['state'], doc['state_at'] = to, now
             doc['events'].append(event)
             for name, value in fields.items():
                 doc[name] = copy.deepcopy(value)
+            return copy.deepcopy(doc)
+
+    def add_decision(self, claim_id, version, badge_id, now, decision):
+        """Record one finding decision, only while the claim is leased to this badge and the lease has not run out."""
+        check_text(claim_id, 'claim_id'); check_version(version); check_text(badge_id, 'badge_id'); check_number(now, 'now')
+        check_decision(decision)
+        with self._lock:
+            doc = self._docs.get((claim_id, version))
+            if doc is None or doc['state'] != 'leased' or not doc['lease'] or doc['lease']['badge_id'] != badge_id \
+                    or doc['lease']['expires_at'] <= now:
+                return None
+            doc.setdefault('decisions', []).append(copy.deepcopy(decision))
             return copy.deepcopy(doc)
 
     # ---- outbox

@@ -17,8 +17,8 @@ from pymongo.errors import DuplicateKeyError, PyMongoError
 
 import claim_history
 from . import states
-from .store import (StoreUnavailable, check_config_doc, check_id_doc, check_number, check_set_fields, check_text, check_version,
-                    lane_key, prepare_new_doc, project_history)
+from .store import (StoreUnavailable, check_config_doc, check_decision, check_id_doc, check_number, check_set_fields, check_text,
+                    check_version, lane_key, prepare_new_doc, project_history)
 
 NO_ID = {'_id': 0}
 CACHE_TTL = timedelta(days=7)
@@ -108,15 +108,26 @@ class MongoQueueStore:
         return self._claims.find_one({'claim_id': claim_id, 'version': version}, NO_ID)
 
     @_guarded
-    def transition(self, claim_id, version, frm, to, actor, now, detail=None, set_fields=None):
+    def transition(self, claim_id, version, frm, to, actor, now, detail=None, set_fields=None, holder=None):
         check_text(claim_id, 'claim_id'); check_version(version)
         check_text(frm, 'state'); check_text(to, 'state'); check_text(actor, 'actor'); check_number(now, 'now')
+        where = {'claim_id': claim_id, 'version': version, 'state': frm}
+        if holder is not None:
+            where['lease.badge_id'] = check_text(holder, 'badge_id')
         event = states.make_event(frm, to, actor, now, detail)
         fields = copy.deepcopy(check_set_fields(set_fields))
         return self._claims.find_one_and_update(
-            {'claim_id': claim_id, 'version': version, 'state': frm},
+            where,
             {'$set': {**fields, 'state': to, 'state_at': now}, '$push': {'events': event}},
             projection=NO_ID, return_document=ReturnDocument.AFTER)
+
+    @_guarded
+    def add_decision(self, claim_id, version, badge_id, now, decision):
+        check_text(claim_id, 'claim_id'); check_version(version); check_text(badge_id, 'badge_id'); check_number(now, 'now')
+        check_decision(decision)
+        return self._claims.find_one_and_update(
+            {'claim_id': claim_id, 'version': version, 'state': 'leased', 'lease.badge_id': badge_id, 'lease.expires_at': {'$gt': now}},
+            {'$push': {'decisions': copy.deepcopy(decision)}}, projection=NO_ID, return_document=ReturnDocument.AFTER)
 
     # ---- outbox
     @_guarded

@@ -19,6 +19,7 @@ from . import routing_config as rc
 
 MAX_POOL = 5000
 DECIDE, DECIDE_HIGH = 'claims.decide', 'claims.decide_high'
+AVOID_EVENTS = ('lease_expired', 'escalated')       # whoever held or escalated a claim is the last choice to get it again
 
 
 @dataclass(frozen=True)
@@ -135,12 +136,13 @@ class Dispatcher:
             earlier = self.store.get(doc['claim_id'], v)
             if earlier and earlier.get('decided_by'):
                 prior.add(earlier['decided_by'])
-        avoid = {e['detail'].get('badge_id') for e in doc['events'] if (e.get('detail') or {}).get('event') == 'lease_expired'}
+        avoid = {e['detail'].get('badge_id') for e in doc['events'] if (e.get('detail') or {}).get('event') in AVOID_EVENTS}
         return prior, {b for b in avoid if b}
 
     # ---- dealing
     def _deal(self, now, only=None, full=True, max_per_agent=None):
         now = self.clock() if now is None else now
+        self._reclaim_ineligible(now)
         cfg = self.routing_config()
         agents = [a for a in self.agents() if only is None or a.badge_id == only]
         considered = [a for a in agents if a.active and a.badge_id in cfg.on_shift]
@@ -151,7 +153,10 @@ class Dispatcher:
         snaps = []
         for d in ready:
             prior, avoid = self._history_of(d)
-            snaps.append(_snapshot(d, prior, avoid))
+            snap = _snapshot(d, prior, avoid)
+            if d.get('escalated'):
+                snap['eligibility'] = 'decide_high'              # a green claim a person escalated needs a senior reviewer
+            snaps.append(snap)
         seed = self.rng_seed if self.rng_seed is not None else secrets.randbits(63)
         plan = plan_deal([_doc_of(s) for s in snaps], considered, loads, cfg, seed, now, max_per_agent) if considered else []
         deal = Deal(uuid.uuid4().hex, seed, cfg.version, plan)
@@ -200,6 +205,23 @@ class Dispatcher:
                 count += 1
                 if self.log is not None:
                     self.log.record('lease_expired', claim_id=doc['claim_id'], badge_id=holder)
+        return count + self._reclaim_ineligible(now)
+
+    def _reclaim_ineligible(self, now):
+        """Take back claims held by an agent who may no longer decide them (demoted, deactivated, a permission revoked).
+        A lease confers no rights of its own: the permission is checked again here and again when a decision arrives."""
+        by_badge = {a.badge_id: a for a in self.agents()}
+        count = 0
+        for doc in self.store.by_state('leased', MAX_POOL):
+            holder = (doc.get('lease') or {}).get('badge_id', '')
+            agent = by_badge.get(holder)
+            need = DECIDE_HIGH if doc['receipt']['eligibility'] == 'decide_high' or doc.get('escalated') else DECIDE
+            if agent is not None and agent.active and need in agent.permissions:
+                continue
+            if leases.release(self.store, doc, now, 'system:dispatcher', reason='agent_ineligible') is not None:
+                count += 1
+                if self.log is not None:
+                    self.log.record('lease_reclaimed', claim_id=doc['claim_id'], badge_id=holder, reason='agent_ineligible')
         return count
 
     # ---- reproducibility

@@ -246,7 +246,8 @@ class DispatcherBase:
 
         def changing(*a, **k):
             rows = original(*a, **k)
-            set_cfg(self.store, lease_seconds=60, slice_size=2, on_shift=())
+            if a and a[0] == 'ready':                              # after the deal has read its configuration and its pool
+                set_cfg(self.store, lease_seconds=60, slice_size=2, on_shift=())
             return rows
         self.store.by_state = changing
         try:

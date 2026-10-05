@@ -55,6 +55,11 @@ def _check_detail(value, depth):
     raise ValueError('detail may hold only text, numbers, booleans, lists and objects')
 
 
+def check_detail(value):
+    """Raise ValueError unless value is small plain data (text, numbers, booleans, lists, objects; nested at most 3 deep)."""
+    _check_detail(value, 0)
+
+
 def make_event(frm, to, actor, now, detail=None):
     check_transition(frm, to)
     if type(actor) is not str or not actor:
