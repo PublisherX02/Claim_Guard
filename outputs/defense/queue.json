@@ -1,0 +1,502 @@
+{
+  "base_4_senior_of_20": {
+    "assumptions": {
+      "all_agents_on_shift_for_the_whole_run": true,
+      "countersigner_disagrees_with_probability": null,
+      "finding_dismissed_with_probability": 0.1,
+      "leases_do_not_expire": true,
+      "model_is_a_stand_in": true,
+      "people_are_simulated": true,
+      "service_seconds": "60 + 45 per flagged finding",
+      "two_person_signoff": false
+    },
+    "cache": {
+      "cache_hits": 632,
+      "flagged_findings": 665,
+      "fresh_explanations": 33,
+      "hit_rate": 0.9504,
+      "model_calls": 33
+    },
+    "checks": {
+      "claims_in_two_inboxes": 0,
+      "claims_signed_twice_by_one_person": 0,
+      "decisions": 500,
+      "decisions_by_agents_not_allowed": 0,
+      "eligibility_respected_pct": 100.0,
+      "escalations_to_a_third_senior": 0,
+      "max_inbox_seen": 25,
+      "signatures": 500,
+      "slice_never_exceeded": true
+    },
+    "distinct_claims_seen_per_agent": {
+      "agents": 20,
+      "cv": 0.8461,
+      "max": 67,
+      "min": 5
+    },
+    "drain": {
+      "claims_left_undecided": 0,
+      "left_requiring_senior": 0,
+      "simulated_hours": 2.97,
+      "simulated_seconds": 10680.0
+    },
+    "eligibility_counts": {
+      "decide": 247,
+      "decide_high": 253
+    },
+    "fairness_points": {
+      "all_agents": {
+        "agents": 20,
+        "cv": 1.7785,
+        "max": 416,
+        "min": 9
+      },
+      "junior": {
+        "agents": 16,
+        "cv": 0.0335,
+        "max": 10,
+        "min": 9
+      },
+      "senior": {
+        "agents": 4,
+        "cv": 0.0446,
+        "max": 416,
+        "min": 371
+      }
+    },
+    "lane_counts": {
+      "A": 274,
+      "B": 65,
+      "green": 161
+    },
+    "max_waiting_in_pool": {
+      "decide": 247,
+      "decide_high": 253
+    },
+    "n_agents": 20,
+    "n_claims": 500,
+    "of_which_granted_l2": 0,
+    "seed": 1,
+    "senior_agents": 4,
+    "shadow_agreement": {
+      "agree": 484,
+      "confidence": 0.95,
+      "lower": 0.9486,
+      "model": "baseline-green-clears",
+      "n": 500,
+      "rate": 0.968,
+      "upper": 0.9816
+    },
+    "slice_size": 25,
+    "utilization": {
+      "junior": 0.1094,
+      "senior": 0.9652
+    }
+  },
+  "commit": "6027c1e388e68d50c46e1fb1cf033b90d5607be2",
+  "invariants_over_five_seeds": {
+    "eligibility_respected_pct": [
+      100.0,
+      100.0,
+      100.0,
+      100.0,
+      100.0
+    ],
+    "overlaps": [
+      0,
+      0,
+      0,
+      0,
+      0
+    ],
+    "slice_never_exceeded": [
+      true,
+      true,
+      true,
+      true,
+      true
+    ]
+  },
+  "no_senior_on_shift": {
+    "assumptions": {
+      "all_agents_on_shift_for_the_whole_run": true,
+      "countersigner_disagrees_with_probability": null,
+      "finding_dismissed_with_probability": 0.1,
+      "leases_do_not_expire": true,
+      "model_is_a_stand_in": true,
+      "people_are_simulated": true,
+      "service_seconds": "60 + 45 per flagged finding",
+      "two_person_signoff": false
+    },
+    "cache": {
+      "cache_hits": 82,
+      "flagged_findings": 665,
+      "fresh_explanations": 4,
+      "hit_rate": 0.9535,
+      "model_calls": 33
+    },
+    "checks": {
+      "claims_in_two_inboxes": 0,
+      "claims_signed_twice_by_one_person": 0,
+      "decisions": 247,
+      "decisions_by_agents_not_allowed": 0,
+      "eligibility_respected_pct": 100.0,
+      "escalations_to_a_third_senior": 0,
+      "max_inbox_seen": 25,
+      "signatures": 247,
+      "slice_never_exceeded": true
+    },
+    "distinct_claims_seen_per_agent": {
+      "agents": 20,
+      "cv": 0.7881,
+      "max": 25,
+      "min": 4
+    },
+    "drain": {
+      "claims_left_undecided": 253,
+      "left_requiring_senior": 253,
+      "simulated_hours": 0.47,
+      "simulated_seconds": 1680.0
+    },
+    "eligibility_counts": {
+      "decide": 247,
+      "decide_high": 253
+    },
+    "fairness_points": {
+      "all_agents": {
+        "agents": 20,
+        "cv": 0.038,
+        "max": 8,
+        "min": 7
+      },
+      "junior": {
+        "agents": 20,
+        "cv": 0.038,
+        "max": 8,
+        "min": 7
+      },
+      "senior": {
+        "agents": 0,
+        "cv": null,
+        "max": null,
+        "min": null
+      }
+    },
+    "lane_counts": {
+      "A": 274,
+      "B": 65,
+      "green": 161
+    },
+    "max_waiting_in_pool": {
+      "decide": 247,
+      "decide_high": 253
+    },
+    "n_agents": 20,
+    "n_claims": 500,
+    "of_which_granted_l2": 0,
+    "seed": 1,
+    "senior_agents": 0,
+    "shadow_agreement": {
+      "agree": 239,
+      "confidence": 0.95,
+      "lower": 0.9372,
+      "model": "baseline-green-clears",
+      "n": 247,
+      "rate": 0.9676,
+      "upper": 0.9859
+    },
+    "slice_size": 25,
+    "utilization": {
+      "junior": 0.5563,
+      "senior": null
+    }
+  },
+  "with_4_more_l2_granted_the_senior_flag": {
+    "assumptions": {
+      "all_agents_on_shift_for_the_whole_run": true,
+      "countersigner_disagrees_with_probability": null,
+      "finding_dismissed_with_probability": 0.1,
+      "leases_do_not_expire": true,
+      "model_is_a_stand_in": true,
+      "people_are_simulated": true,
+      "service_seconds": "60 + 45 per flagged finding",
+      "two_person_signoff": false
+    },
+    "cache": {
+      "cache_hits": 632,
+      "flagged_findings": 665,
+      "fresh_explanations": 33,
+      "hit_rate": 0.9504,
+      "model_calls": 33
+    },
+    "checks": {
+      "claims_in_two_inboxes": 0,
+      "claims_signed_twice_by_one_person": 0,
+      "decisions": 500,
+      "decisions_by_agents_not_allowed": 0,
+      "eligibility_respected_pct": 100.0,
+      "escalations_to_a_third_senior": 0,
+      "max_inbox_seen": 25,
+      "signatures": 500,
+      "slice_never_exceeded": true
+    },
+    "distinct_claims_seen_per_agent": {
+      "agents": 20,
+      "cv": 0.3905,
+      "max": 46,
+      "min": 7
+    },
+    "drain": {
+      "claims_left_undecided": 0,
+      "left_requiring_senior": 0,
+      "simulated_hours": 1.82,
+      "simulated_seconds": 6540.0
+    },
+    "eligibility_counts": {
+      "decide": 247,
+      "decide_high": 253
+    },
+    "fairness_points": {
+      "all_agents": {
+        "agents": 20,
+        "cv": 1.0725,
+        "max": 263,
+        "min": 13
+      },
+      "junior": {
+        "agents": 12,
+        "cv": 0.0283,
+        "max": 14,
+        "min": 13
+      },
+      "senior": {
+        "agents": 8,
+        "cv": 0.1764,
+        "max": 263,
+        "min": 177
+      }
+    },
+    "lane_counts": {
+      "A": 274,
+      "B": 65,
+      "green": 161
+    },
+    "max_waiting_in_pool": {
+      "decide": 247,
+      "decide_high": 253
+    },
+    "n_agents": 20,
+    "n_claims": 500,
+    "of_which_granted_l2": 4,
+    "seed": 1,
+    "senior_agents": 8,
+    "shadow_agreement": {
+      "agree": 485,
+      "confidence": 0.95,
+      "lower": 0.951,
+      "model": "baseline-green-clears",
+      "n": 500,
+      "rate": 0.97,
+      "upper": 0.9831
+    },
+    "slice_size": 25,
+    "utilization": {
+      "junior": 0.2381,
+      "senior": 0.7881
+    }
+  },
+  "with_two_person_signoff": {
+    "assumptions": {
+      "all_agents_on_shift_for_the_whole_run": true,
+      "countersigner_disagrees_with_probability": 0.1,
+      "finding_dismissed_with_probability": 0.1,
+      "leases_do_not_expire": true,
+      "model_is_a_stand_in": true,
+      "people_are_simulated": true,
+      "service_seconds": "60 + 45 per flagged finding",
+      "two_person_signoff": true
+    },
+    "cache": {
+      "cache_hits": 632,
+      "flagged_findings": 665,
+      "fresh_explanations": 33,
+      "hit_rate": 0.9504,
+      "model_calls": 33
+    },
+    "checks": {
+      "claims_in_two_inboxes": 0,
+      "claims_signed_twice_by_one_person": 0,
+      "decisions": 500,
+      "decisions_by_agents_not_allowed": 0,
+      "eligibility_respected_pct": 100.0,
+      "escalations_to_a_third_senior": 33,
+      "max_inbox_seen": 25,
+      "signatures": 786,
+      "slice_never_exceeded": true
+    },
+    "distinct_claims_seen_per_agent": {
+      "agents": 20,
+      "cv": 1.2338,
+      "max": 136,
+      "min": 5
+    },
+    "drain": {
+      "claims_left_undecided": 0,
+      "left_requiring_senior": 0,
+      "simulated_hours": 5.66,
+      "simulated_seconds": 20385.0
+    },
+    "eligibility_counts": {
+      "decide": 247,
+      "decide_high": 253
+    },
+    "fairness_points": {
+      "all_agents": {
+        "agents": 20,
+        "cv": 1.8932,
+        "max": 908,
+        "min": 9
+      },
+      "junior": {
+        "agents": 16,
+        "cv": 0.0335,
+        "max": 10,
+        "min": 9
+      },
+      "senior": {
+        "agents": 4,
+        "cv": 0.0453,
+        "max": 908,
+        "min": 801
+      }
+    },
+    "lane_counts": {
+      "A": 274,
+      "B": 65,
+      "green": 161
+    },
+    "max_waiting_in_pool": {
+      "decide": 247,
+      "decide_high": 253
+    },
+    "n_agents": 20,
+    "n_claims": 500,
+    "of_which_granted_l2": 0,
+    "seed": 1,
+    "senior_agents": 4,
+    "shadow_agreement": {
+      "agree": 482,
+      "confidence": 0.95,
+      "lower": 0.9437,
+      "model": "baseline-green-clears",
+      "n": 500,
+      "rate": 0.964,
+      "upper": 0.9785
+    },
+    "slice_size": 25,
+    "utilization": {
+      "junior": 0.0573,
+      "senior": 0.9877
+    }
+  },
+  "with_two_person_signoff_and_4_more_l2_granted": {
+    "assumptions": {
+      "all_agents_on_shift_for_the_whole_run": true,
+      "countersigner_disagrees_with_probability": 0.1,
+      "finding_dismissed_with_probability": 0.1,
+      "leases_do_not_expire": true,
+      "model_is_a_stand_in": true,
+      "people_are_simulated": true,
+      "service_seconds": "60 + 45 per flagged finding",
+      "two_person_signoff": true
+    },
+    "cache": {
+      "cache_hits": 632,
+      "flagged_findings": 665,
+      "fresh_explanations": 33,
+      "hit_rate": 0.9504,
+      "model_calls": 33
+    },
+    "checks": {
+      "claims_in_two_inboxes": 0,
+      "claims_signed_twice_by_one_person": 0,
+      "decisions": 500,
+      "decisions_by_agents_not_allowed": 0,
+      "eligibility_respected_pct": 100.0,
+      "escalations_to_a_third_senior": 33,
+      "max_inbox_seen": 25,
+      "signatures": 786,
+      "slice_never_exceeded": true
+    },
+    "distinct_claims_seen_per_agent": {
+      "agents": 20,
+      "cv": 0.6078,
+      "max": 72,
+      "min": 7
+    },
+    "drain": {
+      "claims_left_undecided": 0,
+      "left_requiring_senior": 0,
+      "simulated_hours": 3.07,
+      "simulated_seconds": 11055.0
+    },
+    "eligibility_counts": {
+      "decide": 247,
+      "decide_high": 253
+    },
+    "fairness_points": {
+      "all_agents": {
+        "agents": 20,
+        "cv": 1.1473,
+        "max": 535,
+        "min": 13
+      },
+      "junior": {
+        "agents": 12,
+        "cv": 0.0283,
+        "max": 14,
+        "min": 13
+      },
+      "senior": {
+        "agents": 8,
+        "cv": 0.1064,
+        "max": 535,
+        "min": 387
+      }
+    },
+    "lane_counts": {
+      "A": 274,
+      "B": 65,
+      "green": 161
+    },
+    "max_waiting_in_pool": {
+      "decide": 247,
+      "decide_high": 253
+    },
+    "n_agents": 20,
+    "n_claims": 500,
+    "of_which_granted_l2": 4,
+    "seed": 1,
+    "senior_agents": 8,
+    "shadow_agreement": {
+      "agree": 481,
+      "confidence": 0.95,
+      "lower": 0.9413,
+      "model": "baseline-green-clears",
+      "n": 500,
+      "rate": 0.962,
+      "upper": 0.977
+    },
+    "slice_size": 25,
+    "utilization": {
+      "junior": 0.1409,
+      "senior": 0.9147
+    }
+  },
+  "workload": {
+    "agents": 20,
+    "claims": 500,
+    "seed": 1,
+    "slice_size": 25
+  }
+}
