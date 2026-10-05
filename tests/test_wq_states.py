@@ -1,4 +1,4 @@
-"""The claim state machine: the whole 9 x 9 table is checked against a literal copy, so a typo in the module shows."""
+"""The claim state machine: the whole 10 x 10 table is checked against a literal copy, so a typo in the module shows."""
 import itertools
 import sys
 import unittest
@@ -9,14 +9,16 @@ sys.path.insert(0, str(ROOT / 'src'))
 from hypothesis import given, strategies as st
 from workqueue import states
 
-ALL = ('received', 'triaged', 'explained', 'explanation_skipped', 'ready', 'leased', 'decided', 'rechecked', 'dead_lettered')
+ALL = ('received', 'triaged', 'explained', 'explanation_skipped', 'ready', 'leased', 'awaiting_countersign', 'decided', 'rechecked',
+       'dead_lettered')
 ALLOWED = {
     'received': {'triaged', 'dead_lettered'},
     'triaged': {'explained', 'explanation_skipped', 'ready', 'dead_lettered'},
     'explained': {'ready', 'dead_lettered'},
     'explanation_skipped': {'ready', 'dead_lettered'},
     'ready': {'leased', 'dead_lettered'},
-    'leased': {'ready', 'decided', 'dead_lettered'},
+    'leased': {'ready', 'decided', 'awaiting_countersign', 'dead_lettered'},
+    'awaiting_countersign': {'leased', 'dead_lettered'},
     'decided': {'rechecked'},
     'rechecked': {'triaged'},
     'dead_lettered': {'triaged'},
@@ -38,6 +40,12 @@ class TableTests(unittest.TestCase):
     def test_decided_can_only_be_rechecked(self):
         self.assertEqual({t for t in ALL if t in states.TRANSITIONS['decided']}, {'rechecked'})
 
+    def test_a_claim_waiting_for_a_countersignature_can_only_be_leased_again_or_parked(self):
+        self.assertEqual(set(states.TRANSITIONS['awaiting_countersign']), {'leased', 'dead_lettered'})
+        for to in ('decided', 'ready'):
+            with self.assertRaises(states.IllegalTransition):
+                states.check_transition('awaiting_countersign', to)
+
     def test_a_claim_is_never_decided_without_having_been_leased(self):
         for frm in ALL:
             if frm != 'leased':
@@ -56,7 +64,7 @@ class TableTests(unittest.TestCase):
         with self.assertRaises(TypeError):
             states.TRANSITIONS['decided'] = frozenset()
 
-    @given(st.lists(st.integers(0, 8), max_size=40))
+    @given(st.lists(st.integers(0, 9), max_size=40))
     def test_any_walk_through_allowed_transitions_stays_inside_the_states(self, picks):
         state = 'received'
         for p in picks:

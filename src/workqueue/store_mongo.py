@@ -18,7 +18,7 @@ from pymongo.errors import DuplicateKeyError, PyMongoError
 from . import states
 from .history import StoreHistory
 from .store import (StoreUnavailable, check_config_doc, check_decision, check_id_doc, check_number, check_set_fields, check_text,
-                    check_version, lane_key, prepare_new_doc, project_history)
+                    check_version, lane_key, prepare_new_doc, project_history, DEALABLE)
 
 NO_ID = {'_id': 0}
 CACHE_TTL = timedelta(days=7)
@@ -129,6 +129,35 @@ class MongoQueueStore:
             {'claim_id': claim_id, 'version': version, 'state': 'leased', 'lease.badge_id': badge_id, 'lease.expires_at': {'$gt': now}},
             {'$push': {'decisions': copy.deepcopy(decision)}}, projection=NO_ID, return_document=ReturnDocument.AFTER)
 
+    @_guarded
+    def set_shadow(self, claim_id, version, shadow):
+        check_text(claim_id, 'claim_id'); check_version(version); check_decision(shadow)
+        res = self._claims.update_one({'claim_id': claim_id, 'version': version, 'shadow': None}, {'$set': {'shadow': copy.deepcopy(shadow)}})
+        return res.modified_count == 1
+
+    @_guarded
+    def latest_versions(self, claim_ids):
+        ids = [check_text(c, 'claim_id') for c in claim_ids]
+        if not ids:
+            return {}
+        rows = self._claims.aggregate([{'$match': {'claim_id': {'$in': ids}}}, {'$group': {'_id': '$claim_id', 'v': {'$max': '$version'}}}])
+        return {r['_id']: r['v'] for r in rows}
+
+    @_guarded
+    def leased_summary(self):
+        rows = self._claims.find({'state': 'leased', 'lease': {'$ne': None}},
+                                 {'_id': 0, 'claim_id': 1, 'version': 1, 'lease.badge_id': 1, 'receipt.eligibility': 1, 'escalated': 1, 'signoff': 1})
+        return [{'claim_id': r['claim_id'], 'version': r['version'], 'badge_id': r['lease']['badge_id'],
+                 'eligibility': r['receipt']['eligibility'], 'escalated': bool(r.get('escalated')),
+                 'signoff': bool(r.get('signoff'))} for r in rows]
+
+    @_guarded
+    def inbox_load(self, badge_id):
+        check_text(badge_id, 'badge_id')
+        rows = list(self._claims.aggregate([{'$match': {'state': 'leased', 'lease.badge_id': badge_id}},
+                                            {'$group': {'_id': None, 'n': {'$sum': 1}, 'p': {'$sum': {'$ifNull': ['$receipt.score', 0]}}}}]))
+        return {'count': rows[0]['n'], 'points': rows[0]['p']} if rows else {'count': 0, 'points': 0}
+
     # ---- outbox
     @_guarded
     def pending_outbox(self, limit):
@@ -165,12 +194,16 @@ class MongoQueueStore:
     def lease(self, claim_id, version, badge_id, now, expires_at):
         check_text(claim_id, 'claim_id'); check_version(version); check_text(badge_id, 'badge_id')
         check_number(now, 'now'); check_number(expires_at, 'expires_at')
-        event = states.make_event('ready', 'leased', badge_id, now, {'expires_at': expires_at})
         lease = {'badge_id': badge_id, 'leased_at': now, 'expires_at': expires_at, 'heartbeat_at': now}
-        return self._claims.find_one_and_update(
-            {'claim_id': claim_id, 'version': version, 'state': 'ready'},
-            {'$set': {'state': 'leased', 'state_at': now, 'lease': lease}, '$push': {'events': event}},
-            projection=NO_ID, return_document=ReturnDocument.AFTER)
+        for frm in DEALABLE:
+            event = states.make_event(frm, 'leased', badge_id, now, {'expires_at': expires_at})
+            doc = self._claims.find_one_and_update(
+                {'claim_id': claim_id, 'version': version, 'state': frm},
+                {'$set': {'state': 'leased', 'state_at': now, 'lease': lease}, '$push': {'events': event}},
+                projection=NO_ID, return_document=ReturnDocument.AFTER)
+            if doc is not None:
+                return doc
+        return None
 
     @_guarded
     def inbox(self, badge_id):

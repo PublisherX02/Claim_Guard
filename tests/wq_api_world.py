@@ -69,13 +69,15 @@ class QueueWorld(World):
         return [row['claim_id'] for row in self.claims.summaries(limit=200)]
 
     def find(self, wanted):
-        """A stress claim id by its findings: 'green', 'medium' (flagged, all medium), 'high' (some high finding)."""
+        """A stress claim id by its findings: 'green', 'medium' (flagged, all medium), 'high' (some high finding),
+        'single_high' (exactly one flagged finding, high), 'multi' (two or more flagged), 'mixed' (high and medium findings)."""
         for cid in self.claim_ids():
             _, results = self.claims.get(cid)
             flagged = [r for r in results if r['status'] in ('FAIL', 'UNABLE_TO_ASSESS')]
             kinds = {r['severity'] for r in flagged}
             if (wanted == 'green' and not flagged) or (wanted == 'medium' and flagged and kinds == {'medium'}) \
-                    or (wanted == 'high' and 'high' in kinds):
+                    or (wanted == 'high' and 'high' in kinds) or (wanted == 'single_high' and len(flagged) == 1 and kinds == {'high'}) \
+                    or (wanted == 'multi' and len(flagged) >= 2) or (wanted == 'mixed' and kinds == {'high', 'medium'}):
                 if not self.qstore.get(cid):
                     return cid
         raise LookupError(wanted)

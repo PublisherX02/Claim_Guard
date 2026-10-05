@@ -6,7 +6,7 @@ how this twin is checked against the real database. Every method refuses non-tex
 {"$ne": null} must never reach a database query.
 
 Document: {claim_id, version, input_hash, claim, results, receipt, state, state_at, enqueue_pending, lease, events, decided_by,
-shadow, explanation, decisions, escalated}. Unique on (claim_id, version) and on (claim_id, input_hash, receipt.rule_pack_hash): the same claim body
+shadow, explanation, decisions, escalated, signoff}. Unique on (claim_id, version) and on (claim_id, input_hash, receipt.rule_pack_hash): the same claim body
 under a new rule pack is the next version, never a duplicate.
 """
 import copy
@@ -19,7 +19,8 @@ from . import states
 
 NEW_DOC_KEYS = frozenset({'claim_id', 'version', 'input_hash', 'claim', 'results', 'receipt'})
 OPTIONAL_DOC_KEYS = frozenset({'advisory'})
-SETTABLE = frozenset({'lease', 'decided_by', 'shadow', 'explanation', 'enqueue_pending', 'escalated'})
+SETTABLE = frozenset({'lease', 'decided_by', 'shadow', 'explanation', 'enqueue_pending', 'escalated', 'signoff'})
+DEALABLE = ('ready', 'awaiting_countersign')
 HISTORY_FIELDS = ('claim_id', 'patient_id', 'provider_id', 'submission_date', 'lines', 'authorizations', 'notes',
                   'diagnosis_code', 'attachments')
 
@@ -63,7 +64,7 @@ def prepare_new_doc(doc):
     full = copy.deepcopy(doc)
     full.setdefault('advisory', [])
     full.update(state='triaged', state_at=now, enqueue_pending=True, lease=None, decided_by=None, shadow=None, explanation=None,
-                decisions=[], escalated=False,
+                decisions=[], escalated=False, signoff=None,
                 events=[states.make_event('received', 'triaged', 'system:intake', now,
                                           {'lane': receipt['lane'], 'score': receipt.get('score', 0)})])
     return full
@@ -100,6 +101,10 @@ class QueueStore(Protocol):
     def get(self, claim_id, version=None): ...
     def transition(self, claim_id, version, frm, to, actor, now, detail=None, set_fields=None, holder=None): ...
     def add_decision(self, claim_id, version, badge_id, now, decision): ...
+    def set_shadow(self, claim_id, version, shadow): ...
+    def latest_versions(self, claim_ids): ...
+    def leased_summary(self): ...
+    def inbox_load(self, badge_id): ...
     def pending_outbox(self, limit): ...
     def clear_outbox(self, claim_id, version): ...
     def by_state(self, state, limit=1000): ...
@@ -190,6 +195,41 @@ class MemoryQueueStore:
             doc.setdefault('decisions', []).append(copy.deepcopy(decision))
             return copy.deepcopy(doc)
 
+    def set_shadow(self, claim_id, version, shadow):
+        """Store a shadow-mode prediction, once. It changes no state and no routing; a second write is refused."""
+        check_text(claim_id, 'claim_id'); check_version(version); check_decision(shadow)
+        with self._lock:
+            doc = self._docs.get((claim_id, version))
+            if doc is None or doc.get('shadow') is not None:
+                return False
+            doc['shadow'] = copy.deepcopy(shadow)
+            return True
+
+    # ---- light queries, so the dispatcher never copies whole documents just to count or compare
+    def latest_versions(self, claim_ids):
+        """{claim_id: newest version} for the claim ids that exist."""
+        wanted = {check_text(c, 'claim_id') for c in claim_ids}
+        out = {}
+        with self._lock:
+            for (cid, ver) in self._docs:
+                if cid in wanted and ver > out.get(cid, 0):
+                    out[cid] = ver
+        return out
+
+    def leased_summary(self):
+        """One small row per leased document: claim_id, version, badge_id, eligibility, escalated, signoff."""
+        with self._lock:
+            return [{'claim_id': d['claim_id'], 'version': d['version'], 'badge_id': d['lease']['badge_id'],
+                     'eligibility': d['receipt']['eligibility'], 'escalated': bool(d.get('escalated')), 'signoff': bool(d.get('signoff'))}
+                    for d in self._docs.values() if d['state'] == 'leased' and d['lease']]
+
+    def inbox_load(self, badge_id):
+        """{'count', 'points'}: how many claims this badge holds and the sum of their scores."""
+        check_text(badge_id, 'badge_id')
+        with self._lock:
+            held = [d for d in self._docs.values() if d['state'] == 'leased' and d['lease'] and d['lease']['badge_id'] == badge_id]
+            return {'count': len(held), 'points': sum(d['receipt'].get('score', 0) for d in held)}
+
     # ---- outbox
     def pending_outbox(self, limit):
         with self._lock:
@@ -222,11 +262,11 @@ class MemoryQueueStore:
     def lease(self, claim_id, version, badge_id, now, expires_at):
         check_text(claim_id, 'claim_id'); check_version(version); check_text(badge_id, 'badge_id')
         check_number(now, 'now'); check_number(expires_at, 'expires_at')
-        event = states.make_event('ready', 'leased', badge_id, now, {'expires_at': expires_at})
         with self._lock:
             doc = self._docs.get((claim_id, version))
-            if doc is None or doc['state'] != 'ready':
+            if doc is None or doc['state'] not in DEALABLE:
                 return None
+            event = states.make_event(doc['state'], 'leased', badge_id, now, {'expires_at': expires_at})
             doc['state'], doc['state_at'] = 'leased', now
             doc['lease'] = {'badge_id': badge_id, 'leased_at': now, 'expires_at': expires_at, 'heartbeat_at': now}
             doc['events'].append(event)

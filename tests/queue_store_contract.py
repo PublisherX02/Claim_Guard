@@ -353,6 +353,60 @@ class StoreContract:
         self.assertLessEqual(recorded, 25)
         self.assertEqual(len(final['events']), 5)
 
+    def test_a_shadow_prediction_is_stored_once_and_changes_nothing_else(self):
+        self.store.put_triaged(make_doc())
+        before = self.store.get('C1')
+        self.assertTrue(self.store.set_shadow('C1', 1, {'predicted_clear': 1.0, 'at': NOW}))
+        self.assertFalse(self.store.set_shadow('C1', 1, {'predicted_clear': 0.0, 'at': NOW + 1}))
+        self.assertFalse(self.store.set_shadow('NOPE', 1, {'predicted_clear': 1.0}))
+        after = self.store.get('C1')
+        self.assertEqual(after['shadow'], {'predicted_clear': 1.0, 'at': NOW})
+        after['shadow'] = None
+        self.assertEqual(after, before)
+        for bad in (None, {}, 'x', [1]):
+            with self.assertRaises((ValueError, TypeError)):
+                self.store.set_shadow('C1', 1, bad)
+
+    def test_the_light_queries_agree_with_the_full_documents(self):
+        for cid, patient in (('C1', 'P1'), ('C2', 'P1'), ('C3', 'P2')):
+            self.ready(cid, score=3 if cid != 'C3' else 7, eligibility='decide_high' if cid == 'C2' else 'decide')
+        self.store.put_triaged(make_doc('C1', version=2, input_hash='h2'))
+        self.store.lease('C1', 1, 'B1', NOW + 3, NOW + 100)
+        self.store.lease('C2', 1, 'B1', NOW + 3, NOW + 100)
+        self.store.lease('C3', 1, 'B2', NOW + 3, NOW + 100)
+        self.store.transition('C2', 1, 'leased', 'ready', 'system:t', NOW + 4, set_fields={'lease': None, 'escalated': True})
+        self.store.lease('C2', 1, 'B2', NOW + 5, NOW + 100)
+        self.assertEqual(self.store.latest_versions(['C1', 'C2', 'NOPE']), {'C1': 2, 'C2': 1})
+        self.assertEqual(self.store.latest_versions([]), {})
+        rows = sorted(self.store.leased_summary(), key=lambda r: r['claim_id'])
+        self.assertEqual(rows, [{'claim_id': 'C1', 'version': 1, 'badge_id': 'B1', 'eligibility': 'decide', 'escalated': False, 'signoff': False},
+                                {'claim_id': 'C2', 'version': 1, 'badge_id': 'B2', 'eligibility': 'decide_high', 'escalated': True, 'signoff': False},
+                                {'claim_id': 'C3', 'version': 1, 'badge_id': 'B2', 'eligibility': 'decide', 'escalated': False, 'signoff': False}])
+        self.assertEqual(self.store.inbox_load('B1'), {'count': 1, 'points': 3})
+        self.assertEqual(self.store.inbox_load('B2'), {'count': 2, 'points': 10})
+        self.assertEqual(self.store.inbox_load('NOBODY'), {'count': 0, 'points': 0})
+        for b in ('B1', 'B2'):
+            held = self.store.inbox(b)
+            self.assertEqual(self.store.inbox_load(b), {'count': len(held), 'points': sum(d['receipt']['score'] for d in held)})
+
+    def test_a_claim_waiting_for_a_countersignature_can_be_leased_to_someone_else_and_the_event_names_its_real_state(self):
+        self.leased('B1')
+        sign = {'stage': 'countersign', 'first_by': 'B1', 'actions': {'R001': 'confirm_issue'}}
+        done = self.store.transition('C1', 1, 'leased', 'awaiting_countersign', 'B1', NOW + 5, set_fields={'lease': None, 'signoff': sign}, holder='B1')
+        self.assertEqual((done['state'], done['lease'], done['signoff']), ('awaiting_countersign', None, sign))
+        self.assertEqual(self.store.inbox('B1'), [])
+        self.assertEqual(self.store.counts(), {'awaiting_countersign|A|decide': 1})
+        again = self.store.lease('C1', 1, 'B2', NOW + 6, NOW + 100)
+        self.assertEqual((again['state'], again['lease']['badge_id']), ('leased', 'B2'))
+        last = again['events'][-1]
+        self.assertEqual((last['from'], last['to'], last['actor']), ('awaiting_countersign', 'leased', 'B2'))
+        self.assertEqual(self.store.leased_summary()[0]['signoff'], True)
+
+    def test_only_a_ready_or_waiting_claim_can_be_leased(self):
+        self.leased('B1')
+        self.store.transition('C1', 1, 'leased', 'decided', 'B1', NOW + 5, set_fields={'decided_by': 'B1'})
+        self.assertIsNone(self.store.lease('C1', 1, 'B2', NOW + 6, NOW + 100))
+
     def test_a_transition_with_a_holder_only_applies_to_that_holders_lease(self):
         self.leased('B1')
         self.assertIsNone(self.store.transition('C1', 1, 'leased', 'decided', 'B2', NOW + 5, set_fields={'decided_by': 'B2'}, holder='B2'))
@@ -387,6 +441,7 @@ class StoreContract:
                 lambda: s.bump(bad, 'w', 1), lambda: s.bump('c', bad, 1),
                 lambda: s.add_decision(bad, 1, 'B1', 1.0, {'a': 1}), lambda: s.add_decision('C1', 1, bad, 1.0, {'a': 1}),
                 lambda: s.transition('C1', 1, 'triaged', 'ready', 'a', 1.0, holder=(bad if bad is not None else 7)),
+                lambda: s.set_shadow(bad, 1, {'a': 1}), lambda: s.inbox_load(bad), lambda: s.latest_versions([bad]),
             ]
             for i, call in enumerate(calls):
                 with self.assertRaises((TypeError, ValueError, states.IllegalTransition), msg=f'{bad!r} call {i}'):

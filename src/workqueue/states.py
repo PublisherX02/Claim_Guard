@@ -2,12 +2,15 @@
 
     received -> triaged -> explained | explanation_skipped -> ready -> leased -> decided -> rechecked -> triaged
     green claims go triaged -> ready directly; leased -> ready is a lease expiring or being handed back;
+    a claim with a high-severity finding is signed by one senior (leased -> awaiting_countersign) and then leased again to a
+    different senior, who countersigns (-> decided) or disagrees (-> ready, escalated, for a third senior);
     dead_lettered is the side state of a task that failed its retries (an administrator replays it back to triaged).
 """
 import math
 from types import MappingProxyType
 
-STATES = ('received', 'triaged', 'explained', 'explanation_skipped', 'ready', 'leased', 'decided', 'rechecked', 'dead_lettered')
+STATES = ('received', 'triaged', 'explained', 'explanation_skipped', 'ready', 'leased', 'awaiting_countersign', 'decided', 'rechecked',
+          'dead_lettered')
 
 TRANSITIONS = MappingProxyType({
     'received': frozenset({'triaged', 'dead_lettered'}),
@@ -15,7 +18,8 @@ TRANSITIONS = MappingProxyType({
     'explained': frozenset({'ready', 'dead_lettered'}),
     'explanation_skipped': frozenset({'ready', 'dead_lettered'}),
     'ready': frozenset({'leased', 'dead_lettered'}),
-    'leased': frozenset({'ready', 'decided', 'dead_lettered'}),
+    'leased': frozenset({'ready', 'decided', 'awaiting_countersign', 'dead_lettered'}),
+    'awaiting_countersign': frozenset({'leased', 'dead_lettered'}),
     'decided': frozenset({'rechecked'}),
     'rechecked': frozenset({'triaged'}),
     'dead_lettered': frozenset({'triaged'}),

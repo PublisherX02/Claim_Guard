@@ -10,7 +10,7 @@ import re
 from engine_core import validate_transport
 
 from . import routing_config as rc
-from . import triage
+from . import shadow, triage
 from .store import check_text
 
 CLAIM_ID = re.compile(r'\A[A-Za-z0-9_-]{1,64}\Z')
@@ -57,10 +57,18 @@ class Intake:
             doc = {'claim_id': claim_id, 'version': version, 'input_hash': ihash, 'claim': claim, 'results': results, 'receipt': receipt,
                    'advisory': self._advisory(claim)}
             if self.store.put_triaged(doc):
+                self._shadow(claim_id, version, receipt)
                 self.log.record('triage_receipt', claim_id=claim_id, input_hash=ihash, result_hash=receipt['result_hash'],
                                 lane=receipt['lane'], score=receipt['score'], config_version=receipt['config_version'])
                 return receipt
         raise RuntimeError('the claim could not be stored: concurrent submissions kept taking its version')
+
+    def _shadow(self, claim_id, version, receipt):
+        """Record what an automatic clearer would have done. It is stored beside the claim and acts on nothing; a failure is ignored."""
+        try:
+            shadow.record(self.store, claim_id, version, shadow.predict_clear(receipt), receipt['created_at'])
+        except Exception:  # noqa: BLE001 - shadow mode must never affect a claim
+            pass
 
     def _advisory(self, claim):
         """The extension (advisory) results, or [] if they cannot be produced: they must never stop a claim from being triaged."""

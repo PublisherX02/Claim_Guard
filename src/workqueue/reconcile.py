@@ -46,7 +46,7 @@ def reconcile(store, now, cfg_limits=None, actor='system:reconcile'):
                 _add(report, 'stuck', d, state=state, age_seconds=age)
             elif state in ('explained', 'explanation_skipped') and age > limits['explained_seconds']:
                 _add(report, 'stuck', d, state=state, age_seconds=age)
-            elif state == 'ready' and age > limits['ready_seconds']:
+            elif state in ('ready', 'awaiting_countersign') and age > limits['ready_seconds']:
                 _add(report, 'waiting_too_long', d, state=state, age_seconds=age)
             elif state == 'decided' and not d.get('decided_by'):
                 _add(report, 'decided_without_a_person', d)

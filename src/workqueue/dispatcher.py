@@ -89,10 +89,6 @@ def plan_deal(ready, agents, inbox_loads, cfg, seed, now, max_per_agent=None):
     return out
 
 
-def _load_of(inbox):
-    return {'count': len(inbox), 'points': sum(d['receipt']['score'] for d in inbox)}
-
-
 def _ids_hash(ready):
     pairs = sorted([d['claim_id'], d['version']] for d in ready)
     return hashlib.sha256(json.dumps(pairs, separators=(',', ':')).encode('utf-8')).hexdigest()
@@ -129,14 +125,10 @@ class Dispatcher:
             return rc.DEFAULT
         raise ValueError(f'routing configuration version {version} is not stored')
 
-    def _superseded(self, doc):
-        """True when a newer version of this claim exists (a corrected or re-evaluated submission): the old one is never dealt."""
-        latest = self.store.get(doc['claim_id'])
-        return latest is not None and latest['version'] > doc['version']
-
     def _history_of(self, doc):
         """Badges that decided an earlier version of this claim, and badges whose lease on this version already ran out."""
-        prior = set()
+        sign = doc.get('signoff') or {}
+        prior = {b for b in (sign.get('first_by'), sign.get('second_by')) if b}      # signers never sign the same claim twice
         for v in range(1, doc['version']):
             earlier = self.store.get(doc['claim_id'], v)
             if earlier and earlier.get('decided_by'):
@@ -151,16 +143,18 @@ class Dispatcher:
         cfg = self.routing_config()
         agents = [a for a in self.agents() if only is None or a.badge_id == only]
         considered = [a for a in agents if a.active and a.badge_id in cfg.on_shift]
-        loads = {a.badge_id: _load_of(self.store.inbox(a.badge_id)) for a in considered}
+        loads = {a.badge_id: self.store.inbox_load(a.badge_id) for a in considered}
         considered = [a for a in considered if loads[a.badge_id]['count'] < cfg.slice_size
                       and (full or loads[a.badge_id]['count'] < cfg.low_water)]
-        ready = [d for d in self.store.by_state('ready', MAX_POOL) if not self._superseded(d)]
+        pool = self.store.by_state('ready', MAX_POOL) + self.store.by_state('awaiting_countersign', MAX_POOL)
+        newest = self.store.latest_versions([d['claim_id'] for d in pool])
+        ready = [d for d in pool if newest.get(d['claim_id'], d['version']) <= d['version']]      # only the newest version of a claim is dealt
         snaps = []
         for d in ready:
             prior, avoid = self._history_of(d)
             snap = _snapshot(d, prior, avoid)
-            if d.get('escalated'):
-                snap['eligibility'] = 'decide_high'              # a green claim a person escalated needs a senior reviewer
+            if d.get('escalated') or d.get('signoff'):
+                snap['eligibility'] = 'decide_high'              # an escalated claim, or one awaiting a countersignature, needs a senior
             snaps.append(snap)
         seed = self.rng_seed if self.rng_seed is not None else secrets.randbits(63)
         plan = plan_deal([_doc_of(s) for s in snaps], considered, loads, cfg, seed, now, max_per_agent) if considered else []
@@ -216,19 +210,21 @@ class Dispatcher:
         """Take back claims held by an agent who may no longer decide them (demoted, deactivated, a permission revoked).
         A lease confers no rights of its own: the permission is checked again here and again when a decision arrives."""
         by_badge = {a.badge_id: a for a in self.agents()}
+        rows = self.store.leased_summary()
+        newest = self.store.latest_versions([r['claim_id'] for r in rows])
         count = 0
-        for doc in self.store.by_state('leased', MAX_POOL):
-            holder = (doc.get('lease') or {}).get('badge_id', '')
-            agent = by_badge.get(holder)
-            need = DECIDE_HIGH if doc['receipt']['eligibility'] == 'decide_high' or doc.get('escalated') else DECIDE
-            reason = 'superseded' if self._superseded(doc) else None
+        for row in rows:
+            agent = by_badge.get(row['badge_id'])
+            need = DECIDE_HIGH if row['eligibility'] == 'decide_high' or row['escalated'] or row['signoff'] else DECIDE
+            reason = 'superseded' if newest.get(row['claim_id'], row['version']) > row['version'] else None
             if reason is None and agent is not None and agent.active and need in agent.permissions:
                 continue
             reason = reason or 'agent_ineligible'
-            if leases.release(self.store, doc, now, 'system:dispatcher', reason=reason) is not None:
+            held = {'claim_id': row['claim_id'], 'version': row['version'], 'lease': {'badge_id': row['badge_id']}}
+            if leases.release(self.store, held, now, 'system:dispatcher', reason=reason) is not None:
                 count += 1
                 if self.log is not None:
-                    self.log.record('lease_reclaimed', claim_id=doc['claim_id'], badge_id=holder, reason=reason)
+                    self.log.record('lease_reclaimed', claim_id=row['claim_id'], badge_id=row['badge_id'], reason=reason)
         return count
 
     # ---- reproducibility

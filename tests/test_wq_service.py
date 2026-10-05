@@ -207,8 +207,28 @@ class ServiceBase:
         self.w.lease_to(cid, 'CG-2002', seconds=100)
         who = self.w.principal(badge='CG-2002')
         self.w.clock.advance(100)
-        with self.assertRaises(Conflict):
+        with self.assertRaises(Conflict) as why:
             self.q.decide_finding(who, cid, self.flagged_ids(cid)[0], *RESOLVE)
+        self.assertEqual(str(why.exception), 'lease_expired')
+
+    def test_a_lease_lost_between_the_check_and_the_write_is_a_conflict_and_nothing_reaches_the_review_log(self):
+        cid = self.w.ready(self.w.find('medium'))
+        self.w.lease_to(cid, 'CG-2002')
+        who = self.w.principal(badge='CG-2002')
+        original = self.qstore.add_decision
+
+        def lose_the_lease_first(*args, **kwargs):
+            self.qstore.transition(cid, 1, 'leased', 'ready', 'system:expiry', self.w.clock(), set_fields={'lease': None})
+            return original(*args, **kwargs)
+        self.qstore.add_decision = lose_the_lease_first
+        try:
+            with self.assertRaises(Conflict) as why:
+                self.q.decide_finding(who, cid, self.flagged_ids(cid)[0], *RESOLVE)
+        finally:
+            self.qstore.add_decision = original
+        self.assertEqual(str(why.exception), 'lease_lost')
+        self.assertEqual((self.w.decisions(cid), self.w.review_rows(), self.qstore.get(cid)['state']), ([], [], 'ready'))
+        self.assertEqual([e for e in self.w.events() if e['event_type'] == 'decision'], [])
 
     def test_a_real_race_between_a_decision_and_an_expiry_never_leaves_two_owners_or_a_lost_write(self):
         for round_ in range(10):
