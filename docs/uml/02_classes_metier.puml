@@ -1,0 +1,178 @@
+@startuml 02_classes_metier
+!include style.iuml
+title Diagramme de classes : domaine métier (réclamation, règles, résultats)
+hide empty members
+
+package "Données d'entrée (une réclamation)" {
+  class Reclamation {
+    +claim_id : Texte
+    +invoice_number : Texte
+    +patient_id : Texte
+    +member_id : Texte
+    +provider_id : Texte
+    +payer_id : Texte
+    +policy_id : Texte
+    +diagnosis_code : Texte
+    +submission_date : Date
+    +currency : Texte
+    +total_amount : Nombre
+    +notes : Texte
+    +schema_version : Texte
+  }
+  class LigneService {
+    +line_id : Texte
+    +service_code : Texte
+    +service_date : Date
+    +modifier : Texte
+    +quantity : Nombre
+    +unit_price : Nombre
+    +net_amount : Nombre
+    +authorization_id : Texte
+  }
+  class Couverture {
+    +coverage_id : Texte
+    +status : Texte
+    +start_date : Date
+    +end_date : Date
+    +beneficiary_patient_id : Texte
+    +member_id : Texte
+  }
+  class Autorisation {
+    +authorization_id : Texte
+    +patient_id : Texte
+    +service_code : Texte
+    +status : Texte
+    +valid_from : Date
+    +valid_to : Date
+    +max_quantity : Nombre
+  }
+  class PieceJointe {
+    +attachment_id : Texte
+    +type : Texte
+    +patient_id : Texte
+    +service_code : Texte
+    +service_date : Date
+    +document_status : Texte
+    +text : Texte
+  }
+}
+
+package "Référentiels fictifs (fichiers du dossier rules)" {
+  class Prestataire {
+    +provider_id : Texte
+    +display : Texte
+  }
+  class PolitiqueAssurance {
+    +policy_id : Texte
+    +version : Texte
+    +payer_id : Texte
+    +currency : Texte
+    +submission_window_days : Entier
+    +allowed_providers : Liste
+    +auth_required_services : Liste
+    +required_documents : Liste
+    +max_unit_price : Nombre
+    +max_quantity_per_line : Nombre
+  }
+  class ServiceCatalogue {
+    +service_code : Texte
+    +description : Texte
+    +base_price : Nombre
+    +max_price : Nombre
+    +max_quantity : Nombre
+  }
+  class Diagnostic {
+    +code : Texte
+    +display : Texte
+  }
+}
+
+package "Contrôle et résultats" {
+  class RegleOfficielle {
+    +rule_id : R001..R015
+    +title : Texte
+    +severity : Gravite
+    +rule_source : Texte
+    +rule_version : Texte
+  }
+  class ResultatRegle {
+    +claim_id : Texte
+    +rule_id : Texte
+    +status : StatutResultat
+    +severity : Gravite
+    +affected_line_ids : Liste
+    +explanation : Texte
+    +corrective_action : Texte
+    +requires_human_review : Booleen
+    +method : Methode
+    +confidence : Nombre
+    +confidence_kind : Texte
+    +review_status : Texte
+  }
+  class ResultatExtension {
+    +rule_family : Texte
+    +advisory : Booleen
+    +pack_hash : Texte
+  }
+  class Preuve {
+    +path : Texte
+    +value : Valeur
+  }
+  class Explication {
+    +text : Texte
+    +source : SourceExplication
+    +cited_evidence_paths : Liste
+    +cited_rule_ids : Liste
+    +needs_human_review : Booleen
+  }
+  enum StatutResultat {
+    PASS
+    FAIL
+    UNABLE_TO_ASSESS
+    NOT_APPLICABLE
+    NOT_IMPLEMENTED
+  }
+  enum Gravite {
+    high
+    medium
+    low
+  }
+  enum SourceExplication {
+    modele_de_langage
+    gabarit_deterministe
+  }
+}
+
+Reclamation "1" *-- "1..*" LigneService : contient
+Reclamation "1" *-- "1" Couverture : porte
+Reclamation "1" *-- "0..*" Autorisation : joint
+Reclamation "1" *-- "0..*" PieceJointe : joint
+Reclamation "*" --> "1" Prestataire : émise par
+Reclamation "*" --> "1" PolitiqueAssurance : régie par
+Reclamation "*" --> "1" Diagnostic : motivée par
+LigneService "*" --> "0..1" ServiceCatalogue : service_code
+LigneService "*" --> "0..1" Autorisation : authorization_id
+
+Reclamation "1" -- "15" ResultatRegle : est évaluée par
+ResultatRegle "*" --> "1" RegleOfficielle : applique
+ResultatRegle "1" *-- "0..*" Preuve : cite
+ResultatRegle "1" o-- "0..1" Explication : accompagnée de
+ResultatRegle ..> StatutResultat
+ResultatRegle ..> Gravite
+Explication ..> SourceExplication
+ResultatExtension --|> ResultatRegle
+Reclamation "1" -- "0..8" ResultatExtension : contrôles complémentaires
+
+note right of ResultatRegle
+  Exactement 15 résultats par réclamation
+  (un par règle officielle). Un contrôle
+  impossible donne UNABLE_TO_ASSESS,
+  jamais PASS.
+end note
+
+note bottom of ResultatExtension
+  Huit contrôles complémentaires (E001..E005,
+  E101..E103) : conseils, jamais mêlés
+  aux 15 résultats officiels.
+end note
+@enduml

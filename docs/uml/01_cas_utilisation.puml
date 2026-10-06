@@ -1,0 +1,96 @@
+@startuml 01_cas_utilisation
+!include style.iuml
+title Diagramme de cas d'utilisation : ClaimGuard AI
+left to right direction
+
+actor "Source de\nréclamations" as SRC
+actor "Observateur\n(niveau 1)" as L1
+actor "Relecteur\n(niveau 2)" as L2
+actor "Relecteur senior\n(niveau 3)" as L3
+actor "Administrateur\n(niveau 4)" as L4
+actor "Modèle de langage\n(acteur secondaire)" as IA <<système externe>>
+
+L2 --|> L1
+L3 --|> L2
+
+rectangle "ClaimGuard AI" {
+
+  rectangle "Contrôle automatique" as P1 {
+    usecase "Soumettre une\nréclamation" as UC01
+    usecase "Vérifier les 15 règles\nofficielles" as UC02
+    usecase "Signaler les contrôles\ncomplémentaires (E001..E103)" as UC03
+    usecase "Rédiger une\nexplication" as UC04
+    usecase "Classer le dossier\n(vert / A / B)" as UC05
+  }
+
+  rectangle "Relecture humaine" as P2 {
+    usecase "Consulter une\nréclamation (masquée)" as UC10
+    usecase "Démasquer un\nidentifiant" as UC11
+    usecase "Recevoir sa file\npersonnelle" as UC12
+    usecase "Décider un constat" as UC13
+    usecase "Valider une réclamation\nsans constat" as UC14
+    usecase "Contresigner un constat\nde gravité élevée" as UC15
+    usecase "Demander une correction\net relancer" as UC16
+  }
+
+  rectangle "Pilotage et contrôle" as P3 {
+    usecase "Régler la file\n(capacité, équipes, formule)" as UC20
+    usecase "Consulter le tableau\nde bord" as UC21
+    usecase "Consulter le rapport\nde retours" as UC22
+    usecase "Rejouer et vérifier\nune distribution" as UC23
+    usecase "Rejouer une tâche\nen échec" as UC24
+    usecase "Gérer les utilisateurs" as UC25
+    usecase "Vérifier le journal\nd'audit" as UC26
+  }
+
+  usecase "S'authentifier\n(badge, mot de passe, code à usage unique)" as UC00
+}
+
+SRC --> UC01
+UC01 ..> UC02 : <<include>>
+UC01 ..> UC05 : <<include>>
+UC03 .> UC01 : <<extend>>
+UC04 .> UC02 : <<extend>>
+IA -- UC04
+
+L1 --> UC10
+L2 --> UC12
+L2 --> UC13
+L2 --> UC14
+L2 --> UC16
+L3 --> UC15
+L4 --> UC20
+L4 --> UC21
+L4 --> UC22
+L4 --> UC23
+L4 --> UC24
+L4 --> UC25
+L4 --> UC26
+
+UC11 .> UC10 : <<extend>>\n(permission pii.unmask)
+UC15 .> UC13 : <<extend>>\n(gravité élevée)
+UC10 ..> UC00 : <<include>>
+UC12 ..> UC00 : <<include>>
+UC13 ..> UC00 : <<include>>
+UC20 ..> UC00 : <<include>>
+UC25 ..> UC00 : <<include>>
+
+note bottom of SRC
+  Le dépôt se fait par l'outil d'administration
+  en ligne de commande (queue_admin) : il n'existe
+  pas de route HTTP de dépôt de réclamations.
+end note
+
+note bottom of IA
+  Le branchement du modèle de production
+  sur la file n'est pas réalisé : par défaut,
+  le texte déterministe est conservé.
+end note
+
+note bottom of L4
+  La séparation des tâches est voulue :
+  le niveau 4 ne généralise pas le niveau 1
+  et ne peut pas décider les réclamations
+  de la file qu'il pilote.
+end note
+@enduml

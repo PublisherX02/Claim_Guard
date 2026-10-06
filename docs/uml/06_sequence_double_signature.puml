@@ -1,0 +1,50 @@
+@startuml 06_sequence_double_signature
+!include style.iuml
+title Diagramme de séquence : double signature d'un constat de gravité élevée
+autonumber
+skinparam maxMessageSize 230
+
+actor "Senior A" as A
+actor "Senior B" as B
+actor "Senior C" as C
+participant "Service\nde file" as QS
+participant "Distributeur" as DI
+database "Magasin\n(MongoDB)" as DB
+participant "Journal de\nsécurité" as LOG
+
+== Première signature (manche 1) ==
+DI -> DB : bail du dossier au senior A
+A -> QS : decide_finding pour chaque constat
+QS -> DB : décisions de la manche 1
+QS -> DB : leased -> awaiting_countersign\n(first_by = A, réponses mémorisées)
+QS -> LOG : claim_signoff (première signature, en attente)
+
+== Contre-signature (manche 2) ==
+DI -> DI : exclure A (a déjà décidé ce dossier)
+DI -> DB : bail au senior B
+note over B
+  B ne voit pas la réponse de A
+  pour les constats de gravité élevée.
+end note
+B -> QS : decide_finding pour les constats de gravité élevée
+alt B et A donnent la même réponse pour chaque constat
+  QS -> DB : leased -> decided (outcome = agreed)
+  QS -> LOG : claim_signoff (contre-signature, accord)
+else B contredit A sur au moins un constat
+  QS -> DB : leased -> ready, escalated = vrai\n(outcome = disagreed)
+  QS -> LOG : claim_signoff (contre-signature, désaccord)
+
+  == Arbitrage (manche 3) ==
+  DI -> DI : exclure A et B
+  DI -> DB : bail au senior C
+  C -> QS : decide_finding pour les constats en litige
+  QS -> DB : leased -> decided (outcome = tiebreak, décision finale)
+  QS -> LOG : claim_signoff (arbitrage)
+end
+
+note over QS
+  Garde-fous : personne ne signe deux fois le même dossier ;
+  un niveau 2 ne décide pas un constat de gravité élevée ;
+  le niveau 4 qui pilote la file ne décide aucun dossier.
+end note
+@enduml

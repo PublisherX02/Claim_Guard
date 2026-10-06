@@ -1,0 +1,33 @@
+' Style commun à tous les diagrammes ClaimGuard AI (inclus avec !include style.iuml)
+skinparam dpi 130
+skinparam shadowing false
+skinparam defaultFontName "Segoe UI"
+skinparam defaultFontSize 12
+skinparam roundcorner 10
+skinparam BackgroundColor white
+skinparam ArrowColor #1c2b3a
+skinparam ArrowFontSize 11
+skinparam NoteBackgroundColor #fff3d6
+skinparam NoteBorderColor #b07810
+skinparam PackageBorderColor #4b4b9a
+skinparam PackageFontStyle bold
+skinparam RectangleBorderColor #4b4b9a
+skinparam ClassBackgroundColor #f4f7fb
+skinparam ClassBorderColor #1c2b3a
+skinparam ClassHeaderBackgroundColor #dfe9f5
+skinparam ClassAttributeIconSize 0
+skinparam ActorBorderColor #1c2b3a
+skinparam UsecaseBackgroundColor #e2f1ef
+skinparam UsecaseBorderColor #1b7f79
+skinparam StateBackgroundColor #f4f7fb
+skinparam StateBorderColor #1c2b3a
+skinparam ActivityBackgroundColor #f4f7fb
+skinparam ActivityBorderColor #1c2b3a
+skinparam SequenceLifeLineBorderColor #7a8aa0
+skinparam SequenceParticipantBackgroundColor #dfe9f5
+skinparam SequenceGroupBackgroundColor #fffbe9
+skinparam ComponentBackgroundColor #f4f7fb
+skinparam ComponentBorderColor #1c2b3a
+skinparam NodeBackgroundColor #eef6dc
+skinparam DatabaseBackgroundColor #e7e9f7
+skinparam wrapWidth 220

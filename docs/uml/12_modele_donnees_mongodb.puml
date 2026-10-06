@@ -1,0 +1,145 @@
+@startuml 12_modele_donnees_mongodb
+!include style.iuml
+title Modèle de données NoSQL (MongoDB) : collections, documents imbriqués et références
+hide empty members
+
+package "Base de la file de travail" {
+  class "claims" as CLAIMS <<collection>> {
+    {static} index unique : (claim_id, version)
+    {static} index unique : (claim_id, input_hash, rule_pack_hash)
+    {static} index : (state, state_at), lease.badge_id,\nenqueue_pending, claim.patient_id
+    --
+    claim_id : Texte
+    version : Entier
+    input_hash : Texte
+    state : EtatDossier
+    state_at : Horodatage
+    escalated : Booleen
+    decided_by : Texte
+    enqueue_pending : Booleen (message sortant)
+  }
+  class "claim" as CL <<document imbriqué>> {
+    la réclamation telle que reçue
+  }
+  class "results[15]" as RES <<document imbriqué>> {
+    les 15 résultats officiels
+  }
+  class "advisory[0..8]" as ADV <<document imbriqué>> {
+    les contrôles complémentaires
+  }
+  class "receipt" as REC <<document imbriqué>> {
+    lane, score, eligibility,
+    config_version, rule_pack_hash, result_hash
+  }
+  class "explanation" as EXPL <<document imbriqué>> {
+    findings : texte et source par constat
+  }
+  class "decisions[]" as DEC <<document imbriqué>> {
+    rule_id, action, actor,
+    reason, at, round
+  }
+  class "lease" as LS <<document imbriqué>> {
+    badge_id, expires_at
+  }
+  class "signoff" as SG <<document imbriqué>> {
+    stage, first_by, second_by,
+    third_by, outcome, actions
+  }
+  class "shadow" as SH <<document imbriqué>> {
+    predicted_clear, model, at
+  }
+
+  class "configs" as CFG <<collection>> {
+    {static} index unique : version
+    --
+    version : Entier
+    points, lane_b_flagged, lane_b_score
+    slice_size, low_water, lease_seconds
+    aging_per_hour, ai_per_minute, ai_daily_budget
+    on_shift, exclusions
+  }
+  class "deals" as DEALS <<collection>> {
+    deal_id, seed, at, config_version, ids_hash
+    max_per_agent, full
+    agents[], claims[] (instantané des entrées)
+    planned[], assigned[]
+  }
+  class "dead_letters" as DL <<collection>> {
+    {static} index unique : dead_id
+    --
+    claim_id, version, input_hash,
+    reason (type d'erreur seulement),
+    attempts, at
+  }
+  class "cache" as CA <<collection, TTL>> {
+    {static} index unique : key
+    {static} TTL : expires_at
+    --
+    key (règle, forme, version du prompt, modèle)
+    text : gabarit validé par la garde
+  }
+  class "counters" as CO <<collection, TTL>> {
+    {static} index unique : (counter, window)
+    {static} TTL : expires_at
+    --
+    quotas de l'étape IA
+  }
+}
+
+package "Base d'accès" {
+  class "users" as US <<collection>> {
+    {static} index unique : badge_id
+    --
+    badge_id : Texte
+    level : 1..4
+    grants : Liste
+    active, locked_until, failed_attempts
+    password_hash (bcrypt)
+    totp_secret_enc (chiffré)
+    must_change_password
+  }
+  class "used_totp" as UT <<collection, TTL>> {
+    {static} index unique : (badge_id, step)
+    {static} TTL : expires_at
+    --
+    un code ne sert qu'une fois
+  }
+  class "revoked_tokens" as RT <<collection, TTL>> {
+    {static} index unique : jti
+    {static} TTL : expires_at
+  }
+}
+
+CLAIMS *-- CL
+CLAIMS *-- RES
+CLAIMS *-- ADV
+CLAIMS *-- REC
+CLAIMS *-- EXPL
+CLAIMS *-- DEC
+CLAIMS *-- LS
+CLAIMS *-- SG
+CLAIMS *-- SH
+
+LS ..> US : badge_id
+DEC ..> US : actor
+REC ..> CFG : config_version
+DEALS ..> CFG : config_version
+DEALS ..> CLAIMS : claim_id, version
+DL ..> CLAIMS : claim_id, version
+UT ..> US : badge_id
+RT ..> US : jti du jeton d'un utilisateur
+
+note bottom of CLAIMS
+  Un document par version d'une réclamation. Tout ce qui
+  appartient au dossier est imbriqué (lecture et écriture
+  atomiques) ; les liens entre collections sont des
+  références logiques, sans clé étrangère.
+end note
+
+note bottom of US
+  Les sessions ne sont pas stockées : jeton signé
+  + liste de révocation. Les journaux d'audit et de
+  sécurité sont des fichiers en chaîne de hachage,
+  pas des collections.
+end note
+@enduml

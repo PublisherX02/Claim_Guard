@@ -1,0 +1,84 @@
+@startuml 04_sequence_traitement
+!include style.iuml
+title Diagramme de séquence : de la soumission à la décision humaine
+autonumber
+skinparam maxMessageSize 230
+
+actor "Source de\nréclamations" as SRC
+participant "Réception\n(Intake)" as IN
+participant "Moteur de règles\n(15 règles, YARA-X)" as MR
+participant "Triage" as TR
+participant "Contrôles\ncomplémentaires" as EXT
+database "Magasin\n(MongoDB)" as DB
+participant "Journal de\nsécurité" as LOG
+queue "Courtier\n(Redis)" as BR
+participant "Tâche\n(Celery)" as TK
+participant "Étape IA" as IA
+participant "Modèle de\nlangage" as LLM
+participant "Distributeur" as DI
+participant "Service\nde file" as QS
+actor "Relecteur" as RV
+
+== Réception (synchrone) ==
+SRC -> IN : submit(réclamation)\n(outil queue_admin : pas de route HTTP)
+IN -> IN : valider le transport (champs requis, identifiant sûr)
+alt réclamation invalide
+  IN --> SRC : refus motivé
+else réclamation valide
+  IN -> DB : ce contenu a-t-il déjà été reçu ?
+  alt déjà reçu
+    IN --> SRC : le même reçu de triage
+  else nouveau contenu (nouvelle version du dossier)
+    IN -> MR : évaluer(réclamation)
+    MR --> IN : 15 résultats
+    IN -> TR : calculer le reçu(résultats, configuration)
+    TR --> IN : voie (vert / A / B), score, habilitation requise
+    IN -> EXT : évaluer les contrôles complémentaires
+    EXT --> IN : résultats consultatifs
+    IN -> DB : écriture atomique du dossier et du message sortant
+    IN -> LOG : triage_receipt
+    IN --> SRC : reçu de triage
+  end
+end
+
+== Préparation (asynchrone) ==
+DB -> BR : relais du message sortant
+BR -> TK : process_claim(id, version, empreinte)
+alt voie verte (aucun constat)
+  TK -> DB : triaged -> ready
+else constats à expliquer
+  TK -> IA : expliquer chaque constat
+  IA -> LLM : demande de gabarit (aucune valeur de la réclamation)
+  alt réponse valide, garde passée sur le texte rempli
+    LLM --> IA : gabarit
+    IA --> TK : explained
+  else échec, délai, budget épuisé, disjoncteur ouvert ou garde refusée
+    IA --> TK : explanation_skipped (texte déterministe conservé)
+  end
+  TK -> DB : -> ready
+end
+
+== Distribution (périodique) ==
+DI -> DB : dossiers prêts et charge de chaque relecteur
+DI -> DI : plan_deal (graine, priorité, charge, exclusions)
+DI -> DB : pose des baux (ready -> leased) et distribution enregistrée
+DI -> LOG : claim_dealt
+
+== Décision humaine ==
+RV -> QS : inbox / next
+QS -> DB : dossiers sous bail du relecteur
+QS --> RV : vue masquée (identifiants pseudonymisés)
+RV -> QS : decide_finding(constat, action, motif)
+QS -> DB : décision ajoutée seulement si le bail est valide
+QS -> LOG : decision
+opt tous les constats de la manche sont résolus
+  QS -> DB : leased -> decided (ou awaiting_countersign si gravité élevée)
+end
+
+note over IA, LLM
+  Le modèle ne fixe jamais un statut, une règle ou
+  l'indicateur de relecture : il ne peut qu'ajouter des mots.
+  Le modèle de production n'est pas encore branché sur la file :
+  sans modèle, le cas « explanation_skipped » s'applique.
+end note
+@enduml

@@ -1,0 +1,45 @@
+@startuml 09_composants
+!include style.iuml
+title Diagramme de composants (vue d'ensemble) : ClaimGuard AI
+
+actor "Relecteur ou\nAdministrateur" as H
+
+component "API de relecture\n(FastAPI)" as API
+component "Service d'accès\n(connexion, jetons, droits,\nmasquage des identifiants)" as ACC
+component "File de travail\n(réception, triage, distribution,\ndécisions, double signature)" as FILE
+component "Moteur de contrôle\n(15 règles YARA-X +\ncontrôles complémentaires)" as MOT
+component "Adaptateur de modèle\n(validation et garde\ndes réponses)" as ADA
+component "Journal d'audit\n(chaîne de hachage, ancre)" as AUD
+component "Journal de sécurité\n(chaîne de hachage signée)" as SEC
+
+database "MongoDB\n(dossiers, décisions, distributions,\nutilisateurs, jetons révoqués)" as MDB
+database "Redis\n(courtier de messages)" as RDS
+cloud "Modèle de langage\n(Ollama local ou hébergé)" as MOD
+
+H --> API : HTTPS\n(cookie + CSRF)
+API ..> ACC : authentifier,\npermissions
+API ..> FILE : inbox, décisions,\ntableau de bord, retours
+ACC ..> SEC
+ACC ..> MDB
+FILE ..> MOT : évaluer
+FILE ..> AUD : décisions de relecture
+FILE ..> SEC
+FILE ..> MDB
+FILE ..> RDS : messages
+FILE ..> ADA : modèle injecté
+ADA ..> MOD
+
+note right of FILE
+  Dépôt des réclamations : outil en ligne
+  de commande (queue_admin), sans route HTTP.
+  Le modèle de production n'est pas encore
+  branché : sans modèle, le texte
+  déterministe est conservé.
+end note
+
+note bottom of MOT
+  Les 15 règles donnent le verdict officiel.
+  Les contrôles complémentaires ne sont que
+  des conseils, jamais mêlés au verdict.
+end note
+@enduml

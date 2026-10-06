@@ -1,0 +1,74 @@
+@startuml 07_activite_traitement
+!include style.iuml
+title Diagramme d'activité : traitement d'une réclamation, de la réception à la décision
+skinparam swimlaneWidth 260
+
+|Source|
+start
+:Soumettre une réclamation;
+|Système|
+:Valider le transport\n(champs requis, identifiant sûr);
+if (réclamation valide ?) then (non)
+  :Refuser avec un motif;
+  |Source|
+  stop
+else (oui)
+endif
+|Système|
+if (contenu déjà reçu ?) then (oui)
+  :Renvoyer le même reçu de triage;
+  |Source|
+  stop
+else (non)
+endif
+|Système|
+:Évaluer les 15 règles officielles;
+:Calculer le score pondéré\n(FAIL élevée 4, FAIL moyenne 2,\nUNABLE élevée 2, UNABLE moyenne 1);
+:Évaluer les contrôles complémentaires\n(conseils, hors score);
+:Enregistrer le dossier et le reçu de triage\n(écriture atomique);
+fork
+  :Enregistrer la prédiction « ombre »\n(n'agit sur rien);
+fork again
+  :Journaliser le reçu de triage;
+end fork
+if (voie du dossier ?) then (verte : aucun constat)
+  :Passer à « prêt »;
+else (A ou B : au moins un constat)
+  |IA|
+  :Demander un gabarit d'explication\n(sans aucune valeur de la réclamation);
+  if (réponse utilisable avant le délai ?) then (oui)
+    :Remplir les valeurs\net rejouer la garde sur le texte rempli;
+    if (garde passée ?) then (oui)
+      :Explication retenue;
+    else (non)
+      :Conserver le texte déterministe;
+    endif
+  else (non)
+    :Conserver le texte déterministe;
+  endif
+  |Système|
+  :Passer à « prêt »;
+endif
+:Distribuer au relecteur habilité\nle moins chargé (bail de 30 minutes);
+|Humain|
+repeat
+  :Examiner le constat (vue masquée);
+  :Confirmer, écarter avec motif,\ndemander une information ou marquer corrigé;
+repeat while (un constat reste à résoudre ?) is (oui) not (non)
+if (constat de gravité élevée ?) then (oui)
+  :Première signature (senior A);
+  :Contre-signature (senior B, sans voir A);
+  if (B est d'accord avec A ?) then (non)
+    :Arbitrage (senior C, décision finale);
+  else (oui)
+  endif
+else (non)
+endif
+|Système|
+:Marquer le dossier « décidé »\net écrire le journal d'audit;
+if (une correction est demandée ?) then (oui)
+  :Recevoir la nouvelle version\net recalculer un reçu;
+else (non)
+endif
+stop
+@enduml

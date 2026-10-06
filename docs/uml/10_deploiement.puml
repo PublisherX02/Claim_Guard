@@ -1,0 +1,70 @@
+@startuml 10_deploiement
+!include style.iuml
+title Diagramme de déploiement : poste de démonstration et cible
+skinparam nodeFontStyle bold
+
+node "Navigateur du relecteur" as BR <<device>> {
+  artifact "Client HTTP\n(cookie httpOnly + jeton CSRF)" as CLI
+}
+
+node "Poste ou serveur (Windows 11 ou Linux)" as HOST <<device>> {
+
+  node "Processus Python 3.10 à 3.14" as PY <<environnement d'exécution>> {
+    component "API de relecture\n(uvicorn, serve_access.py --queue)" as API
+    component "Moteur de règles" as ENG
+    artifact "rules/core.yar\nrules/*.json" as RULES
+  }
+
+  node "Worker Celery" as WK <<environnement d'exécution>> {
+    component "Tâches : process_claim, deal,\nexpire, relay_sweep, reconcile" as TASKS
+  }
+
+  node "Conteneur claimguard-mongo" as MG <<Docker>> {
+    database "MongoDB 7\n(--auth, 127.0.0.1:27017)" as MDB
+  }
+
+  node "Conteneur claimguard-redis" as RD <<Docker>> {
+    database "Redis 7\n(sans persistance, 127.0.0.1:6379)" as RDS
+  }
+
+  node "Ollama (local)" as OL <<service>> {
+    artifact "gemma3:4b" as GEM
+  }
+
+  node "Scripts hors ligne" as OFF <<environnement d'exécution>> {
+    component "Revue auditée\n(run_audited_review, llm_adapter)" as REVUE
+  }
+
+  folder "Fichiers (journaux)" as FS {
+    artifact "audit.jsonl + ancre\nsecurity_audit.jsonl" as LOGS
+  }
+}
+
+cloud "Fournisseur hébergé (Featherless)\nmodèle ouvert" as HOSTED <<service externe>>
+
+CLI --> API : HTTPS (TLS à la charge du déploiement)
+API --> MDB : pymongo
+API --> LOGS : écriture en ajout
+API ..> ENG
+ENG ..> RULES
+WK --> MDB
+WK --> RDS : file de messages
+REVUE --> GEM : explications (modèle local)
+REVUE ..> HOSTED : explications (option hébergée)
+WK ..> GEM : à brancher (modèle injecté)
+
+note bottom of WK
+  Les workers Celery demandent Linux (Docker) ;
+  sous Windows la démonstration exécute les tâches
+  en mode « eager », dans le processus de l'API.
+  L'étape IA de la file reçoit un modèle injecté ;
+  l'adaptateur de production n'est pas réalisé :
+  sans modèle, le texte déterministe est conservé.
+end note
+
+note right of HOSTED
+  Données synthétiques seulement.
+  Avec de vraies données, il faudrait un modèle
+  sur site ou un accord de traitement.
+end note
+@enduml
