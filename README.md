@@ -166,7 +166,7 @@ This is a narrated tour of the whole pipeline in eight scenes: ingestion of FHIR
 **3. Run the tests**
 
 ```bash
-python -m unittest discover -s tests          # 1019 tests, about 2 min, offline, no API key needed
+python -m unittest discover -s tests          # 1609 tests, about 9 min with MongoDB and Redis (about 2 min for the offline core), no API key needed
 python scripts/fuzz_campaign.py --examples 3000   # deeper fuzz run of the six trust boundaries (about 6 min); writes outputs/defense/fuzz.json
 ```
 
@@ -215,7 +215,7 @@ Expected: `evaluate.py` prints status accuracy 1.0 for the development split; `v
 | Independent oracle agreement (rules written again from the rulebook text alone) | **0 disagreements** over 107,635 generated claims (`scripts/status_coverage.py`), plus 37,000 boundary-aware mutants and 123 hand-derived edge cases |
 | Phase 2 detection evaluation | F1 **1.0** on the 50-claim split, the 150-claim validation split and the 400-claim development split; **no valid claim flagged** in any set (0 of 160 development claims with no failure, upper bound 1.85%); 0 disagreements with the independent oracle over 107,635 generated claims, 33,945 mutants and 123 hand-derived boundary cases. Through FHIR, F1 falls to 0.9745 because authorizations are not carried (rule R009 abstains; no failure becomes a pass). Every example set is cited with its label origin. `docs/29_Test_Evaluation_Report.md` |
 | Fuzz testing | **Six trust boundaries**, 25 property tests at 3,000 generated examples each plus one regression test, all passing; two real defects found and fixed (see Fuzz testing below). `outputs/defense/fuzz.json` |
-| Tests | 1019, none needing a network or an API key; 54 of them exercise MongoDB and are skipped, loudly, unless `MONGO_URI` is set. 420 were last verified in CI on Python 3.10, 3.12 and 3.14 (commit named in `docs/19`); all 1019 then passed locally (with MongoDB) on 3.10, 3.12 and 3.14 in fresh environments built from `requirements-dev.txt` (2026-10-04), and CI confirms after the push |
+| Tests | 1609, none needing a network or an API key; those that exercise MongoDB or Redis are skipped, loudly, unless `MONGO_URI` / `REDIS_URL` are set (`REQUIRE_MONGO=1 REQUIRE_REDIS=1` turns a skip into a failure). 420 were last verified in CI on Python 3.10, 3.12 and 3.14 (commit named in `docs/19`); all 1609 passed locally with MongoDB and Redis required on 3.10, 3.12 and 3.14 (2026-10-06), and again on the project environment on 2026-10-06 (0 skipped); CI confirms after the push |
 | Live AI explanations (Mistral-Nemo-Instruct-2407 via Featherless.ai, prompt v1.6.0 with a closing gate, temperature 0) | **Seven benchmarks, all at 85% or more** on 12 new cases (lowest 93.2%): 97.5% live, 93.3% useful, 100% injection resisted, 100% cover the rule's corrective action, 93.2% cite an observed evidence value, 93.2% name a next step, 0 garbled answers shown. Chosen by four rounds of experiments, see below |
 | Local, free alternative (`gemma3:4b` via Ollama) | Beats the paid, hosted default on every automated metric: 97.2% live vs. 94.4%, 3.0 s vs. 4.1 s median latency, 0 garbled replies across an 84-case stress test. See below |
 | Security | audited against the OWASP Top 10 for LLM Applications and the OWASP Top 10: `docs/20_Security_Audit.md` |
@@ -325,7 +325,7 @@ Also built and tested, but off by default: a **cascade** (fluent model, then a r
 | `rules/` | `core.yar` (compiled rule pack), `rules.json`, `policies.json`, catalogues |
 | `schemas/` | JSON schemas for claims, results and review events |
 | `data/` | 600 synthetic claims in three splits, in JSONL, CSV and FHIR forms, with the public answer key |
-| `tests/` | 1019 tests, including `oracle.py` (independent reference implementation), the stress and security suites, and the `test_fuzz_*.py` fuzz tests with their shared `fuzz_strategies.py` |
+| `tests/` | 1609 tests, including `oracle.py` (independent reference implementation), the stress and security suites, and the `test_fuzz_*.py` fuzz tests with their shared `fuzz_strategies.py` |
 | `scripts/` | `demo.py` (narrated tour), audited runs, audit verification, `draw_diagrams.py`, AI evaluation, `fuzz_campaign.py` (deep fuzz run) and the experiment runner |
 | `experiments/` | Raw experiment data and `summary.json`; figures are in `docs/figures/` |
 | `outputs/` | Frozen evidence: metrics, audit samples, recorded live AI runs |
