@@ -310,9 +310,11 @@ class SignoffBase:
         self.qstore.lease('ODD', 1, A, self.w.clock(), self.w.clock() + 900)
         self.qstore.transition('ODD', 1, 'leased', 'awaiting_countersign', A, self.w.clock(), holder=A,
                                set_fields={'lease': None, 'signoff': {'stage': 'countersign', 'first_by': A, 'actions': {}}})
+        self.w.on_shift(D)
+        self.assertEqual(self.w.dispatcher.deal().assigned, [])                       # an L2 alone is never offered it
         self.w.on_shift(D, B)
         deal = self.w.dispatcher.deal()
-        self.assertEqual([(c, b) for c, b, _ in deal.assigned], [('ODD', B)])         # the L2 on shift is passed over
+        self.assertEqual([(c, b) for c, b, _ in deal.assigned], [('ODD', B)])
 
     # ---- housekeeping
     def test_reconcile_reports_a_claim_waiting_a_day_for_its_countersignature(self):

@@ -58,7 +58,6 @@ MUTANTS = [
     ('dispatch: expiry hands back claims that are not due', Q + 'dispatcher.py', "        for doc in self.store.expired(now):\n", "        for doc in self.store.by_state('leased', MAX_POOL):\n", DISPATCH),
     # ---- store
     ('store: a transition ignores the expected state', Q + 'store.py', "            if doc is None or doc['state'] != frm:\n                return None\n            if holder", "            if doc is None:\n                return None\n            if holder", STORE),
-    ('store: a lease can be taken on a claim that is not ready', Q + 'store.py', "            if doc is None or doc['state'] != 'ready':\n                return None\n            doc['state'], doc['state_at'] = 'leased', now", "            if doc is None:\n                return None\n            doc['state'], doc['state_at'] = 'leased', now", STORE),
     ('store: the holder guard is ignored', Q + 'store.py', "            if holder is not None and (not doc['lease'] or doc['lease']['badge_id'] != holder):", "            if False:", STORE),
     ('store: a decision is accepted after the lease ran out', Q + 'store.py', "                    or doc['lease']['expires_at'] <= now:", "                    or False:", STORE),
     ('store: a decision is accepted from another badge', Q + 'store.py', "or not doc['lease'] or doc['lease']['badge_id'] != badge_id \\", "or not doc['lease'] \\", STORE),

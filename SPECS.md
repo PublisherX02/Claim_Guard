@@ -646,6 +646,65 @@ about 9 ms with 10,000 other claims in the history.
 cards say so. The pair table, modifiers and event-date wording are our choices. Advisory findings are not yet shown in the reviewer
 API or used by routing; that belongs to the queue work, which will also replace the in-memory history with a database-backed one.
 
+### 10f. Task queue and work dispatcher
+
+**What and why.** The mentor asked for a task queue (Celery or ARQ) and a way to give work to people. The idea behind it, ours: with 500
+claims and 20 agents, each agent should see only their own slice (25), dealt fairly and reproducibly, with a person on every decision.
+`src/workqueue/` holds a pure Python core (triage, states, dispatcher, explanation step, circuit breaker, replay, reconcile, shadow mode)
+behind a store interface with an in-memory twin and a MongoDB implementation, both proved by one contract suite. Celery is a thin
+adapter, Redis is only its broker, MongoDB is the single source of truth. Card document with the formula, the diagram and the run
+instructions: `docs/31_Task_Queue_and_Dispatcher.md`. Plan and spec: `docs/superpowers/plans/2026-10-05-task-queue-dispatcher.md`,
+`docs/superpowers/specs/2026-10-04-task-queue-dispatcher-design.md`.
+
+**Decisions, each with its evidence.**
+
+| Decision | Why, and what was measured |
+|---|---|
+| Every claim goes to a person, green ones too (`verify_clear`); auto-clearing is only recorded as a shadow prediction | traceability and easy redo; shadow agreement is measured, never used (exact interval; 484 of 500 on the simulated people) |
+| Lanes from a severity-weighted score, not a bare count | 11 of 15 rules are high severity, so a count cannot tell a typo from a wrong total; the formula is checked against an independent oracle on every public claim and 200 generated result sets; 201 green, 324 lane A, 75 lane B |
+| Fail closed on a damaged result set (not 15 rules, unknown status or severity) | never green; eight malformed shapes are pinned |
+| Pull, not push: an inbox of at most 25, topped up below 5, plus `next` on demand | measured: slice never exceeded and no claim in two inboxes over five seeds of 500 claims; the greedy balancing keeps loads within one claim of each other for equal agents (property test), coefficient of variation 0.045 among seniors, 0.034 among juniors |
+| Seeded random order with the seed and inputs stored (replay and verify) | an altered seed is detected (`verify-deal` fails); the plan is a pure function |
+| Aging in the priority (0.5 point per hour) | a score-2 claim waiting 40 hours outranks a fresh score-12 |
+| Permissions read again at decision time; the decision is one conditional update on the lease holder and expiry | demoting an agent mid-claim gives 403 and writes nothing; a decision racing an expiry has exactly one outcome over ten real-thread races |
+| Outbox: claim and "publish pending" marker in one atomic write; relay clears the marker only after the publish | a broker outage and a crash between write and publish both lose nothing (fault-injection suite, a real Redis broker, a real Celery worker) |
+| AI explanation as a template with placeholders, cached by (rule, failure shape, prompt version, model), guard run on the filled text | the model never sees a claim value; 632 of 665 flagged findings served from the cache (95.0 %) with 33 model calls |
+| Circuit breaker, per-minute and per-day budget in the database, 90-second deadline, no model by default | the step never raises for model behaviour (nine failure modes, each ending `explanation_skipped`); with no model every claim keeps the engine's text |
+| Two-person sign-off for high severity | measured cost: 786 signatures instead of 500, 33 escalations to a third senior, drain 2.97 h to 5.66 h with 4 seniors, 3.07 h with 8 |
+| Level 4 can configure the queue but not decide | the administrator gets 403 on every decision route and there is no route that assigns a claim |
+
+**The honest bottleneck.** 253 of the 500 sampled claims need a senior. With 4 seniors of 20 they are busy 96.5 % of the time and the 16
+others 10.9 %; granting 4 more reviewers the senior flag drains in 1.82 h instead of 2.97 h; with no senior on shift all 253 high claims
+stay waiting and the dashboard says so.
+
+**Findings during the work.** (1) Profiling the experiment showed the dispatcher spending most of its time copying whole documents to count
+or compare; three light store queries (`latest_versions`, `leased_summary`, `inbox_load`) made the 500-claim run three times faster with
+identical output. (2) A first version of rerun could not create version 2 of the same claim body under a new rule pack: the uniqueness key
+now includes the rule pack. (3) Celery's `@app.task` registers tasks globally by default, so a second app silently reused the first app's
+tasks and runtime; the tests exposed it, `shared=False` fixes it. (4) A package named `queue` would shadow the standard library, hence
+`workqueue`. (5) The mutation suite found five gaps in the first service tests: they used single-finding claims, so "finish only when
+every finding is resolved" and "a resolved finding cannot be decided again" were never exercised, and an expiry error was masked by a
+second line of defence in the store; tests with multi-finding claims and exact error reasons now catch all five. (6) The first fairness
+claim ("spread no larger than the largest claim") is false when agents start unequal; the property is tested for equal agents only.
+(7) Two admin-tool tests failed for the right reason: a second sign-in in the same 30 seconds is a replayed authenticator code, so the
+tool takes an injectable clock.
+
+**Tests.** The store contract suite (identifier injection, races of 50 threads, atomic configuration versions, bounded counters) runs on
+the in-memory twin and on MongoDB; an independent routing oracle and a dealing-invariant oracle (permission, shift, capacity, exclusions,
+"nothing left that someone could take"); Hypothesis for the formula, the dealing and the breaker; fault injection (duplicate and late
+delivery, a worker dying after the write, a dead broker, the guard crashing); a real Celery worker consuming from Redis; the HTTP permission
+matrix, CSRF, strict bodies and masking; the admin tool (operator login, every use logged, no secret printed); the scale experiment as a
+test; **75 mutants** of the queue code run by `tests/mutation_queue.py` on a temporary copy, all caught.
+
+**Evidence** (`outputs/defense/queue.json`, generated at a named commit): the five scenarios above, the invariants over five seeds, and
+the assumptions (the people and the model are simulated, service times are `60 s + 45 s per flagged finding`, a finding is dismissed with
+probability 0.1, a countersigner disagrees with probability 0.1).
+
+**Limits.** The production model adapter is not built and its quality on the template prompt is unmeasured. Capacity is advisory under
+several dispatchers dealing at once. A decision is written to the claim and then to the review log, so a crash between the two leaves a
+decision without its log row. `request_information` keeps a claim in the inbox until the lease runs out. Celery workers need Linux. All
+figures about people and timing are simulation. Whether a trained model may ever sit in the decision path is a question for the mentor.
+
 ## 11. Experiments in detail
 
 ### 11.1 Why and how
@@ -901,6 +960,6 @@ Needs `FEATHERLESS_API_KEY` in `.env`. Raw replies are committed; the key, provi
 - The mentor-held 200 claims are unavailable.
 - Live AI answers have not been scored by a person (sheet ready).
 - The audit log is not immutable storage; a keyed anchor and an external copy of it are needed for that.
-- Phase 2 is partly built: the detection evaluation (section 10b) and identity and access (section 10d: badge, password and authenticator login, four clearance levels, identifier masking, a severity gate on decisions) are done; routing and escalation by confidence, the work dispatcher, the claims-in-database move, recheck through the API and the privacy and security note are not.
+- Phase 2 is partly built: the detection evaluation (section 10b) and identity and access (section 10d: badge, password and authenticator login, four clearance levels, identifier masking, a severity gate on decisions) are done; the task queue and work dispatcher (section 10f: triage lanes, personal inboxes, lease-bound decisions, two-person sign-off, replay, shadow mode) are built; routing by model confidence, recheck through the API and the privacy and security note are not.
 - Fuzzing is generated-input testing against a mocked model, not coverage-guided fuzzing; the limits are listed in section 10a.
 - No architecture diagram made by the team, demo video, pitch or runbook yet.

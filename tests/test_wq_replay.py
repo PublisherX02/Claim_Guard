@@ -184,6 +184,24 @@ class ReplayBase:
         self.assertEqual((b['lane'], b['score'], b['eligibility']), (c['lane'], c['score'], c['eligibility']))
         self.assertEqual((a['lane'], a['score'], a['eligibility']), ('A', 4, 'decide_high'))
 
+    def test_advisory_results_reach_the_reviewers_view_masked_and_are_not_decidable(self):
+        from wq_api_world import QueueWorld
+        w = QueueWorld(self.store)
+        try:
+            w.staff()
+            w.intake = Intake(self.store, w.intake.engine, w.log, w.clock, 'pack', 'engine', history=StoreHistory(self.store))
+            cid = w.ready(w.find('medium'))
+            self.assertEqual(len(self.store.get(cid)['advisory']), 8)
+            w.on_shift('CG-2002', slice_size=4, low_water=1)
+            w.lease_to(cid, 'CG-2002')
+            view = w.queue.inbox(w.principal(badge='CG-2002'))[0]
+            self.assertEqual(sorted(r['rule_id'] for r in view['advisory']), sorted(['E001', 'E002', 'E003', 'E004', 'E005', 'E101', 'E102', 'E103']))
+            self.assertTrue(all('allowed_actions' not in r for r in view['advisory']))
+            raw = w.claims.get(cid)[0]['patient_id']
+            self.assertFalse(raw in str(view))
+        finally:
+            w.close()
+
     def test_a_crashing_advisory_step_never_stops_intake(self):
         def boom(claim, history):
             raise RuntimeError('advisory bug')

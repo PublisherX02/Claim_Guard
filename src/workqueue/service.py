@@ -184,6 +184,9 @@ class QueueService:
         view = {'claim_id': doc['claim_id'], 'version': doc['version'], 'lane': receipt['lane'], 'score': receipt['score'],
                 'eligibility': receipt['eligibility'], 'escalated': bool(doc.get('escalated')), 'signoff_stage': _stage(doc),
                 'leased_until': (doc.get('lease') or {}).get('expires_at'), 'claim': shaped['claim'], 'findings': findings}
+        if doc.get('advisory'):
+            # advisory (extension) results: shown for information, shaped by the same masking, and never offered as decidable
+            view['advisory'] = masking.shape_claim(doc['claim'], doc['advisory'], perms, key)['results']
         if not triage.flagged(doc['results']) and 'claims.decide' in perms:
             view['allowed_actions'] = list(GREEN_ACTIONS)
         if masking.leaks(view, masking.identifier_map(doc['claim'], key)):

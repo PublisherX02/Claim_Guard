@@ -70,8 +70,8 @@ compose file runs one node. Tasks are keyed by `claim_id + input_hash`; a duplic
 - **MongoDB is the source of truth** (claims, work state, leases, draws, routing configuration and its history, dead letters,
   explanation cache). **Redis is only the Celery broker and short-lived counters.** Losing Redis loses nothing that the relay and
   reconciliation cannot republish.
-- **A pure Python core** (`src/queue/`: `triage`, `states`, `dispatcher`, `explain`, `replay`, `reconcile`) with a store interface
-  implemented in memory and on MongoDB, tested by one contract suite on both (the pattern of `access_store_contract.py`). **Celery is a thin adapter** (`src/queue/tasks.py`):
+- **A pure Python core** (`src/workqueue/`: `triage`, `states`, `dispatcher`, `explain`, `replay`, `reconcile`) with a store interface
+  implemented in memory and on MongoDB, tested by one contract suite on both (the pattern of `access_store_contract.py`). **Celery is a thin adapter** (`src/workqueue/tasks.py`):
   tests run it with `task_always_eager`; real runs use Linux workers in Docker because Celery's default pool does not run on Windows.
   `acks_late=True`, `task_reject_on_worker_lost=True`, and the Redis visibility timeout pinned to a stated value; idempotency
   absorbs the redeliveries that setting allows.
