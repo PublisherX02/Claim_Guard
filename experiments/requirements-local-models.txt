@@ -1,6 +1,15 @@
---extra-index-url https://download.pytorch.org/whl/cu124
-torch==2.5.1
-transformers==4.51.3
-accelerate==1.2.1
-bitsandbytes==0.45.0
-huggingface_hub==0.30.2
+--extra-index-url https://download.pytorch.org/whl/cu126
+torch==2.14.1
+transformers==5.19.0
+accelerate==1.15.0
+bitsandbytes==0.50.2
+huggingface_hub==1.33.0
+
+# 2026-10-06: raised to clear the vulnerabilities pip-audit and GitHub reported (the installed set audits clean).
+# The local-model results in outputs/ were produced with the earlier pins: torch 2.5.1 (CUDA 12.4 index), transformers 4.51.3,
+# accelerate 1.2.1, bitsandbytes 0.45.0, huggingface_hub 0.30.2.
+# The wheel index moved from cu124 to cu126 because the cu124 index stops at torch 2.6.0, which is still vulnerable. CUDA 12.6
+# needs a newer GPU driver than 12.4 did. Checked here: the pins resolve, import and pass pip-audit, and the transformers calls in
+# src/llm_adapter.py and scripts/smoke_test_medgemma.py import on 5.19. NOT checked: loading a model and generating on a GPU (no
+# GPU on the machine that did the bump, and the MedGemma weights had been deleted), so re-run scripts/smoke_test_medgemma.py before
+# relying on this file for a new local-model run.
