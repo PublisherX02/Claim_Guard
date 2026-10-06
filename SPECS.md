@@ -731,7 +731,7 @@ not hidden.
 open limit of the earlier LLM01 battery. `check_grounding` now rejects zero-width and joiner characters, bidirectional controls,
 the word joiner, line and paragraph separators, variation selectors, tag characters, the combining grapheme joiner and the soft hyphen
 unless the same character is in the finding (the byte-order mark was already caught by the foreign-script rule). `scripts/scan_invisible.py`
-checks the 76 tracked result files (292,045 strings, about 18 million characters): 30 strings contain such a character, all raw
+(run on a fresh clone) checks the 76 committed result files (292,045 strings, about 18 million characters): 30 strings contain such a character, all raw
 replies of experiments e1, e2, e3 and e7 that are mixed-language gibberish the older guards already reject, so nothing accepted
 before is rejected now. The new test fails 50 times when the check is disabled. Still open and documented: non-English
 Latin text and Base64 pass the text guards; neither can change a verdict or the review flag.
