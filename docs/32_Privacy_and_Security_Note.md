@@ -105,14 +105,28 @@ experiment numbers, and it is a quality measure more than a privacy one.
 | `requirements.txt` | the product and CI | no known vulnerabilities |
 | `requirements-dev.txt` | tests, CI | no known vulnerabilities |
 | `experiments/requirements-experiments.txt` | AI experiments | no known vulnerabilities |
-| `experiments/requirements-local-models.txt` | the opt-in local-model run (torch, transformers, accelerate) | **vulnerabilities reported** (torch 2.5.1: 22; transformers 4.51.3: 28; accelerate 1.2.1: 1) |
-| `comparison/architecture_b/requirements.txt` | a third party's system, installed only to run the comparison | **vulnerabilities reported** (Pillow 11.0.0: 33; langchain-core 0.3.28: 11; langchain 0.3.13: 3; langgraph 0.2.76: 3; langchain-openai 0.2.14: 2; python-dotenv 1.0.1: 2; sentence-transformers 3.3.1: 1) |
+| `experiments/requirements-local-models.txt` | the opt-in local-model run (torch, transformers, accelerate) | **fixed 2026-10-06**, no known vulnerabilities. Before: torch 2.5.1: 22; transformers 4.51.3: 28; accelerate 1.2.1: 1 |
+| `comparison/architecture_b/requirements.txt` | a third party's system, installed only to run the comparison | **fixed 2026-10-06**, no known vulnerabilities in all 96 resolved packages. Before: Pillow 11.0.0: 33; langchain-core 0.3.28: 11; langchain 0.3.13: 3; langgraph 0.2.76: 3; langchain-openai 0.2.14: 2; python-dotenv 1.0.1: 2; sentence-transformers 3.3.1: 1; pdfminer.six 20231228: 4 (pulled in by pdfplumber) |
 | `comparison/architecture_b/requirements-harness.txt` | the comparison harness | no known vulnerabilities |
 
-`bandit -r src scripts -ll` exits 0. The two files with findings are not installed by the product, by CI or by the demo; they exist to
-reproduce frozen experiments, and bumping them across major versions would change those results. They are **not** fixed. Anyone who
-installs them should do so in a throwaway environment and keep it off a network that matters. GitHub's alert count for the
-repository includes them.
+`bandit -r src scripts -ll` exits 0. The two files that had findings are not installed by the product, by CI or by the demo; they
+exist to reproduce frozen experiments. Both were raised on 2026-10-06 to clear the alerts, across major versions (langchain 0.3 to 1.4,
+langgraph 0.2 to 1.2, transformers 4.51 to 5.19, torch 2.5 to 2.14), and the earlier pins are kept in a comment in each file so the
+recorded results stay attributable to the versions that produced them.
+
+What was checked after the bump, and what was not:
+
+- **Architecture B** (fresh virtual environment, exactly the pinned file): `pip check` is clean; its 8 unit tests pass; the agent is
+  built with `create_react_agent` on langgraph 1.x and answers one query through a stub model. The comparison results themselves
+  were **not** re-generated, and they need a hosted model and network access.
+- **Local models**: the pins resolve, the installed set audits clean, and the `transformers` calls in `src/llm_adapter.py` and
+  `scripts/smoke_test_medgemma.py` import on 5.19. Loading a model and generating on a GPU was **not** re-run (no GPU on the
+  machine that did the bump, and the MedGemma weights had been deleted). The wheel index moved from CUDA 12.4 to 12.6, because the
+  12.4 index stops at torch 2.6.0, which is still vulnerable; 12.6 needs a newer GPU driver. Re-run the smoke test before relying on
+  this file.
+- The audit was run on the pins and, for Architecture B, on the full resolved set of 96 packages (one more vulnerable package turned
+  up that way, `pdfminer.six`, now pinned explicitly). The numbers come from `pip-audit` at the time; GitHub's own alert list was
+  not available to this tool, so confirm on the repository's security page after the push.
 
 ## 7. Evidence, and how to re-run it
 

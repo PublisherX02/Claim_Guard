@@ -739,8 +739,9 @@ Latin text and Base64 pass the text guards; neither can change a verdict or the 
 **Not built, and why.** An RFC 3161 timestamp on the audit head (needs a CMS library and a live authority; the suite promises no
 network), WORM or INSERT-only log storage, encryption at rest, and the two-pass explanation (it would change the AI step behind the
 frozen experiment numbers). **Dependencies:** `pip-audit` is clean for `requirements.txt`, `requirements-dev.txt` and the experiments
-file; the opt-in local-model file and the third-party comparison system's file report vulnerabilities and are left as they are, because
-raising them across major versions would change frozen experiments (`docs/32`, section 6).
+file. The opt-in local-model file and the third-party comparison system's file had findings and were raised on 2026-10-06 (their earlier
+pins are kept in comments, for the frozen results); the comparison code's unit tests and an agent build and query pass on the new
+versions, GPU model loading was not re-run (`docs/32`, section 6).
 
 ## 11. Experiments in detail
 
