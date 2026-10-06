@@ -276,6 +276,11 @@ _FOREIGN_SCRIPT = re.compile('[\u0370-\u1dff\u1f00-\u1fff\u2e80-\u9fff\ua000-\uf
 _REPETITION = re.compile(r'(.)\1{19,}|(\S+\s+)\2{7,}')
 
 
+# Invisible characters: zero-width space and joiners, bidirectional controls, word joiner, soft hyphen. An explanation never needs one,
+# and one can split a word the phrase guards look for, so the text reads as approval to a person but matches no pattern.
+_INVISIBLE = re.compile(r'[\u00ad\u200b-\u200f\u202a-\u202e\u2060-\u2064\u2066-\u2069]')
+
+
 def check_grounding(output, finding, rule=None):
     """Reject explanations that assert things the supplied inputs cannot support.
     Complements validate_explanation (structure/citations); a narrow, mechanical guard,
@@ -287,6 +292,9 @@ def check_grounding(output, finding, rule=None):
             raise ValueError(f'Ungrounded statement (garbled text: character {m.group(0)!r} in an unexpected script)')
     if _REPETITION.search(text):
         raise ValueError('Ungrounded statement (garbled text: long repetition)')
+    for m in _INVISIBLE.finditer(text):
+        if m.group(0) not in source:
+            raise ValueError(f'Ungrounded statement (invisible character {m.group(0)!r})')
     for pattern, why in _UNGROUNDED:
         for m in pattern.finditer(text):
             if m.group(0).lower() not in source:

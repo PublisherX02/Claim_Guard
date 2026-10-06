@@ -25,6 +25,7 @@ Q = 'src/workqueue/'
 TRIAGE = ['test_wq_triage.py']
 DISPATCH = ['test_wq_dispatcher.py', 'test_wq_service.py']
 STORE = ['test_wq_store_memory.py']
+MINIMIZE = ['test_data_minimization.py']
 BREAKER = ['test_wq_breaker.py']
 SERVICE = ['test_wq_service.py', 'test_wq_api.py', 'test_wq_signoff.py']
 SIGNOFF = ['test_wq_signoff.py']
@@ -42,6 +43,8 @@ MUTANTS = [
     # ---- dispatcher
     ('dispatch: the needed permission is not checked', Q + 'dispatcher.py', "ok = [a for a in pool if _needed(d) in a.permissions and room[a.badge_id] > 0 and not _blocked(a, d, excluded)]", "ok = [a for a in pool if room[a.badge_id] > 0 and not _blocked(a, d, excluded)]", DISPATCH),
     ('dispatch: conflicts of interest are not checked', Q + 'dispatcher.py', "room[a.badge_id] > 0 and not _blocked(a, d, excluded)]", "room[a.badge_id] > 0]", DISPATCH),
+    ('dispatch: the snapshot forgets who is barred from the patient', Q + 'dispatcher.py', "'excluded_for': sorted({badge for badge, who in cfg.exclusions if who == patient}),", "'excluded_for': [],", DISPATCH + MINIMIZE),
+    ('dispatch: the barred list in the snapshot is not honoured', Q + 'dispatcher.py', "\n            or agent.badge_id in doc.get('excluded_for', ()))", ")", DISPATCH + MINIMIZE),
     ('dispatch: capacity is not checked', Q + 'dispatcher.py', "_needed(d) in a.permissions and room[a.badge_id] > 0 and", "_needed(d) in a.permissions and", DISPATCH),
     ('dispatch: the priority sort is reversed', Q + 'dispatcher.py', "order.sort(key=lambda d: -_priority(d, cfg, now))", "order.sort(key=lambda d: _priority(d, cfg, now))", DISPATCH),
     ('dispatch: waiting time is ignored', Q + 'dispatcher.py', "    waited = max(0.0, (now - doc['state_at']) / 3600)\n", "    waited = 0.0\n", DISPATCH),

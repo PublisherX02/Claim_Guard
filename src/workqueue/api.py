@@ -11,6 +11,7 @@ from access.api import API, ApiError, DecisionBody, _Body
 from fastapi import Depends, Request
 from pydantic import Field
 
+from . import feedback
 from .service import Conflict
 
 
@@ -66,6 +67,10 @@ def install(app, queue, need, principal_dep, run):
     @app.get(f'{API}/queue/dashboard')
     def dashboard(request: Request, principal: Any = Depends(need('queue.view'))):
         return go(lambda: queue.dashboard(principal), request, principal)
+
+    @app.get(f'{API}/queue/feedback')
+    def feedback_report(request: Request, principal: Any = Depends(need('queue.view'))):
+        return go(lambda: feedback.report(queue.store), request, principal)
 
     @app.get(f'{API}/queue/config')
     def get_config(request: Request, principal: Any = Depends(need('routing.manage'))):

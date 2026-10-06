@@ -48,7 +48,8 @@ def _priority(doc, cfg, now):
 
 
 def _blocked(agent, doc, excluded):
-    return (agent.badge_id, doc['claim']['patient_id']) in excluded or agent.badge_id in doc.get('prior_deciders', ())
+    return ((agent.badge_id, doc['claim']['patient_id']) in excluded or agent.badge_id in doc.get('prior_deciders', ())
+            or agent.badge_id in doc.get('excluded_for', ()))
 
 
 def plan_deal(ready, agents, inbox_loads, cfg, seed, now, max_per_agent=None):
@@ -94,17 +95,21 @@ def _ids_hash(ready):
     return hashlib.sha256(json.dumps(pairs, separators=(',', ':')).encode('utf-8')).hexdigest()
 
 
-def _snapshot(doc, prior, avoid):
-    """The part of a ready claim the plan depends on, small enough to keep in the deal document."""
+def _snapshot(doc, prior, avoid, cfg):
+    """The part of a ready claim the plan depends on, small enough to keep in the deal document. The patient's identifier is not kept:
+    only the badges the configuration bars from this patient's claims, which is all the plan needs from it."""
+    patient = doc['claim'].get('patient_id', '')
     return {'claim_id': doc['claim_id'], 'version': doc['version'], 'state_at': doc['state_at'],
             'score': doc['receipt']['score'], 'eligibility': doc['receipt']['eligibility'],
-            'patient_id': doc['claim'].get('patient_id', ''), 'prior_deciders': sorted(prior), 'avoid': sorted(avoid)}
+            'excluded_for': sorted({badge for badge, who in cfg.exclusions if who == patient}),
+            'prior_deciders': sorted(prior), 'avoid': sorted(avoid)}
 
 
 def _doc_of(snap):
     return {'claim_id': snap['claim_id'], 'version': snap['version'], 'state_at': snap['state_at'],
-            'receipt': {'score': snap['score'], 'eligibility': snap['eligibility']}, 'claim': {'patient_id': snap['patient_id']},
-            'prior_deciders': tuple(snap['prior_deciders']), 'avoid': tuple(snap['avoid'])}
+            'receipt': {'score': snap['score'], 'eligibility': snap['eligibility']}, 'claim': {'patient_id': snap.get('patient_id', '')},      # deals stored before the identifier was dropped still carry it
+            'excluded_for': tuple(snap.get('excluded_for', ())), 'prior_deciders': tuple(snap['prior_deciders']),
+            'avoid': tuple(snap['avoid'])}
 
 
 class Dispatcher:
@@ -152,7 +157,7 @@ class Dispatcher:
         snaps = []
         for d in ready:
             prior, avoid = self._history_of(d)
-            snap = _snapshot(d, prior, avoid)
+            snap = _snapshot(d, prior, avoid, cfg)
             if d.get('escalated') or d.get('signoff'):
                 snap['eligibility'] = 'decide_high'              # an escalated claim, or one awaiting a countersignature, needs a senior
             snaps.append(snap)
