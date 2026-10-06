@@ -1,0 +1,51 @@
+@startuml 06_sequence_signoff
+!include ../style.iuml
+title Sequence diagram: two-person sign-off of a high-severity finding
+autonumber
+skinparam maxMessageSize 230
+
+actor "Senior A" as A
+actor "Senior B" as B
+actor "Senior C" as C
+participant "Queue\nservice" as QS
+participant "Dispatcher" as DI
+database "Store\n(MongoDB)" as DB
+participant "Security\nlog" as LOG
+
+== First signature (round 1) ==
+DI -> DB : lease of the dossier to senior A
+A -> QS : decide_finding for each finding
+QS -> DB : decisions of round 1
+QS -> DB : leased -> awaiting_countersign\n(first_by = A, answers remembered)
+QS -> LOG : claim_signoff (first signature, pending)
+
+== Countersignature (round 2) ==
+DI -> DI : exclude A (already decided this dossier)
+DI -> DB : lease to senior B
+note over B
+  B does not see A's answer for the
+  high-severity findings.
+end note
+B -> QS : decide_finding for the high-severity findings
+alt B gives the same answer as A for every finding
+  QS -> DB : leased -> decided (outcome = agreed)
+  QS -> LOG : claim_signoff (countersignature, agreement)
+else B contradicts A on at least one finding
+  QS -> DB : leased -> ready, escalated = true\n(outcome = disagreed)
+  QS -> LOG : claim_signoff (countersignature, disagreement)
+
+  == Tie-break (round 3) ==
+  DI -> DI : exclude A and B
+  DI -> DB : lease to senior C
+  C -> QS : decide_finding for the disputed findings
+  QS -> DB : leased -> decided (outcome = tiebreak, final decision)
+  QS -> LOG : claim_signoff (tie-break)
+end
+
+note over QS
+  Safeguards: nobody signs the same dossier twice;
+  a level 2 reviewer cannot decide a high-severity
+  finding; the level 4 administrator who runs the queue
+  decides no dossier.
+end note
+@enduml

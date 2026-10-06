@@ -1,0 +1,43 @@
+@startuml 09_components
+!include ../style.iuml
+title Component diagram (overview): ClaimGuard AI
+
+actor "Reviewer or\nAdministrator" as H
+
+component "Reviewer API\n(FastAPI)" as API
+component "Access service\n(sign-in, tokens, rights,\nidentifier masking)" as ACC
+component "Work queue\n(intake, triage, dealing,\ndecisions, sign-off)" as QUEUE
+component "Checking engine\n(15 YARA-X rules +\nadvisory checks)" as ENG
+component "Model adapter\n(validation and guard\nof the replies)" as ADA
+component "Audit log\n(hash chain, anchor)" as AUD
+component "Security log\n(signed hash chain)" as SEC
+
+database "MongoDB\n(dossiers, decisions, deals,\nusers, revoked tokens)" as MDB
+database "Redis\n(message broker)" as RDS
+cloud "Language model\n(local Ollama or hosted)" as MOD
+
+H --> API : HTTPS\n(cookie + CSRF)
+API ..> ACC : authenticate,\npermissions
+API ..> QUEUE : inbox, decisions,\ndashboard, feedback
+ACC ..> SEC
+ACC ..> MDB
+QUEUE ..> ENG : evaluate
+QUEUE ..> AUD : review decisions
+QUEUE ..> SEC
+QUEUE ..> MDB
+QUEUE ..> RDS : messages
+QUEUE ..> ADA : injected model
+ADA ..> MOD
+
+note right of QUEUE
+  Claims are submitted with the command-line tool
+  (queue_admin), not over HTTP. The production
+  model is not wired in yet: without a model the
+  deterministic text is kept.
+end note
+
+note bottom of ENG
+  The 15 rules give the official verdict. The advisory
+  checks are advice only, never mixed into the verdict.
+end note
+@enduml

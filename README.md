@@ -24,7 +24,7 @@ The engine decides and the model only explains. The trusted core has no network 
 
 ![Data flow of one claim, 15 steps](docs/figures/dataflow.png)
 
-> **New to the project? Start with [SPECS.md](SPECS.md)**, the detailed specification, including every experiment. **[BLUEPRINT.md](BLUEPRINT.md)** is the project as an information system: deliverables, business canvas, realisation steps and UML.
+> **New to the project? Start with [SPECS.md](SPECS.md)**, the detailed specification, including every experiment. **[BLUEPRINT.md](BLUEPRINT.md)** is the project as an information system: deliverables, business canvas and realisation steps. **[SPECIFICATION.md](SPECIFICATION.md)** is its requirements specification (cahier des charges) and UML model: requirements, business rules, every use case with its scenarios and failures, and 14 diagrams.
 
 ## Phase 2 deliverables at a glance
 
@@ -37,7 +37,37 @@ Phase 1 built the claim checker: ingestion, the 15 rules, structured output and 
 | **Human-in-the-loop and escalation logic** (10 points): routing of low-confidence and high-severity cases, overrides, feedback log | Built: severity-weighted routing into lanes (green, A, B) from a published formula with a stored receipt; personal inboxes dealt by a seeded, replayable dispatcher; decisions bound to the lease and to permissions read again at the moment of the decision; two-person sign-off for high severity with a third senior to settle a disagreement; green claims verified or escalated by a person; shadow mode that records what an automatic clearer would have done and acts on nothing; every move audited ([SPECS.md section 10f](SPECS.md), `docs/31`). Overrides: a reviewer can dismiss a flagged finding with a reason (the original issue is preserved) and a disagreement between two seniors goes to a third. Feedback log: `GET /api/v1/queue/feedback` (level 4) reports per rule how often people confirmed or dismissed it, with exact intervals, and which rules are candidates for a human review of the rule; counts only, never reason text (`src/workqueue/feedback.py`). Not built: routing by model confidence (the engine is deterministic and the AI only explains; low-certainty results, `UNABLE_TO_ASSESS` and degraded runs, go to lane B) | Done, apart from model-confidence routing |
 | **Privacy, security and safety guards** (5 points): data minimization, access control, prompt and data guards, graceful handling of malformed FHIR | Built: clinical and fraud guard on AI text, quarantine of malformed FHIR, hash-chained audit log, fuzz-tested boundaries. Access control (badge, password and authenticator login, four clearance levels, masked identifiers, signed security audit log), tested with 21 attacks and 6 races on two stores (see [SPECS.md section 10d](SPECS.md)). Data minimization: deal documents no longer hold patient identifiers, and the logs, deals and dead letters are scanned for them after a real flow (`tests/test_data_minimization.py`). Prompt injection: the LLM01 battery now also rejects invisible characters (`tests/test_injection_owasp_llm01.py`) | Done, with the gaps listed in `docs/32` (no WORM storage, no external timestamp, identifiers unencrypted at rest) |
 | **Privacy and security note** (threat model, access control, least privilege, auditability) | [docs/32_Privacy_and_Security_Note.md](docs/32_Privacy_and_Security_Note.md): what is stored where and who can read it, minimization, access control, the audit trail against what an immutable design needs (built versus not built), AI and injection guards, dependency audit of every requirements file, and what a deployment would still need. `docs/20_Security_Audit.md` is the Phase 1 audit | Done |
-| **Cahier des charges et modélisation UML** (in French, for the team's UML professor): system description, numbered requirements, business rules, use case sheets, 13 UML diagrams (use cases, classes, sequences, activity, states, components, deployment, packages, MongoDB data model) and the questions we ask the professor | [docs/33_Cahier_des_Charges_et_Modelisation_UML.md](docs/33_Cahier_des_Charges_et_Modelisation_UML.md); editable sources in `docs/uml/`, images in `docs/figures/uml/` | Done; every diagram was checked against the code, and what is not built is listed in its part 9 |
+| **Requirements specification (cahier des charges) and UML model**: numbered requirements, business rules, a full specification of all 20 use cases (main scenario, secondary scenarios, extensions, failures), a failure catalogue and 14 UML diagrams | [SPECIFICATION.md](SPECIFICATION.md) (beside [BLUEPRINT.md](BLUEPRINT.md)); French summary for the UML professor in [docs/33](docs/33_Cahier_des_Charges_et_Modelisation_UML.md); diagram sources in `docs/uml/en/`, images in `docs/figures/uml/en/` | Done; every statement checked against the code, and what is not built is listed in part 9 of the specification |
+
+### Briefing: what the system is and how it is specified
+
+**In one paragraph.** ClaimGuard AI checks healthcare claims (synthetic data) before they go to an insurer. A deterministic engine applies 15 rules and returns a verdict per rule; a language model may only draft explanations and can never change a verdict; every claim, even a clean one, is then handed to a person; high-severity findings need two different seniors; everything is written to tamper-evident logs. The full specification, with the reasoning behind each choice, is [SPECIFICATION.md](SPECIFICATION.md).
+
+**How a claim travels.**
+
+1. *Intake*: validate, check the 15 rules, add 8 advisory checks, compute a triage receipt (green, A or B lane), store everything in one atomic write.
+2. *Preparation*: an asynchronous task asks a model for explanation templates (it never sees a claim value); on any failure the deterministic text is kept.
+3. *Dealing*: a dispatcher fills each eligible reviewer's personal queue (25 by default) with 30-minute leases; the dealing uses a recorded seed, so it can be replayed and verified.
+4. *Decision*: the reviewer sees a masked view and decides each finding; a high-severity finding needs a first signature, a countersignature and, on disagreement, a tie-break by a third senior.
+5. *Trace and correction*: every event is logged in a hash chain; a correction never edits a decided dossier, it is submitted again as a new version.
+
+**What the specification contains.**
+
+| Part | Content |
+|---|---|
+| Requirements | 22 functional and 17 non-functional requirements, each with priority, status and proof |
+| Business rules | The 15 rules, triage score, dealing, sign-off, decision, masking, versions, user administration, configuration |
+| Use cases | All 20, each with a main scenario, secondary scenarios, step-level extensions, failure scenarios and guarantees |
+| Failure model | 28 failure classes: detection, system response, what the user sees, what stays guaranteed |
+| UML | 14 diagrams: use cases, classes (business and queue), sequences (processing, sign-in, sign-off, failure and recovery), activity, state machine, components (two levels), deployment, packages, MongoDB data model |
+
+<p align="center"><img src="docs/figures/uml/en/01_use_cases.png" alt="Use case diagram" width="640"></p>
+
+<p align="center"><img src="docs/figures/uml/en/08_states_dossier.png" alt="State machine of a dossier" width="560"></p>
+
+The other diagrams are listed in [SPECIFICATION.md, part 8](SPECIFICATION.md), each with a commentary and the modelling choices still open for advice.
+
+**What is deliberately not built, so nobody is misled.** There is no web screen (the reviewer API exists and is tested); claims enter through a command-line tool, not over HTTP; the production language model is not yet wired into the queue (without a model the deterministic text is kept); the reviewer API's recheck route answers 501, and a correction is handled by resubmitting the claim as a new version; the audit log is tamper-evident, not immutable; claim data is not encrypted at rest. These are repeated, with the reasons, in part 9 of the specification and in [docs/32](docs/32_Privacy_and_Security_Note.md).
 
 ### Why FHIR claims do not score 1.0
 
@@ -341,6 +371,7 @@ Also built and tested, but off by default: a **cascade** (fluent model, then a r
 | Read | For |
 |---|---|
 | [SPECS.md](SPECS.md) | Detailed specification: contracts, rules, the AI step, audit log, security, and every experiment |
+| [SPECIFICATION.md](SPECIFICATION.md) | The requirements specification (cahier des charges) and UML model, beside BLUEPRINT.md: 22 functional and 17 non-functional requirements, business rules, all 20 use cases with main, secondary, extension and failure scenarios, a catalogue of 28 failure classes, and 14 UML diagrams (sources in `docs/uml/en/`) |
 | [BLUEPRINT.md](BLUEPRINT.md) | The project as an information system: the submission deliverables and where each lives, quality characteristics (reliability, security, interoperability, performance, portability, maintainability), the business model canvas with cited desk research, the 12 realisation steps each with its proof of success, the environment tests, and seven UML diagrams |
 | [docs/33_Cahier_des_Charges_et_Modelisation_UML.md](docs/33_Cahier_des_Charges_et_Modelisation_UML.md) | Cahier des charges and UML modelling in French: requirements, constraints, business rules, use case sheets, 13 diagrams and the questions for the UML professor |
 | [docs/31_Task_Queue_and_Dispatcher.md](docs/31_Task_Queue_and_Dispatcher.md) | The task queue and work dispatcher: pipeline diagram, the triage formula, dealing, two-person sign-off, the AI step's cache and breaker, how to run it, the experiment and its limits |

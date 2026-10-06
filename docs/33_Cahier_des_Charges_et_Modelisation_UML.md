@@ -1,5 +1,7 @@
 # 33 | Cahier des charges et modélisation UML de ClaimGuard AI
 
+> **Référence complète en anglais : [SPECIFICATION.md](../SPECIFICATION.md).** Ce document français est la première version, écrite pour l'enseignant d'UML. La version anglaise va plus loin : les 20 cas d'utilisation y ont chacun un scénario principal, des scénarios secondaires, des extensions et des scénarios d'échec, et elle contient un catalogue de pannes et un quatorzième diagramme (pannes et reprise). En cas de différence, la version anglaise fait foi. Corrections apportées depuis la première version : la route de recontrôle `recheck` n'est **pas** réalisée (elle répond 501) ; une correction passe par le redépôt de la réclamation, qui crée une nouvelle version ; les états `received` et `rechecked` de la table du code ne sont jamais utilisés.
+
 *Document en français, destiné à l'enseignant d'UML de l'équipe. Il décrit le système, fixe son cahier des charges, présente les diagrammes UML déjà dessinés et pose les questions sur lesquelles nous attendons ses conseils.*
 
 **Comment lire ce document.** La partie 1 présente le projet et la partie 2 décrit le fonctionnement du système en langage courant. La partie 3 donne les acteurs, la partie 4 le périmètre et la partie 5 le cahier des charges proprement dit (exigences, contraintes, règles de gestion, fiches de cas d'utilisation). La partie 6 montre les treize diagrammes UML dessinés, chacun avec ses choix de modélisation. La partie 7 liste nos questions à l'enseignant. Les parties 8 à 11 contiennent la traçabilité, les limites, le glossaire et la façon de régénérer les images.
@@ -108,7 +110,7 @@ Priorité selon MoSCoW (D = doit, S = devrait, P = pourrait, N = ne sera pas fai
 | EF-10 | Enregistrer une décision par constat : quatre actions, motif obligatoire, acteur pris dans la session, original préservé | D | R | `src/review_workflow.py` |
 | EF-11 | Exiger deux seniors différents pour un constat de gravité élevée, avec arbitrage d'un troisième en cas de désaccord | D | R | `docs/31`, tests de double signature |
 | EF-12 | Valider une réclamation sans constat, ou la faire remonter | D | R | Actions `verify_clear` et `escalate` |
-| EF-13 | Créer une nouvelle version après correction et relancer le contrôle ; un simple clic ne change jamais une erreur en réussite | D | R | `recheck`, `review_workflow` |
+| EF-13 | Créer une nouvelle version après correction et relancer le contrôle ; un simple clic ne change jamais une erreur en réussite | D | Pa | Réalisé par le redépôt de la réclamation corrigée (nouvelle version, nouveau reçu) et par le flux hors ligne (`review_workflow`) ; la route `POST /claims/{id}/recheck` n'est **pas** réalisée (réponse 501) |
 | EF-14 | Offrir un tableau de bord et une configuration versionnée de la file (capacité, équipes, formule) | S | R | `queue.view`, `routing.manage` |
 | EF-15 | Produire un rapport de retours : par règle, confirmations et écarts avec intervalle exact | S | R | `GET /api/v1/queue/feedback`, comptes seulement |
 | EF-16 | Rejouer et vérifier une distribution ; rejouer une tâche en échec | S | R | `verify`, `queue_admin.py` |
@@ -285,7 +287,7 @@ Quatre couloirs (Source, Système, IA, Humain), un **branchement parallèle** (`
 
 ![Diagramme d'états-transitions](figures/uml/08_etats_dossier.png)
 
-Dix états ; les 21 transitions de la table du code (`src/workqueue/states.py`) sont toutes représentées, celles vers `dead_lettered` étant regroupées par l'état composite « Dossier actif » (sinon sept flèches vers le même état).
+La table du code (`src/workqueue/states.py`) définit dix états et 21 transitions. Un dossier naît directement à l'état `triaged` ; l'état composite « Dossier actif » regroupe les états d'où un échec mène à `dead_lettered`. **`received` (simple origine du premier événement journalisé) et `rechecked` ne sont jamais utilisés** : une correction est un nouveau document (version n+1), pas une transition. Le diagramme le dit dans une note.
 *Choix à valider :* l'état composite ; une machine à états par version de dossier.
 
 #### 09. Composants (vue d'ensemble)
@@ -369,6 +371,7 @@ Neuf collections. La collection `claims` contient un document par **version** d'
 
 - **Pas d'écran web** : seule l'API de relecture existe (EF-20).
 - **Pas de dépôt HTTP** : l'entrée des réclamations passe par l'outil `queue_admin` (EF-21).
+- **Route de recontrôle non réalisée** : `POST /claims/{id}/recheck` répond 501 ; une correction est un redépôt (nouvelle version) (EF-13 partiel).
 - **Modèle de production non branché sur la file** : l'étape IA reçoit un modèle injecté ; sans modèle, le texte déterministe est conservé (EF-06 partiel). Le flux hors ligne, lui, utilise bien un modèle local ou hébergé.
 - **Routage par confiance du modèle** : non retenu (EF-22).
 - **Journal d'audit** : tamper-évident, pas inaltérable. Pas de stockage à écriture unique, pas d'horodatage externe (`docs/32`, partie 4).

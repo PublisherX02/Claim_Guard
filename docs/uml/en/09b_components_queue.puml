@@ -1,0 +1,49 @@
+@startuml 09b_components_queue
+!include ../style.iuml
+title Component diagram (detail): inside the work queue
+
+package "Work queue (workqueue)" {
+  component "Intake" as INT
+  component "Triage\n(score, lanes)" as TRI
+  component "Tasks\n(Celery)" as TSK
+  component "AI step\n(templates, cache, budget)" as EXP
+  component "Circuit breaker" as BRK
+  component "Dispatcher" as DIS
+  component "Queue service" as QS
+  component "Feedback report" as FB
+  component "Shadow mode" as SHA
+}
+
+interface "Queue store" as IST
+database "MongoDB" as MDB
+component "In-memory copy\n(tests)" as MEM
+
+interface "Rule engine" as IMOT
+interface "Injected model" as IMOD
+interface "Logs" as IJ
+
+INT ..> IMOT : evaluate, advisory checks
+INT ..> TRI : compute the receipt
+INT ..> SHA : prediction (acts on nothing)
+INT ..> IST
+
+TSK ..> EXP : explain
+TSK ..> DIS : deal, expire
+EXP ..> BRK : protected call
+EXP ..> IMOD : template
+EXP ..> IST
+
+DIS ..> IST
+QS ..> IST
+QS ..> IJ : decisions, signatures
+FB ..> IST
+SHA ..> IST
+
+IST - MDB
+IST - MEM
+
+note right of IST
+  One contract, two implementations: the same test
+  suite runs on MongoDB and on the in-memory copy.
+end note
+@enduml

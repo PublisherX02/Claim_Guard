@@ -1,0 +1,177 @@
+@startuml 02_classes_domain
+!include ../style.iuml
+title Class diagram: business domain (claim, rules, results)
+hide empty members
+
+package "Input data (one claim)" {
+  class Claim {
+    +claim_id : Text
+    +invoice_number : Text
+    +patient_id : Text
+    +member_id : Text
+    +provider_id : Text
+    +payer_id : Text
+    +policy_id : Text
+    +diagnosis_code : Text
+    +submission_date : Date
+    +currency : Text
+    +total_amount : Number
+    +notes : Text
+    +schema_version : Text
+  }
+  class ServiceLine {
+    +line_id : Text
+    +service_code : Text
+    +service_date : Date
+    +modifier : Text
+    +quantity : Number
+    +unit_price : Number
+    +net_amount : Number
+    +authorization_id : Text
+  }
+  class Coverage {
+    +coverage_id : Text
+    +status : Text
+    +start_date : Date
+    +end_date : Date
+    +beneficiary_patient_id : Text
+    +member_id : Text
+  }
+  class Authorization {
+    +authorization_id : Text
+    +patient_id : Text
+    +service_code : Text
+    +status : Text
+    +valid_from : Date
+    +valid_to : Date
+    +max_quantity : Number
+  }
+  class Attachment {
+    +attachment_id : Text
+    +type : Text
+    +patient_id : Text
+    +service_code : Text
+    +service_date : Date
+    +document_status : Text
+    +text : Text
+  }
+}
+
+package "Fictional reference data (rules folder)" {
+  class Provider {
+    +provider_id : Text
+    +display : Text
+  }
+  class InsurancePolicy {
+    +policy_id : Text
+    +version : Text
+    +payer_id : Text
+    +currency : Text
+    +submission_window_days : Integer
+    +allowed_providers : List
+    +auth_required_services : List
+    +required_documents : List
+    +max_unit_price : Number
+    +max_quantity_per_line : Number
+  }
+  class CatalogueService {
+    +service_code : Text
+    +description : Text
+    +base_price : Number
+    +max_price : Number
+    +max_quantity : Number
+  }
+  class Diagnosis {
+    +code : Text
+    +display : Text
+  }
+}
+
+package "Checking and results" {
+  class OfficialRule {
+    +rule_id : R001..R015
+    +title : Text
+    +severity : Severity
+    +rule_source : Text
+    +rule_version : Text
+  }
+  class RuleResult {
+    +claim_id : Text
+    +rule_id : Text
+    +status : ResultStatus
+    +severity : Severity
+    +affected_line_ids : List
+    +explanation : Text
+    +corrective_action : Text
+    +requires_human_review : Boolean
+    +method : Method
+    +confidence : Number
+    +confidence_kind : Text
+    +review_status : Text
+  }
+  class ExtensionResult {
+    +rule_family : Text
+    +advisory : Boolean
+    +pack_hash : Text
+  }
+  class Evidence {
+    +path : Text
+    +value : Value
+  }
+  class Explanation {
+    +text : Text
+    +source : ExplanationSource
+    +cited_evidence_paths : List
+    +cited_rule_ids : List
+    +needs_human_review : Boolean
+  }
+  enum ResultStatus {
+    PASS
+    FAIL
+    UNABLE_TO_ASSESS
+    NOT_APPLICABLE
+    NOT_IMPLEMENTED
+  }
+  enum Severity {
+    high
+    medium
+    low
+  }
+  enum ExplanationSource {
+    language_model
+    deterministic_template
+  }
+}
+
+Claim "1" *-- "1..*" ServiceLine : contains
+Claim "1" *-- "1" Coverage : carries
+Claim "1" *-- "0..*" Authorization : attaches
+Claim "1" *-- "0..*" Attachment : attaches
+Claim "*" --> "1" Provider : issued by
+Claim "*" --> "1" InsurancePolicy : governed by
+Claim "*" --> "1" Diagnosis : justified by
+ServiceLine "*" --> "0..1" CatalogueService : service_code
+ServiceLine "*" --> "0..1" Authorization : authorization_id
+
+Claim "1" -- "15" RuleResult : is evaluated by
+RuleResult "*" --> "1" OfficialRule : applies
+RuleResult "1" *-- "0..*" Evidence : cites
+RuleResult "1" o-- "0..1" Explanation : accompanied by
+RuleResult ..> ResultStatus
+RuleResult ..> Severity
+Explanation ..> ExplanationSource
+ExtensionResult --|> RuleResult
+Claim "1" -- "0..8" ExtensionResult : advisory checks
+
+note right of RuleResult
+  Exactly 15 results per claim (one per official
+  rule). A check that cannot be made gives
+  UNABLE_TO_ASSESS, never PASS.
+end note
+
+note bottom of ExtensionResult
+  Eight advisory checks (E001..E005, E101..E103):
+  advice only, never mixed into the 15
+  official results.
+end note
+@enduml

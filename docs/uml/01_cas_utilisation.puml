@@ -30,7 +30,7 @@ rectangle "ClaimGuard AI" {
     usecase "Décider un constat" as UC13
     usecase "Valider une réclamation\nsans constat" as UC14
     usecase "Contresigner un constat\nde gravité élevée" as UC15
-    usecase "Demander une correction\net relancer" as UC16
+    usecase "Redéposer une réclamation\ncorrigée (nouvelle version)" as UC16
   }
 
   rectangle "Pilotage et contrôle" as P3 {
@@ -57,7 +57,8 @@ L1 --> UC10
 L2 --> UC12
 L2 --> UC13
 L2 --> UC14
-L2 --> UC16
+SRC --> UC16
+UC16 ..> UC01 : <<include>>
 L3 --> UC15
 L4 --> UC20
 L4 --> UC21

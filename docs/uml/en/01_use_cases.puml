@@ -1,0 +1,96 @@
+@startuml 01_use_cases
+!include ../style.iuml
+title Use case diagram: ClaimGuard AI
+left to right direction
+
+actor "Claim source\n(operator tool)" as SRC
+actor "Observer\n(level 1)" as L1
+actor "Reviewer\n(level 2)" as L2
+actor "Senior reviewer\n(level 3)" as L3
+actor "Administrator\n(level 4)" as L4
+actor "Language model\n(secondary actor)" as AI <<external system>>
+
+L2 --|> L1
+L3 --|> L2
+
+rectangle "ClaimGuard AI" {
+
+  rectangle "Automatic checking" as P1 {
+    usecase "UC01\nSubmit a claim" as UC01
+    usecase "UC02\nCheck the 15 official rules" as UC02
+    usecase "UC03\nRaise advisory checks\n(E001..E103)" as UC03
+    usecase "UC04\nDraft an explanation" as UC04
+    usecase "UC05\nTriage the claim\n(green / A / B)" as UC05
+    usecase "UC16\nResubmit a corrected claim\n(new version)" as UC16
+  }
+
+  rectangle "Human review" as P2 {
+    usecase "UC10\nView a claim (masked)" as UC10
+    usecase "UC11\nUnmask an identifier" as UC11
+    usecase "UC12\nReceive a personal queue" as UC12
+    usecase "UC13\nDecide a finding" as UC13
+    usecase "UC14\nVerify a claim\nwith no findings" as UC14
+    usecase "UC15\nCountersign a high-severity\nfinding" as UC15
+  }
+
+  rectangle "Control and administration" as P3 {
+    usecase "UC20\nTune the queue" as UC20
+    usecase "UC21\nView the dashboard" as UC21
+    usecase "UC22\nView the feedback report" as UC22
+    usecase "UC23\nReplay, verify and rerun" as UC23
+    usecase "UC24\nReplay a failed task" as UC24
+    usecase "UC25\nManage users" as UC25
+    usecase "UC26\nVerify the audit trail" as UC26
+  }
+
+  usecase "UC00\nAuthenticate\n(badge, password, one-time code)" as UC00
+}
+
+SRC --> UC01
+SRC --> UC16
+UC16 ..> UC01 : <<include>>
+UC01 ..> UC02 : <<include>>
+UC01 ..> UC05 : <<include>>
+UC03 .> UC01 : <<extend>>
+UC04 .> UC02 : <<extend>>
+AI -- UC04
+
+L1 --> UC10
+L2 --> UC12
+L2 --> UC13
+L2 --> UC14
+L3 --> UC15
+L4 --> UC20
+L4 --> UC21
+L4 --> UC22
+L4 --> UC23
+L4 --> UC24
+L4 --> UC25
+L4 --> UC26
+
+UC11 .> UC10 : <<extend>>\n(permission pii.unmask)
+UC15 .> UC13 : <<extend>>\n(high severity)
+UC10 ..> UC00 : <<include>>
+UC12 ..> UC00 : <<include>>
+UC13 ..> UC00 : <<include>>
+UC20 ..> UC00 : <<include>>
+UC25 ..> UC00 : <<include>>
+
+note bottom of SRC
+  Claims enter through the administrator's
+  command-line tool (queue_admin): there is no
+  HTTP route for submitting claims.
+end note
+
+note bottom of AI
+  The production model is not wired into the
+  queue yet: by default the deterministic
+  text is kept.
+end note
+
+note bottom of L4
+  Separation of duties is deliberate: level 4 does
+  not generalise level 1 and cannot decide the
+  claims of the queue it runs.
+end note
+@enduml

@@ -3,10 +3,9 @@
 title Diagramme d'états-transitions : cycle de vie d'un dossier dans la file
 hide empty description
 
-[*] --> received
+[*] --> triaged : la réception écrit le dossier directement dans cet état\n(le journal note received -> triaged)
 
 state "Dossier actif" as Actif {
-  state received
   state triaged
   state explained
   state explanation_skipped
@@ -14,7 +13,6 @@ state "Dossier actif" as Actif {
   state leased
   state awaiting_countersign
 
-  received --> triaged : reçu de triage écrit
   triaged --> ready : voie verte (aucun constat)
   triaged --> explained : explication retenue par la garde
   triaged --> explanation_skipped : IA indisponible, garde refusée,\nbudget épuisé ou délai dépassé
@@ -27,19 +25,19 @@ state "Dossier actif" as Actif {
 }
 
 leased --> decided : tous les constats résolus
-decided --> rechecked : correction demandée
-rechecked --> triaged : nouvelle version, nouveau reçu
 Actif --> dead_lettered : échec après les tentatives\n(reprises avec attente croissante)
-dead_lettered --> triaged : rejeu par l'administrateur (niveau 4)
+dead_lettered --> triaged : rejeu par l'administrateur (niveau 4), une seule fois
+decided --> [*]
 
 note right of decided
-  Un dossier décidé n'est jamais modifié :
-  une correction crée une nouvelle version.
+  Un dossier décidé n'est jamais modifié : une réclamation
+  corrigée et redéposée est un NOUVEAU document (version n+1)
+  qui démarre à « triaged ».
 end note
 
-note bottom of ready
-  Chaque transition est un événement
-  ajouté au journal ; une transition
-  depuis le mauvais état est refusée.
+note as N1
+  <b>Définis dans la table du code mais jamais utilisés :</b>
+  « received » (seulement l'origine du premier événement) et
+  « rechecked ». Aucun code ne place un dossier dans « rechecked ».
 end note
 @enduml

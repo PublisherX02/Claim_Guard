@@ -1,0 +1,84 @@
+@startuml 04_sequence_processing
+!include ../style.iuml
+title Sequence diagram: from submission to the human decision
+autonumber
+skinparam maxMessageSize 230
+
+actor "Claim source\n(operator)" as SRC
+participant "Intake" as IN
+participant "Rule engine\n(15 rules, YARA-X)" as MR
+participant "Triage" as TR
+participant "Advisory\nchecks" as EXT
+database "Store\n(MongoDB)" as DB
+participant "Security\nlog" as LOG
+queue "Broker\n(Redis)" as BR
+participant "Task\n(Celery)" as TK
+participant "AI step" as IA
+participant "Language\nmodel" as LLM
+participant "Dispatcher" as DI
+participant "Queue\nservice" as QS
+actor "Reviewer" as RV
+
+== Intake (synchronous) ==
+SRC -> IN : submit(claim)\n(queue_admin tool: no HTTP route)
+IN -> IN : validate the transport (exact keys, non-empty strings,\nvalid dates, unique line ids, safe claim id)
+alt claim invalid
+  IN --> SRC : refusal with the reason
+else claim valid
+  IN -> DB : was this content already received?
+  alt already received
+    IN --> SRC : the same triage receipt
+  else new content (new version of the dossier)
+    IN -> MR : evaluate(claim)
+    MR --> IN : 15 results
+    IN -> TR : compute the receipt(results, configuration)
+    TR --> IN : lane (green / A / B), score, required eligibility
+    IN -> EXT : evaluate the advisory checks
+    EXT --> IN : advisory results
+    IN -> DB : atomic write of the dossier and its outbox marker
+    IN -> LOG : triage_receipt
+    IN --> SRC : triage receipt
+  end
+end
+
+== Preparation (asynchronous) ==
+DB -> BR : relay of the outbox message
+BR -> TK : process_claim(id, version, hash)
+alt green lane (no finding)
+  TK -> DB : triaged -> ready
+else findings to explain
+  TK -> IA : explain each finding
+  IA -> LLM : request for a template (no value from the claim)
+  alt valid reply, guard passed on the filled text
+    LLM --> IA : template
+    IA --> TK : explained
+  else failure, timeout, budget spent, breaker open or guard refusal
+    IA --> TK : explanation_skipped (deterministic text kept)
+  end
+  TK -> DB : -> ready
+end
+
+== Distribution (periodic) ==
+DI -> DB : ready dossiers and the load of each reviewer
+DI -> DI : plan_deal (seed, priority, load, exclusions)
+DI -> DB : leases placed (ready -> leased) and deal recorded
+DI -> LOG : claim_dealt
+
+== Human decision ==
+RV -> QS : inbox / next
+QS -> DB : dossiers under the reviewer's lease
+QS --> RV : masked view (identifiers pseudonymised)
+RV -> QS : decide_finding(finding, action, reason)
+QS -> DB : decision added only if the lease is valid
+QS -> LOG : decision
+opt every finding of the round is resolved
+  QS -> DB : leased -> decided (or awaiting_countersign if high severity)
+end
+
+note over IA, LLM
+  The model never sets a status, a rule or the review flag:
+  it can only add words. The production model is not yet
+  wired into the queue: without a model, the
+  "explanation_skipped" branch applies.
+end note
+@enduml
