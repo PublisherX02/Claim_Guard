@@ -694,7 +694,7 @@ the in-memory twin and on MongoDB; an independent routing oracle and a dealing-i
 "nothing left that someone could take"); Hypothesis for the formula, the dealing and the breaker; fault injection (duplicate and late
 delivery, a worker dying after the write, a dead broker, the guard crashing); a real Celery worker consuming from Redis; the HTTP permission
 matrix, CSRF, strict bodies and masking; the admin tool (operator login, every use logged, no secret printed); the scale experiment as a
-test; **75 mutants** of the queue code run by `tests/mutation_queue.py` on a temporary copy, all caught.
+test; **77 mutants** of the queue code run by `tests/mutation_queue.py` on a temporary copy, all caught.
 
 **Evidence** (`outputs/defense/queue.json`, generated at a named commit): the five scenarios above, the invariants over five seeds, and
 the assumptions (the people and the model are simulated, service times are `60 s + 45 s per flagged finding`, a finding is dismissed with
@@ -729,8 +729,11 @@ not hidden.
 
 **Invisible characters in model replies.** A zero-width space inside a word ("app" + U+200B + "roved") matched no approval pattern, an
 open limit of the earlier LLM01 battery. `check_grounding` now rejects zero-width and joiner characters, bidirectional controls,
-the word joiner and the soft hyphen unless the same character is in the finding. Scan of the 83 recorded model-output files (about 25
-million characters): 0 rejections. The new test fails 36 times when the check is disabled. Still open and documented: non-English
+the word joiner, line and paragraph separators, variation selectors, tag characters, the combining grapheme joiner and the soft hyphen
+unless the same character is in the finding (the byte-order mark was already caught by the foreign-script rule). `scripts/scan_invisible.py`
+checks the 76 tracked result files (292,045 strings, about 18 million characters): 30 strings contain such a character, all raw
+replies of experiments e1, e2, e3 and e7 that are mixed-language gibberish the older guards already reject, so nothing accepted
+before is rejected now. The new test fails 50 times when the check is disabled. Still open and documented: non-English
 Latin text and Base64 pass the text guards; neither can change a verdict or the review flag.
 
 **Not built, and why.** An RFC 3161 timestamp on the audit head (needs a CMS library and a live authority; the suite promises no

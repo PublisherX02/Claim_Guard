@@ -81,9 +81,14 @@ deterministic finding. Layers, each tested in `tests/test_injection_owasp_llm01.
 1. Claim data: hostile text in any free-text field, or split across two fields, changes no verdict.
 2. The prompt: untrusted text is fenced as data, bounded, and never in the instruction part.
 3. The reply: approval or payment language, text in another alphabet (Arabic, Chinese, Russian and homoglyphs), garbled text, and now
-   **invisible characters** (zero-width, bidirectional, soft hyphen) are rejected. The last was an open limit in the earlier battery
-   (a word split by a zero-width space matched no pattern). The check produced **0 rejections across 83 recorded model outputs, about
-   25 million characters**, so it did not cost real answers. The new test fails 36 times when the check is switched off.
+   **invisible characters** (zero-width space and joiners, bidirectional controls, line and paragraph separators, variation
+   selectors, tag characters, soft hyphen, combining grapheme joiner) are rejected. The last was an open limit in the earlier
+   battery (a word split by a zero-width space matched no pattern). The byte-order mark and the Arabic letter mark were already
+   rejected by the foreign-script rule. False-positive check, reproducible with `python scripts/scan_invisible.py`: of 292,045
+   strings in the 76 result files git tracks under `outputs/` and `experiments/` (about 18 million characters), 30 contain such a
+   character. All 30 are raw model replies in experiments e1, e2, e3 and e7, mixed-language gibberish that the older guards already
+   reject, so the new check rejects **no** text that was accepted before. The new test fails 50 times when the check is switched
+   off. (An earlier draft of this note quoted a larger scan of an untracked folder; the figures above replace it.)
 4. Whatever slips through: the verdict and the review flag cannot change. A model that obeys every payload and flips the flag is contained.
 
 Still open, and recorded as such: approval wording in **non-English Latin text** (French, Spanish) and **Base64** passes the text
@@ -117,6 +122,7 @@ repository includes them.
 | No identifier in logs, deals, dead letters | `python -m unittest discover -s tests -p test_data_minimization.py` |
 | Feedback report is counts only and read-only | `python -m unittest discover -s tests -p test_wq_feedback.py` |
 | Prompt injection battery | `python -m unittest discover -s tests -p test_injection_owasp_llm01.py` |
+| Invisible-character guard costs no accepted answer | `python scripts/scan_invisible.py` (exit 0) |
 | 77 queue mutants, none survive | `python tests/mutation_queue.py` |
 | Static scan and dependency scan | `bandit -r src scripts -ll`; `pip-audit -r requirements.txt` |
 

@@ -276,9 +276,10 @@ _FOREIGN_SCRIPT = re.compile('[\u0370-\u1dff\u1f00-\u1fff\u2e80-\u9fff\ua000-\uf
 _REPETITION = re.compile(r'(.)\1{19,}|(\S+\s+)\2{7,}')
 
 
-# Invisible characters: zero-width space and joiners, bidirectional controls, word joiner, soft hyphen. An explanation never needs one,
-# and one can split a word the phrase guards look for, so the text reads as approval to a person but matches no pattern.
-_INVISIBLE = re.compile(r'[\u00ad\u200b-\u200f\u202a-\u202e\u2060-\u2064\u2066-\u2069]')
+# Invisible characters: zero-width space and joiners, bidirectional controls, line and paragraph separators, word joiner, soft hyphen,
+# combining grapheme joiner, variation selectors, byte-order mark, Unicode tag characters. An explanation never needs one, and one can split a word the
+# phrase guards look for, so the text reads as approval to a person but matches no pattern.
+_INVISIBLE = re.compile(r'[\u00ad\u034f\u200b-\u200f\u2028-\u202e\u2060-\u2064\u2066-\u2069\ufe00-\ufe0f\ufeff\U000e0000-\U000e007f]')
 
 
 def check_grounding(output, finding, rule=None):

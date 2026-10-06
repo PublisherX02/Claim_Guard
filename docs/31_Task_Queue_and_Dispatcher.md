@@ -171,7 +171,7 @@ simulated people.
 
 Tests: `tests/test_wq_*.py` (contract suite run on the in-memory twin and on MongoDB, races with real threads, fault injection, a real
 Celery worker against Redis, an independent routing oracle and a dealing-invariant oracle, Hypothesis). `tests/mutation_queue.py` breaks
-the queue code in 75 ways (a threshold off by one, a guard removed, a sort reversed) on a temporary copy; every mutant must be caught.
+the queue code in 77 ways (a threshold off by one, a guard removed, a sort reversed) on a temporary copy; every mutant must be caught.
 
 ## Limits and open risks
 
