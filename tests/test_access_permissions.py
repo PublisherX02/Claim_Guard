@@ -10,7 +10,7 @@ from access import permissions as p
 L1 = {'claims.view'}
 L2 = {'claims.view', 'claims.view_notes', 'claims.decide', 'claims.recheck', 'pii.unmask'}
 L3 = L2 | {'claims.decide_high'}
-L4 = {'audit.view', 'audit.verify', 'users.manage'}
+L4 = {'audit.view', 'audit.verify', 'users.manage', 'routing.manage', 'queue.view'}
 
 
 class LevelTableTests(unittest.TestCase):
@@ -28,6 +28,11 @@ class LevelTableTests(unittest.TestCase):
     def test_separation_of_duties_admin_cannot_decide_claims(self):
         for perm in ('claims.decide', 'claims.decide_high', 'claims.recheck', 'claims.view', 'pii.unmask'):
             self.assertNotIn(perm, p.LEVEL_DEFAULTS[4])
+
+    def test_queue_administration_belongs_to_level_four_only(self):
+        for level in (1, 2, 3):
+            for perm in ('routing.manage', 'queue.view'):
+                self.assertNotIn(perm, p.LEVEL_DEFAULTS[level])
 
     def test_only_level_three_decides_high_severity(self):
         for level in (1, 2, 4):
@@ -78,7 +83,7 @@ class UserChangeTests(unittest.TestCase):
             self.change(self_change=True, target_level=4, new_level=3)
 
     def test_sensitive_permissions_only_go_to_level_four(self):
-        for perm in ('users.manage', 'audit.view', 'audit.verify'):
+        for perm in ('users.manage', 'audit.view', 'audit.verify', 'routing.manage', 'queue.view'):
             with self.assertRaises(p.PermissionDenied, msg=perm):
                 self.change(new_level=2, grants=(perm,))
             self.assertIsNone(self.change(target_level=4, new_level=4, grants=(perm,)))

@@ -1,21 +1,21 @@
 """Clearance levels and permission flags.
 
 A level is a default set of flags. A user may additionally hold per-user grants and revokes, but the sensitive flags
-(user management and audit access) can only come from level 4, and level 4 deliberately cannot decide claims: whoever
+(user management, audit access and queue administration) can only come from level 4, and level 4 deliberately cannot decide claims: whoever
 administers the system is not the person who approves its findings (separation of duties).
 """
 from types import MappingProxyType
 
 PERMISSIONS = (
     'claims.view', 'claims.view_notes', 'claims.decide', 'claims.decide_high', 'claims.recheck',
-    'pii.unmask', 'audit.view', 'audit.verify', 'users.manage',
+    'pii.unmask', 'audit.view', 'audit.verify', 'users.manage', 'routing.manage', 'queue.view',
 )
-SENSITIVE = frozenset({'users.manage', 'audit.view', 'audit.verify'})
+SENSITIVE = frozenset({'users.manage', 'audit.view', 'audit.verify', 'routing.manage', 'queue.view'})
 
 _L1 = frozenset({'claims.view'})
 _L2 = _L1 | {'claims.view_notes', 'claims.decide', 'claims.recheck', 'pii.unmask'}
 _L3 = _L2 | {'claims.decide_high'}
-_L4 = frozenset({'audit.view', 'audit.verify', 'users.manage'})
+_L4 = frozenset({'audit.view', 'audit.verify', 'users.manage', 'routing.manage', 'queue.view'})
 LEVEL_DEFAULTS = MappingProxyType({1: _L1, 2: _L2, 3: _L3, 4: _L4})
 ADMIN_LEVEL = 4
 

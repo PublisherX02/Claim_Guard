@@ -1,0 +1,27 @@
+{
+  "_note": "FICTIONAL TEACHING DATA. Every service code, diagnosis code, pair and modifier below was invented for ClaimGuard AI and has no clinical or commercial meaning. The rule logic follows real claim-validation practice (see docs/30_Extension_Rules.md); these attributes do not come from any real code table. None of them is in the official teaching catalogue (rules/services.json, rules/diagnoses.json).",
+  "version": "1.0.0",
+  "exception_modifiers": ["EDU-SEPARATE"],
+  "route_modifiers": ["EDU-ROUTE-ORAL", "EDU-ROUTE-IV", "EDU-ROUTE-TOPICAL"],
+  "pairs": [
+    {"primary": "SVC-EXT-PRIMARY", "secondary": "SVC-EXT-COMPONENT", "modifier_allowed": true},
+    {"primary": "SVC-EXT-PRIMARY", "secondary": "SVC-EXT-NEVER", "modifier_allowed": false}
+  ],
+  "services": {
+    "SVC-EXT-RX": {"description": "Fictional pharmaceutical item that must state its route", "category": "pharmaceutical"}
+  },
+  "diagnoses": {
+    "DX-EXT-ACCIDENT": {"display": "Fictional accident-related diagnosis", "requires_event_date": true},
+    "DX-EXT-SECONDARY": {"display": "Fictional diagnosis reserved for secondary position", "secondary_only": true}
+  },
+  "rules": [
+    {"rule_id": "E001", "name": "Procedure pair without exception modifier", "severity": "medium", "version": "1.0.0", "source": "fictional-extension/E001@1.0.0", "corrective_action": "Bill the pair as one comprehensive service, or attach an exception modifier and supporting documentation if the two services were truly distinct."},
+    {"rule_id": "E002", "name": "Exception modifier on a never-bundle pair", "severity": "high", "version": "1.0.0", "source": "fictional-extension/E002@1.0.0", "corrective_action": "Remove the exception modifier: this pair may not be separated by a modifier. Bill the comprehensive service."},
+    {"rule_id": "E003", "name": "Event date required by the diagnosis", "severity": "medium", "version": "1.0.0", "source": "fictional-extension/E003@1.0.0", "corrective_action": "Add the event date to the notes or an attachment as 'Event date: YYYY-MM-DD', on or before the first service date."},
+    {"rule_id": "E004", "name": "Route of administration missing", "severity": "medium", "version": "1.0.0", "source": "fictional-extension/E004@1.0.0", "corrective_action": "Attach the route-of-administration modifier to the pharmaceutical line."},
+    {"rule_id": "E005", "name": "Diagnosis cannot be primary", "severity": "medium", "version": "1.0.0", "source": "fictional-extension/E005@1.0.0", "corrective_action": "Place the underlying condition first and move this diagnosis to a secondary position."},
+    {"rule_id": "E101", "name": "Line duplicates an earlier claim", "severity": "high", "version": "1.0.0", "source": "fictional-extension/E101@1.0.0", "corrective_action": "Confirm whether this service was already billed on an earlier claim; withdraw the duplicate line."},
+    {"rule_id": "E102", "name": "Authorization exhausted across claims", "severity": "high", "version": "1.0.0", "source": "fictional-extension/E102@1.0.0", "corrective_action": "Request an extension of the authorization or reduce the billed quantity to what remains."},
+    {"rule_id": "E103", "name": "Daily quantity exceeded across claims", "severity": "medium", "version": "1.0.0", "source": "fictional-extension/E103@1.0.0", "corrective_action": "Check earlier claims for the same service, patient, provider and date; remove units already billed."}
+  ]
+}

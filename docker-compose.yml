@@ -5,6 +5,7 @@
 #   1. put MONGO_ROOT_USER and MONGO_ROOT_PASSWORD in .env (see .env.example)
 #   2. docker compose up -d mongo
 #   3. MONGO_URI=mongodb://<user>:<password>@127.0.0.1:27017/?authSource=admin
+#   4. the work queue also needs Redis (broker only): docker compose up -d redis, then REDIS_URL=redis://127.0.0.1:6379/0
 services:
   mongo:
     image: mongo:7
@@ -20,6 +21,20 @@ services:
       - mongo_data:/data/db
     healthcheck:
       test: ["CMD", "mongosh", "--quiet", "--eval", "db.runCommand({ping:1}).ok"]
+      interval: 10s
+      timeout: 5s
+      retries: 6
+
+  # Redis is only the Celery broker for the work queue (src/workqueue). The truth lives in MongoDB, so nothing is persisted.
+  redis:
+    image: redis:7
+    container_name: claimguard-redis
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:6379:6379"
+    command: ["redis-server", "--save", "", "--appendonly", "no"]
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
       interval: 10s
       timeout: 5s
       retries: 6

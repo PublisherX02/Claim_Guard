@@ -1,0 +1,138 @@
+{
+  "type": "object",
+  "properties": {
+    "claim_id": {
+      "type": "string"
+    },
+    "rule_id": {
+      "enum": [
+        "E001",
+        "E002",
+        "E003",
+        "E004",
+        "E005",
+        "E101",
+        "E102",
+        "E103"
+      ]
+    },
+    "rule_version": {
+      "const": "1.0.0"
+    },
+    "status": {
+      "enum": [
+        "PASS",
+        "FAIL",
+        "UNABLE_TO_ASSESS",
+        "NOT_APPLICABLE"
+      ]
+    },
+    "severity": {
+      "enum": [
+        "high",
+        "medium",
+        "low"
+      ]
+    },
+    "affected_line_ids": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      },
+      "uniqueItems": true
+    },
+    "evidence": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "path": {
+            "type": "string",
+            "pattern": "^/"
+          },
+          "value": {}
+        },
+        "required": [
+          "path",
+          "value"
+        ],
+        "additionalProperties": false
+      }
+    },
+    "rule_source": {
+      "type": "string",
+      "pattern": "^fictional-extension/E[0-9]{3}@1\\.0\\.0$"
+    },
+    "explanation": {
+      "type": "string",
+      "minLength": 1
+    },
+    "corrective_action": {
+      "type": "string"
+    },
+    "confidence": {
+      "type": [
+        "number",
+        "null"
+      ],
+      "minimum": 0,
+      "maximum": 1
+    },
+    "confidence_kind": {
+      "enum": [
+        "not_probabilistic",
+        "uncalibrated",
+        "calibrated"
+      ]
+    },
+    "requires_human_review": {
+      "type": "boolean"
+    },
+    "method": {
+      "enum": [
+        "deterministic",
+        "hybrid",
+        "llm"
+      ]
+    },
+    "review_status": {
+      "enum": [
+        "unreviewed",
+        "reviewed"
+      ]
+    },
+    "rule_family": {
+      "const": "extension"
+    },
+    "advisory": {
+      "const": true
+    },
+    "pack_hash": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    }
+  },
+  "required": [
+    "claim_id",
+    "rule_id",
+    "rule_version",
+    "status",
+    "severity",
+    "affected_line_ids",
+    "evidence",
+    "rule_source",
+    "explanation",
+    "corrective_action",
+    "confidence",
+    "confidence_kind",
+    "requires_human_review",
+    "method",
+    "review_status",
+    "rule_family",
+    "advisory",
+    "pack_hash"
+  ],
+  "additionalProperties": false,
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Advisory extension rule result (never part of the official fifteen)"
+}

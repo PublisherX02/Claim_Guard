@@ -85,7 +85,7 @@ The FHIR route cannot carry authorization details or free-text notes, so R009 re
 |---|---|---|
 | **Detection quality and benchmark** (15 points): macro F1 across rule categories, valid claims preserved | [docs/29_Test_Evaluation_Report.md](docs/29_Test_Evaluation_Report.md); evidence in `outputs/evaluation/`; reproduce with `python scripts/evaluate_phase2.py` | Done |
 | **Test evaluation report** (detection metrics, F1, false-positive rate, latency, limitations) | [docs/29_Test_Evaluation_Report.md](docs/29_Test_Evaluation_Report.md); explanation of the FHIR result below and in [SPECS.md section 10c](SPECS.md) | Done |
-| **Human-in-the-loop and escalation logic** (10 points): routing of low-confidence and high-severity cases, overrides, feedback log | Built: reviewer API where only a senior reviewer (level 3) can decide a high-severity finding, every decision is bound to the logged-in badge, and refusals are audited. Not built: routing by confidence, overrides and feedback log, the work dispatcher over a task queue (design agreed) | Partly |
+| **Human-in-the-loop and escalation logic** (10 points): routing of low-confidence and high-severity cases, overrides, feedback log | Built: severity-weighted routing into lanes (green, A, B) from a published formula with a stored receipt; personal inboxes dealt by a seeded, replayable dispatcher; decisions bound to the lease and to permissions read again at the moment of the decision; two-person sign-off for high severity with a third senior to settle a disagreement; green claims verified or escalated by a person; shadow mode that records what an automatic clearer would have done and acts on nothing; every move audited ([SPECS.md section 10f](SPECS.md), `docs/31`). Not built: routing by model confidence (the engine is deterministic and the AI only explains) | Mostly |
 | **Privacy, security and safety guards** (5 points): data minimization, access control, prompt and data guards, graceful handling of malformed FHIR | Built: clinical and fraud guard on AI text, quarantine of malformed FHIR, hash-chained audit log, fuzz-tested boundaries. Access control (badge, password and authenticator login, four clearance levels, masked identifiers, signed security audit log), tested with 21 attacks and 6 races on two stores (see [SPECS.md section 10d](SPECS.md)) | Partly: the privacy and security note is not written yet |
 | **Privacy and security note** (threat model, access control, least privilege, auditability) | `docs/20_Security_Audit.md` is the Phase 1 audit, updated for the reviewer API; the Phase 2 note (threat model, least privilege, auditability) follows the security audits | Not written yet |
 
@@ -110,7 +110,9 @@ All **310** differences in the 9,000 results are this one case: 287 results the 
 | **Test evaluation report** | `docs/29_Test_Evaluation_Report.md`, tables generated from the evidence and checked by a test | `python -m unittest discover -s tests -p test_eval_report.py` |
 | **Robustness of the trust boundaries** (supports the safety guards) | `tests/test_fuzz_*.py`, `scripts/fuzz_campaign.py`, [Fuzz testing](#fuzz-testing) | `python scripts/fuzz_campaign.py --examples 3000` (about 6 minutes) |
 | **Identity and access** (login with badge, password and authenticator code; four clearance levels; hide-not-disable responses; decisions bound to the session) | `src/access/`, `scripts/access_admin.py`, `scripts/serve_access.py`, [SPECS.md section 10d](SPECS.md), `docs/superpowers/specs/2026-10-04-identity-access-design.md` | `python scripts/access_experiments.py all` runs 25 checks against a real server; evidence in `outputs/defense/access.json` |
-| Human-in-the-loop routing by confidence, overrides and feedback log, work dispatcher, privacy and security note | Not built; see the table above | |
+| **Task queue and work dispatcher** (triage receipt and lanes, personal inboxes of 25, replayable dealing, AI step with circuit breaker and template cache, two-person sign-off, replay and dead letters, shadow mode) | `src/workqueue/`, `scripts/queue_admin.py`, `scripts/queue_experiments.py`, `docs/31_Task_Queue_and_Dispatcher.md`, [SPECS.md section 10f](SPECS.md), `docs/superpowers/specs/2026-10-04-task-queue-dispatcher-design.md` | `python scripts/queue_experiments.py` (about 2 minutes) writes `outputs/defense/queue.json`; `python tests/mutation_queue.py` breaks the queue code in 75 ways and every one must be caught |
+| **Extension rules** (eight advisory checks beyond the mentor's fifteen: procedure pairs and modifiers, event-date and route requirements, diagnosis sequencing, and three that read earlier claims) | `rules/extensions/`, `src/extension_rules.py`, `src/claim_history.py`, `scripts/run_extensions.py`, `docs/30_Extension_Rules.md`, [SPECS.md section 10e](SPECS.md) | `python scripts/extension_experiments.py`; the official engine files and results are pinned by `tests/test_ext_separation.py` |
+| Routing by model confidence, the privacy and security note | Not built; see the table above | |
 
 ### Running the reviewer API
 
@@ -164,7 +166,7 @@ This is a narrated tour of the whole pipeline in eight scenes: ingestion of FHIR
 **3. Run the tests**
 
 ```bash
-python -m unittest discover -s tests          # 909 tests, about 2 min, offline, no API key needed
+python -m unittest discover -s tests          # 1609 tests, about 9 min with MongoDB and Redis (about 2 min for the offline core), no API key needed
 python scripts/fuzz_campaign.py --examples 3000   # deeper fuzz run of the six trust boundaries (about 6 min); writes outputs/defense/fuzz.json
 ```
 
@@ -213,7 +215,7 @@ Expected: `evaluate.py` prints status accuracy 1.0 for the development split; `v
 | Independent oracle agreement (rules written again from the rulebook text alone) | **0 disagreements** over 107,635 generated claims (`scripts/status_coverage.py`), plus 37,000 boundary-aware mutants and 123 hand-derived edge cases |
 | Phase 2 detection evaluation | F1 **1.0** on the 50-claim split, the 150-claim validation split and the 400-claim development split; **no valid claim flagged** in any set (0 of 160 development claims with no failure, upper bound 1.85%); 0 disagreements with the independent oracle over 107,635 generated claims, 33,945 mutants and 123 hand-derived boundary cases. Through FHIR, F1 falls to 0.9745 because authorizations are not carried (rule R009 abstains; no failure becomes a pass). Every example set is cited with its label origin. `docs/29_Test_Evaluation_Report.md` |
 | Fuzz testing | **Six trust boundaries**, 25 property tests at 3,000 generated examples each plus one regression test, all passing; two real defects found and fixed (see Fuzz testing below). `outputs/defense/fuzz.json` |
-| Tests | 909, none needing a network or an API key; 54 of them exercise MongoDB and are skipped, loudly, unless `MONGO_URI` is set. 420 were last verified in CI on Python 3.10, 3.12 and 3.14 (commit named in `docs/19`); all 909 then passed locally (with MongoDB) on 3.10, 3.12 and 3.14 in fresh environments built from `requirements-dev.txt` (2026-10-04), and CI confirms after the push |
+| Tests | 1609, none needing a network or an API key; those that exercise MongoDB or Redis are skipped, loudly, unless `MONGO_URI` / `REDIS_URL` are set (`REQUIRE_MONGO=1 REQUIRE_REDIS=1` turns a skip into a failure). 420 were last verified in CI on Python 3.10, 3.12 and 3.14 (commit named in `docs/19`); all 1609 passed locally with MongoDB and Redis required on 3.10, 3.12 and 3.14 (2026-10-06), and again on the project environment on 2026-10-06 (0 skipped); CI confirms after the push |
 | Live AI explanations (Mistral-Nemo-Instruct-2407 via Featherless.ai, prompt v1.6.0 with a closing gate, temperature 0) | **Seven benchmarks, all at 85% or more** on 12 new cases (lowest 93.2%): 97.5% live, 93.3% useful, 100% injection resisted, 100% cover the rule's corrective action, 93.2% cite an observed evidence value, 93.2% name a next step, 0 garbled answers shown. Chosen by four rounds of experiments, see below |
 | Local, free alternative (`gemma3:4b` via Ollama) | Beats the paid, hosted default on every automated metric: 97.2% live vs. 94.4%, 3.0 s vs. 4.1 s median latency, 0 garbled replies across an 84-case stress test. See below |
 | Security | audited against the OWASP Top 10 for LLM Applications and the OWASP Top 10: `docs/20_Security_Audit.md` |
@@ -323,7 +325,7 @@ Also built and tested, but off by default: a **cascade** (fluent model, then a r
 | `rules/` | `core.yar` (compiled rule pack), `rules.json`, `policies.json`, catalogues |
 | `schemas/` | JSON schemas for claims, results and review events |
 | `data/` | 600 synthetic claims in three splits, in JSONL, CSV and FHIR forms, with the public answer key |
-| `tests/` | 909 tests, including `oracle.py` (independent reference implementation), the stress and security suites, and the `test_fuzz_*.py` fuzz tests with their shared `fuzz_strategies.py` |
+| `tests/` | 1609 tests, including `oracle.py` (independent reference implementation), the stress and security suites, and the `test_fuzz_*.py` fuzz tests with their shared `fuzz_strategies.py` |
 | `scripts/` | `demo.py` (narrated tour), audited runs, audit verification, `draw_diagrams.py`, AI evaluation, `fuzz_campaign.py` (deep fuzz run) and the experiment runner |
 | `experiments/` | Raw experiment data and `summary.json`; figures are in `docs/figures/` |
 | `outputs/` | Frozen evidence: metrics, audit samples, recorded live AI runs |
@@ -336,6 +338,8 @@ Also built and tested, but off by default: a **cascade** (fluent model, then a r
 |---|---|
 | [SPECS.md](SPECS.md) | Detailed specification: contracts, rules, the AI step, audit log, security, and every experiment |
 | [BLUEPRINT.md](BLUEPRINT.md) | The project as an information system: the submission deliverables and where each lives, quality characteristics (reliability, security, interoperability, performance, portability, maintainability), the business model canvas with cited desk research, the 12 realisation steps each with its proof of success, the environment tests, and seven UML diagrams |
+| [docs/31_Task_Queue_and_Dispatcher.md](docs/31_Task_Queue_and_Dispatcher.md) | The task queue and work dispatcher: pipeline diagram, the triage formula, dealing, two-person sign-off, the AI step's cache and breaker, how to run it, the experiment and its limits |
+| [docs/30_Extension_Rules.md](docs/30_Extension_Rules.md) | The eight advisory extension rules E001 to E005 and E101 to E103: logic, source (confirmed or not), what is invented, tests and evidence |
 | `docs/29_Test_Evaluation_Report.md` | Phase 2 test evaluation: macro F1 by rule category, false positives on valid claims, latency, nine cited example sets, limitations |
 | `docs/27_Decisions_Proofs_and_Defense.md` | Every major decision: what we rejected, the experiment or test that backs it, and the likely challenge with its answer |
 | `docs/04_Rulebook.md` | The 15 fictional rules |

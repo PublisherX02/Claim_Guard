@@ -208,7 +208,7 @@ def _client_ip(request):
 
 
 # ---- the application --------------------------------------------------------------------------------------------------
-def create_app(service, claims, review_log, securitylog, settings, clock=time.time):
+def create_app(service, claims, review_log, securitylog, settings, clock=time.time, queue=None):
     app = FastAPI(title='ClaimGuard reviewer API', docs_url=None, redoc_url=None, openapi_url=None)
     app.add_middleware(RequestGuard)
     app.add_middleware(SecurityHeaders)
@@ -444,5 +444,9 @@ def create_app(service, claims, review_log, securitylog, settings, clock=time.ti
     @app.post(API + '/users/{badge_id}/reset-totp')
     def users_reset_totp(badge_id: str, request: Request, principal: Any = Depends(need('users.manage'))):
         return {'provisioning_uri': run(lambda: service.reset_totp(principal, badge_id), request, principal)}
+
+    if queue is not None:
+        from workqueue import api as queue_api
+        queue_api.install(app, queue, need, principal_dep, run)
 
     return app

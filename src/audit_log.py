@@ -110,6 +110,14 @@ SECURITY_EVENTS = {
     'audit_read': {'badge_id'},
     'audit_verify': {'badge_id', 'ok'},
     'decision': {'badge_id', 'claim_id', 'rule_id', 'action'},
+    'routing_config_changed': {'actor', 'version', 'before', 'after'},
+    'lease_expired': {'claim_id', 'badge_id'},
+    'lease_reclaimed': {'claim_id', 'badge_id', 'reason'},
+    'claim_dealt': {'deal_id', 'claim_id', 'badge_id'},
+    'claim_decided_green': {'badge_id', 'claim_id', 'action'},
+    'queue_admin': {'actor', 'command'},
+    'claim_signoff': {'claim_id', 'badge_id', 'stage', 'outcome'},
+    'triage_receipt': {'claim_id', 'input_hash', 'result_hash', 'lane', 'score', 'config_version'},
 }
 _REQUIRED.update(SECURITY_EVENTS)
 
