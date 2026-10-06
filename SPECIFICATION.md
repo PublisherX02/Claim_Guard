@@ -140,7 +140,7 @@ Priority follows MoSCoW (M must, S should, C could, W will not). Status: **Done*
 | NFR-08 | Confidentiality | No patient identifier in logs, deals or dead letters | `tests/test_data_minimization.py` |
 | NFR-09 | Traceability | Reconstruct who did what, when and why | Hash chain with anchor; every transition is an event |
 | NFR-10 | Reproducibility | Redo a result identically | Deal seed, rule pack hash, engine code hash |
-| NFR-11 | Testability | Prove behaviour and catch regressions | 1,641 tests; 77 queue mutants all caught; fuzzing; independent oracle |
+| NFR-11 | Testability | Prove behaviour and catch regressions | 1,641 tests with MongoDB and Redis available (1,441 without them: the MongoDB variants of the store tests exist only when `MONGO_URI` is set); 77 queue mutants all caught; fuzzing; independent oracle |
 | NFR-12 | Portability | Run on Windows and Linux, Python 3.10 to 3.14 | Version matrix; MongoDB and Redis in containers |
 | NFR-13 | Maintainability | Rules in files; one store contract, two implementations | One test suite for MongoDB and the in-memory copy |
 | NFR-14 | Explainability | Tie each finding to its rule, evidence and corrective action | Fields `rule_source`, `evidence`, `corrective_action` |
@@ -205,7 +205,7 @@ Every use case follows the same layout so none can hide a case:
 - **Failure scenarios**: what the system does when something goes wrong, including the HTTP answer, what is written to the logs and what stays guaranteed.
 - **Guarantees**: what is true when the use case ends, even after a failure.
 
-Status codes used by the reviewer API: `401` not signed in or invalid credentials; `403` forbidden, bad CSRF token, or password change required; `404` not found; `405` method not allowed; `409` conflict (lost lease, stale configuration, duplicate user, same person, already decided); `413` body larger than 64 KB; `422` invalid request or rejected decision; `429` too many sign-in failures (with `Retry-After`); `501` not built; `503` a store is unavailable. Errors never echo the input.
+Status codes used by the reviewer API: `401` not signed in or invalid credentials; `403` forbidden, bad CSRF token, or password change required; `404` not found; `405` method not allowed; `409` conflict (lost lease, stale configuration, duplicate user, same person, already decided: the body is always `{"error": "conflict", "reason": "<cause>"}`); `413` body larger than 64 KB; `422` invalid request (on the queue's decision route every bad body, including an empty reason, is `invalid_request`; the older base claims route says `decision_rejected`); `429` too many sign-in failures (with `Retry-After`); `501` not built; `503` a store is unavailable. Errors never echo the input.
 
 ### 6.1 Catalogue
 
@@ -464,7 +464,7 @@ Status codes used by the reviewer API: `401` not signed in or invalid credential
 - 4a. The reviewer stops sending heartbeats: see failures.
 
 **Failure scenarios**
-- A lease expires (checked every 60 s): the dossier returns to `ready`, `lease_expired` is logged, and a later decision by the old holder is refused with 409 `lease_lost`.
+- A lease expires (checked every 60 s): the dossier returns to `ready`, `lease_expired` is logged, and a later decision by the old holder is refused with 409 `conflict` (reason `lease_lost`).
 - A reviewer is demoted, deactivated or loses a right: their dossiers are taken back at the next cycle ("a lease confers no rights of its own"); the right is also checked again at decision time.
 - Two dispatchers run at once: capacity is advisory, but a lease is placed by one conditional update, so a dossier never has two live leases.
 - Level 1 or level 4 asks for a queue: 403 (no `claims.decide`).
@@ -491,10 +491,10 @@ Status codes used by the reviewer API: `401` not signed in or invalid credential
 
 **Extensions**
 - 2a. High-severity finding and the reviewer is level 2: refused (403) and audited.
-- 3a. Reason empty or whitespace: 422 `decision_rejected`.
-- 4a. Lease expired or taken back: 409 `lease_lost`; nothing written.
-- 4b. The same person already signed this dossier: 409 `same_person`.
-- 4c. The finding is already resolved in this round: 409 `already_decided`.
+- 3a. Reason empty or whitespace: 422 `invalid_request` on the queue route (the base claims route answers 422 `decision_rejected` for the same case).
+- 4a. Lease expired or taken back: 409 `conflict` (reason `lease_lost`); nothing written.
+- 4b. The same person already signed this dossier: 409 `conflict` (reason `same_person`).
+- 4c. The finding is already resolved in this round: 409 `conflict` (reason `already_decided`).
 - 4d. The finding was settled in an earlier round and only high-severity findings are countersigned: 422.
 - 7a. A pending action remains on some finding: the dossier is not advanced.
 
@@ -519,7 +519,7 @@ Status codes used by the reviewer API: `401` not signed in or invalid credential
 
 **Extensions**
 - 1a. The dossier has findings: 422 (they must be decided one by one).
-- 2a. Lease lost: 409 `lease_lost`.
+- 2a. Lease lost: 409 `conflict` (reason `lease_lost`).
 
 **Failure scenarios.** Action other than `verify_clear` or `escalate`: 422. No session or right: 401 or 403.
 
@@ -537,8 +537,8 @@ Status codes used by the reviewer API: `401` not signed in or invalid credential
 **Secondary scenarios.** *Disagreement*: on at least one finding the answers differ; the dossier returns to `ready`, escalated (`disagreed`). A third senior (excluding the first two) decides the disputed findings; that decision is final (`tiebreak`).
 
 **Extensions**
-- 1a. No other senior is on shift: the dossier waits and the dashboard shows "no other senior is on shift".
-- 2a. The second senior is the first signer: refused, 409 `same_person`.
+- 1a. No other senior is on shift: the dossier waits and the dashboard reports "claims are waiting for a countersignature and no other senior is on shift".
+- 2a. The second senior is the first signer: refused, 409 `conflict` (reason `same_person`).
 - 2b. A level 2 reviewer attempts it: 403.
 
 **Failure scenarios.** Lease expires mid-round: the dossier returns to the pool with the first signature kept. Third senior also the first or second: refused.
@@ -648,7 +648,7 @@ All use cases in this section need a signed-in level 4 user. Level 4 holds `queu
 *Goal.* Recover a dossier that failed its retries. *Actor.* Administrator (`routing.manage`). *Related.* Diagram 13, scenario B.
 
 **Main scenario**
-1. `queue_admin deadletters` lists the dead letters (id, claim, version, error type, attempts, time).
+1. `queue_admin deadletters` lists the dead letters (id, claim, version, error type, attempts).
 2. `queue_admin deadletter-replay <dead_id>` moves the dossier from `dead_lettered` back to `triaged`, re-arms its publish marker and removes the dead letter.
 3. The relay sweep publishes it again and the pipeline resumes.
 
@@ -716,11 +716,11 @@ Part 6 gives each use case its own failures. This part is the system-wide view: 
 | F6 | Stolen, forged, expired or revoked token | Authentication | Refused; permissions always re-read | 401 | A forged role changes nothing |
 | F7 | Missing CSRF header on a change | API | Refused | 403 `csrf` | Cross-site requests cannot act |
 | F8 | Missing right | API | Refused and audited | 403 | Hide-not-disable enforced on the server |
-| F9 | Decision after the lease ended | Store (conditional update) | Refused, nothing written | 409 `lease_lost` | A late decision cannot land |
+| F9 | Decision after the lease ended | Store (conditional update) | Refused, nothing written | 409 `conflict` (reason `lease_lost`) | A late decision cannot land |
 | F10 | Two reviewers race for one dossier or finding | Store (conditional update) | One wins, the other refused | 409 | Never two live leases |
-| F11 | Same person signs twice | Service | Refused | 409 `same_person` | Two different seniors always |
+| F11 | Same person signs twice | Service | Refused | 409 `conflict` (reason `same_person`) | Two different seniors always |
 | F12 | Stale configuration edit | Versioned write | Refused | 409 | No lost update |
-| F13 | Reason missing or empty | Decision validation | Refused | 422 `decision_rejected` | Every decision is explained |
+| F13 | Reason missing or empty | Decision validation | Refused | 422 `invalid_request` (queue route); `decision_rejected` on the base claims route | Every decision is explained |
 | F14 | The data store is unavailable | Store calls | The operation fails; sign-in fails closed | 503; `/healthz` reports degraded | Nothing half-written (atomic writes) |
 | F15 | The broker is down | Relay sweep | Marker kept; retried every 10 s | Delay only | Submission unaffected |
 | F16 | A task fails (store, code, bug) | Celery task | Up to 3 retries with random back-off (up to 30 s), then a dead letter | Dossier shows `dead_lettered` | No dossier lost; replayable once |
