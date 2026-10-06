@@ -1,9 +1,10 @@
 """Check the invisible-character guard against the committed result files for false positives.
 
-    python scripts/scan_invisible.py
+    python scripts/scan_invisible.py [folder ...]      # default: outputs experiments
 
-Reads every JSON and JSONL file git tracks under outputs/ and experiments/ (recorded model answers and replies, prompts, metrics and
-claims: a wider net than the answers alone) and looks at every string in them. A string containing a character that
+Reads every JSON and JSONL file under outputs/ and experiments/ (recorded model answers and replies, prompts, metrics and claims:
+a wider net than the answers alone) and looks at every string in them. outputs/ is git-ignored apart from the evidence files that were
+added on purpose, so run this on a fresh clone to scan exactly what is committed. A string containing a character that
 `llm_adapter._INVISIBLE` rejects is counted as
   - "already garbled": the older guards (text in another alphabet, a replacement character, a long repetition) reject it anyway, so the
     new check changes nothing for it; or
@@ -11,7 +12,6 @@ claims: a wider net than the answers alone) and looks at every string in them. A
 The exit status is 1 if there is any "newly rejected" string.
 """
 import json
-import subprocess
 import sys
 from collections import Counter
 from pathlib import Path
@@ -21,9 +21,13 @@ sys.path.insert(0, str(ROOT / 'src'))
 from llm_adapter import _FOREIGN_SCRIPT, _INVISIBLE, _REPETITION
 
 
-def tracked_results():
-    out = subprocess.run(['git', 'ls-files', '*.json', '*.jsonl'], cwd=ROOT, capture_output=True, text=True, check=True).stdout
-    return [f for f in out.splitlines() if f.startswith(('outputs/', 'experiments/'))]
+def result_files(folders):
+    found = []
+    for folder in folders:
+        for path in sorted((ROOT / folder).rglob('*')):
+            if path.suffix in ('.json', '.jsonl') and path.is_file() and '.venv' not in path.parts:
+                found.append(path.relative_to(ROOT).as_posix())
+    return found
 
 
 def strings(node):
@@ -53,8 +57,8 @@ def documents(path):
             yield text
 
 
-def main():
-    files = tracked_results()
+def main(argv):
+    files = result_files(argv[1:] or ['outputs', 'experiments'])
     chars, seen, garbled, new = 0, 0, Counter(), Counter()
     for name in files:
         path = ROOT / name
@@ -76,4 +80,4 @@ def main():
 
 
 if __name__ == '__main__':
-    sys.exit(main())
+    sys.exit(main(sys.argv))
