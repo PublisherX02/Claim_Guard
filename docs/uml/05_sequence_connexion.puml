@@ -1,0 +1,66 @@
+@startuml 05_sequence_connexion
+!include style.iuml
+title Diagramme de séquence : connexion et contrôle d'accès d'une requête
+autonumber
+skinparam maxMessageSize 230
+
+actor "Utilisateur\n(badge)" as U
+participant "Navigateur\nou client" as C
+participant "API\nde relecture" as API
+participant "Service\nd'accès" as AS
+database "Utilisateurs\n(MongoDB)" as DB
+participant "Journal de\nsécurité" as LOG
+
+== Connexion ==
+U -> C : badge, mot de passe, code à usage unique
+C -> API : POST /auth/login
+API -> API : refuser si cette adresse a trop d'échecs récents (limite par fenêtre de temps)
+API -> AS : login(badge, mot de passe, code)
+AS -> DB : lire l'utilisateur
+alt compte inconnu, verrouillé ou inactif
+  AS -> AS : vérification factice du mot de passe (même durée)
+  AS -> LOG : échec (la vraie raison est journalisée)
+  AS --> API : refus
+  API --> C : 401, réponse identique pour toute cause
+else compte valide
+  AS -> AS : comparer le mot de passe (bcrypt)
+  AS -> AS : vérifier le code (RFC 6238) ; un code ne sert qu'une fois
+  alt mot de passe ou code faux, ou magasin de rejeu indisponible
+    AS -> DB : compter l'échec ; au 5e échec, verrouiller le compte 15 minutes
+    AS -> LOG : échec (échec fermé si le rejeu est indisponible)
+    AS --> API : refus
+    API --> C : 401, réponse identique
+  else tout est exact
+    AS -> AS : créer le jeton signé (jti, expiration)
+    AS -> LOG : connexion réussie
+    AS --> API : jeton, jeton CSRF
+    API --> C : cookie httpOnly, Secure, SameSite=Strict + jeton CSRF
+  end
+end
+
+== Requête protégée ==
+C -> API : requête + cookie (+ en-tête CSRF si elle modifie)
+API -> AS : authenticate(jeton)
+AS -> DB : le jeton est-il révoqué ? lire les permissions actuelles
+alt jeton absent, expiré, révoqué ou CSRF manquant
+  API --> C : 401 ou 403
+else permission manquante
+  API -> LOG : forbidden (badge, méthode, chemin)
+  API --> C : 403
+else permission accordée
+  API -> API : exécuter l'action (l'acteur vient de la session)
+  API --> C : 200, réponse masquée selon le niveau
+end
+
+== Déconnexion ==
+C -> API : POST /auth/logout
+API -> AS : révoquer le jti
+AS -> DB : enregistrer la révocation
+API --> C : 200
+
+note right of AS
+  Les permissions sont relues dans la base
+  à chaque décision : une rétrogradation
+  prend effet immédiatement, rien n'est mis en cache.
+end note
+@enduml

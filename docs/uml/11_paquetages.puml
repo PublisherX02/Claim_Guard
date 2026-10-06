@@ -1,0 +1,66 @@
+@startuml 11_paquetages
+!include style.iuml
+title Diagramme de paquetages : dépendances réelles du code (dossier src)
+left to right direction
+
+package "access\n(identité, droits, API)" as ACC
+package "workqueue\n(file, distribution, signature)" as WQ
+
+package "Contrôle des réclamations" as CTRL {
+  package "engine_core" as EC
+  package "yara_engine" as YE
+  package "facts_extractor" as FE
+  package "extension_rules" as EXT
+  package "claim_history" as CH
+  package "ingest, fhir_adapter,\ncsv_to_jsonl, jsonl_reader" as ING
+}
+
+package "Explication et relecture" as REV {
+  package "llm_adapter" as LLM
+  package "claim_review" as CR
+  package "review_workflow" as RW
+}
+
+package "Traçabilité" as TR {
+  package "audit_log" as AL
+  package "audit, advisory,\nschema_subset" as AUX
+}
+
+YE --> EC
+YE --> FE
+FE --> EC
+EXT --> EC
+EXT --> FE
+ING --> EC
+
+CR --> YE
+CR --> EC
+CR --> LLM
+CR --> AUX
+RW --> CR
+RW --> AL
+RW --> AUX
+AL --> CR
+AL --> AUX
+
+WQ --> YE
+WQ --> EC
+WQ --> EXT
+WQ --> CH
+WQ --> LLM
+WQ --> RW
+WQ --> AL
+WQ --> ACC
+ACC --> WQ
+ACC --> EC
+ACC --> YE
+ACC --> RW
+ACC --> AL
+
+note bottom of ACC
+  Dépendance circulaire access <-> workqueue :
+  les routes de la file sont installées dans l'API
+  d'accès, et la file lit les droits d'accès.
+  À discuter : l'inverser avec une interface.
+end note
+@enduml

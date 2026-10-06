@@ -1,0 +1,43 @@
+@startuml 08_etats_dossier
+!include style.iuml
+title Diagramme d'états-transitions : cycle de vie d'un dossier dans la file
+hide empty description
+
+[*] --> triaged : la réception écrit le dossier directement dans cet état\n(le journal note received -> triaged)
+
+state "Dossier actif" as Actif {
+  state triaged
+  state explained
+  state explanation_skipped
+  state ready
+  state leased
+  state awaiting_countersign
+
+  triaged --> ready : voie verte (aucun constat)
+  triaged --> explained : explication retenue par la garde
+  triaged --> explanation_skipped : IA indisponible, garde refusée,\nbudget épuisé ou délai dépassé
+  explained --> ready
+  explanation_skipped --> ready
+  ready --> leased : distribution (bail posé)
+  leased --> ready : bail expiré ou rendu,\nou désaccord de signature (escalade)
+  leased --> awaiting_countersign : première signature\n(gravité élevée)
+  awaiting_countersign --> leased : bail à un autre senior
+}
+
+leased --> decided : tous les constats résolus
+Actif --> dead_lettered : échec après les tentatives\n(reprises avec attente croissante)
+dead_lettered --> triaged : rejeu par l'administrateur (niveau 4), une seule fois
+decided --> [*]
+
+note right of decided
+  Un dossier décidé n'est jamais modifié : une réclamation
+  corrigée et redéposée est un NOUVEAU document (version n+1)
+  qui démarre à « triaged ».
+end note
+
+note as N1
+  <b>Définis dans la table du code mais jamais utilisés :</b>
+  « received » (seulement l'origine du premier événement) et
+  « rechecked ». Aucun code ne place un dossier dans « rechecked ».
+end note
+@enduml

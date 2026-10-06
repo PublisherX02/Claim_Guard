@@ -1,0 +1,74 @@
+@startuml 07_activity_processing
+!include ../style.iuml
+title Activity diagram: processing a claim, from intake to the decision
+skinparam swimlaneWidth 260
+
+|Source|
+start
+:Submit a claim;
+|System|
+:Validate the transport\n(exact keys, non-empty strings,\nvalid dates, unique line ids);
+if (claim valid?) then (no)
+  :Refuse with a reason;
+  |Source|
+  stop
+else (yes)
+endif
+|System|
+if (content already received?) then (yes)
+  :Return the same triage receipt;
+  |Source|
+  stop
+else (no)
+endif
+|System|
+:Evaluate the 15 official rules;
+:Compute the weighted score\n(FAIL high 4, FAIL medium 2,\nUNABLE high 2, UNABLE medium 1);
+:Evaluate the advisory checks\n(advice, outside the score);
+:Store the dossier and the triage receipt\n(one atomic write);
+fork
+  :Record the shadow prediction\n(acts on nothing);
+fork again
+  :Log the triage receipt;
+end fork
+if (lane?) then (green: no finding)
+  :Move to "ready";
+else (A or B: at least one finding)
+  |AI|
+  :Ask for an explanation template\n(no value from the claim);
+  if (usable reply before the deadline?) then (yes)
+    :Fill in the values\nand replay the guard on the filled text;
+    if (guard passed?) then (yes)
+      :Keep the explanation;
+    else (no)
+      :Keep the deterministic text;
+    endif
+  else (no)
+    :Keep the deterministic text;
+  endif
+  |System|
+  :Move to "ready";
+endif
+:Deal to the least-loaded eligible reviewer\n(30-minute lease);
+|Human|
+repeat
+  :Examine the finding (masked view);
+  :Confirm, dismiss with a reason,\nrequest information or mark corrected;
+repeat while (a finding is still unresolved?) is (yes) not (no)
+if (high-severity finding?) then (yes)
+  :First signature (senior A);
+  :Countersignature (senior B, without seeing A);
+  if (does B agree with A?) then (no)
+    :Tie-break (senior C, final decision);
+  else (yes)
+  endif
+else (no)
+endif
+|System|
+:Mark the dossier "decided"\nand write the audit trail;
+if (is a corrected claim submitted?) then (yes)
+  :Receive the new version\nand compute a new receipt;
+else (no)
+endif
+stop
+@enduml

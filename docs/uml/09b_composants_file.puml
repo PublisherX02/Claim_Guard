@@ -1,0 +1,50 @@
+@startuml 09b_composants_file
+!include style.iuml
+title Diagramme de composants (détail) : l'intérieur de la file de travail
+
+package "File de travail (workqueue)" {
+  component "Réception\n(Intake)" as INT
+  component "Triage\n(score, voies)" as TRI
+  component "Tâches asynchrones\n(Celery)" as TSK
+  component "Étape IA\n(gabarits, cache, budget)" as EXP
+  component "Disjoncteur" as BRK
+  component "Distributeur\n(Dispatcher)" as DIS
+  component "Service de file\n(QueueService)" as QS
+  component "Rapport de retours\n(feedback)" as FB
+  component "Mode ombre\n(shadow)" as SHA
+}
+
+interface "Magasin de la file" as IST
+database "MongoDB" as MDB
+component "Copie en mémoire\n(tests)" as MEM
+
+interface "Moteur de règles" as IMOT
+interface "Modèle injecté" as IMOD
+interface "Journaux" as IJ
+
+INT ..> IMOT : évaluer, contrôles complémentaires
+INT ..> TRI : calculer le reçu
+INT ..> SHA : prédiction (n'agit sur rien)
+INT ..> IST
+
+TSK ..> EXP : expliquer
+TSK ..> DIS : distribuer, expirer
+EXP ..> BRK : appel protégé
+EXP ..> IMOD : gabarit
+EXP ..> IST
+
+DIS ..> IST
+QS ..> IST
+QS ..> IJ : décisions, signatures
+FB ..> IST
+SHA ..> IST
+
+IST - MDB
+IST - MEM
+
+note right of IST
+  Un seul contrat, deux réalisations :
+  la même suite de tests s'exécute
+  sur MongoDB et sur la copie en mémoire.
+end note
+@enduml

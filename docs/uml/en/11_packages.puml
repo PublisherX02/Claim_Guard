@@ -1,0 +1,66 @@
+@startuml 11_packages
+!include ../style.iuml
+title Package diagram: real dependencies of the code (src folder)
+left to right direction
+
+package "access\n(identity, rights, API)" as ACC
+package "workqueue\n(queue, dealing, sign-off)" as WQ
+
+package "Claim checking" as CTRL {
+  package "engine_core" as EC
+  package "yara_engine" as YE
+  package "facts_extractor" as FE
+  package "extension_rules" as EXT
+  package "claim_history" as CH
+  package "ingest, fhir_adapter,\ncsv_to_jsonl, jsonl_reader" as ING
+}
+
+package "Explanation and review" as REV {
+  package "llm_adapter" as LLM
+  package "claim_review" as CR
+  package "review_workflow" as RW
+}
+
+package "Traceability" as TR {
+  package "audit_log" as AL
+  package "audit, advisory,\nschema_subset" as AUX
+}
+
+YE --> EC
+YE --> FE
+FE --> EC
+EXT --> EC
+EXT --> FE
+ING --> EC
+
+CR --> YE
+CR --> EC
+CR --> LLM
+CR --> AUX
+RW --> CR
+RW --> AL
+RW --> AUX
+AL --> CR
+AL --> AUX
+
+WQ --> YE
+WQ --> EC
+WQ --> EXT
+WQ --> CH
+WQ --> LLM
+WQ --> RW
+WQ --> AL
+WQ --> ACC
+ACC --> WQ
+ACC --> EC
+ACC --> YE
+ACC --> RW
+ACC --> AL
+
+note bottom of ACC
+  Circular dependency access <-> workqueue: the queue's
+  routes are installed into the access API, and the queue
+  reads the access rights. To discuss: invert it with an
+  interface.
+end note
+@enduml

@@ -1,0 +1,64 @@
+@startuml 13_sequence_failure_recovery
+!include ../style.iuml
+title Sequence diagram: failure and recovery of a dossier in the pipeline
+autonumber
+skinparam maxMessageSize 230
+
+participant "Intake" as IN
+queue "Broker\n(Redis)" as BR
+participant "Relay\nsweep" as RL
+participant "Task\n(Celery)" as TK
+database "Store\n(MongoDB)" as DB
+participant "Dispatcher" as DI
+participant "Reconciler" as RC
+actor "Reviewer" as RV
+actor "Operator\n(level 4)" as OP
+
+== A. The broker is down ==
+IN -> DB : write dossier + outbox marker (one atomic write)
+note right of IN
+  Intake never talks to the broker, so a broker
+  outage cannot lose or block a submission.
+end note
+RL -> DB : every 10 s: list the markers still pending
+RL -> BR : publish(claim_id, version, hash)
+alt broker reachable
+  BR --> RL : accepted
+  RL -> DB : clear the marker
+else broker down
+  RL -x BR : publish fails
+  RL -> RL : marker kept for the next sweep\n(counted as failed; "stale" once older than 60 s)
+end
+
+== B. A task fails ==
+BR -> TK : process_claim(id, version, hash)
+TK -x DB : error (store, model code, bug)
+loop up to 3 retries
+  TK -> TK : wait: random time between 0 and min(30 s, 1 s * 2^attempt)
+  TK -> DB : try again
+end
+alt a retry succeeds
+  TK -> DB : continues the pipeline up to "ready"
+else retries exhausted
+  TK -> DB : write a dead letter (reason = error type only,\nnever the message: it could quote claim text)
+  TK -> DB : active state -> dead_lettered
+end
+OP -> DB : deadletters (list)
+OP -> DB : deadletter-replay(dead_id)
+DB --> OP : dead_lettered -> triaged, marker re-armed,\ndead letter removed (works once; otherwise conflict)
+
+== C. A reviewer disappears ==
+DI -> DB : every 60 s: leases past their end
+DI -> DB : leased -> ready (reviewer avoided for that dossier if possible)
+DI -> DI : also takes back dossiers held by someone who may\nno longer decide them (demoted, deactivated)
+RV -> DB : decide after the lease ended
+DB --> RV : refused (409 lease_lost), nothing written
+
+== D. Periodic audit of the queue (every 5 minutes) ==
+RC -> DB : check states, markers, counts, leases
+alt expired lease found
+  RC -> DB : repair: hand it back (the only automatic repair)
+else anything else (stuck state, unpublished marker,\ntwo live leases, count mismatch, decided without a person)
+  RC -> OP : reported for a person to look at, never guessed at
+end
+@enduml

@@ -1,0 +1,70 @@
+@startuml 05_sequence_login
+!include ../style.iuml
+title Sequence diagram: sign-in and access control of a request
+autonumber
+skinparam maxMessageSize 230
+
+actor "User\n(badge)" as U
+participant "Browser\nor client" as C
+participant "Reviewer\nAPI" as API
+participant "Access\nservice" as AS
+database "Users\n(MongoDB)" as DB
+participant "Security\nlog" as LOG
+
+== Sign-in ==
+U -> C : badge, password, one-time code
+C -> API : POST /auth/login
+API -> API : refuse (429) if this address has too many\nrecent failures (limit per time window)
+API -> AS : login(badge, password, code)
+AS -> DB : read the user
+alt unknown, locked or inactive account
+  AS -> AS : dummy password check (same duration)
+  AS -> LOG : failure (the real reason is logged)
+  AS --> API : refusal
+  API --> C : 401, identical answer whatever the cause
+else valid account
+  AS -> AS : compare the password (bcrypt)
+  AS -> AS : verify the code (RFC 6238); a code works once
+  alt wrong password or code, or replay store unavailable
+    AS -> DB : count the failure; at the 5th, lock the account for 15 minutes
+    AS -> LOG : failure (fails closed if the replay store is down)
+    AS --> API : refusal
+    API --> C : 401, identical answer (503 if the store is unavailable)
+  else everything correct
+    AS -> AS : create the signed token (jti, expiry)
+    AS -> LOG : successful sign-in
+    AS --> API : token, CSRF token
+    API --> C : httpOnly, Secure, SameSite=Strict cookie + CSRF token
+  end
+end
+
+== Protected request ==
+C -> API : request + cookie (+ CSRF header if it changes data)
+API -> AS : authenticate(token)
+AS -> DB : is the token revoked? read the current permissions
+alt token missing, expired or revoked
+  API --> C : 401
+else CSRF header wrong on a state-changing request
+  API --> C : 403 csrf
+else password change still required
+  API --> C : 403 password_change_required
+else permission missing
+  API -> LOG : forbidden (badge, method, path)
+  API --> C : 403
+else permission granted
+  API -> API : run the action (the actor comes from the session)
+  API --> C : 200, answer masked according to the level
+end
+
+== Sign-out ==
+C -> API : POST /auth/logout
+API -> AS : revoke the jti
+AS -> DB : record the revocation
+API --> C : 200
+
+note right of AS
+  Permissions are read again from the database at
+  each decision: a demotion takes effect at once and
+  nothing is cached.
+end note
+@enduml

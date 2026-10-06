@@ -48,6 +48,7 @@ class ApiBase:
             ('decision', 'POST', f'{API}/work/claims/{med}/findings/{rule}/decision', RESOLVE, med, {None: 401, 1: 403, 2: 200, 3: 200, 4: 403}),
             ('verify', 'POST', f'{API}/work/claims/{green}/verify', {'action': 'verify_clear'}, green, {None: 401, 1: 403, 2: 200, 3: 200, 4: 403}),
             ('dashboard', 'GET', f'{API}/queue/dashboard', None, None, {None: 401, 1: 403, 2: 403, 3: 403, 4: 200}),
+            ('feedback', 'GET', f'{API}/queue/feedback', None, None, {None: 401, 1: 403, 2: 403, 3: 403, 4: 200}),
             ('config get', 'GET', f'{API}/queue/config', None, None, {None: 401, 1: 403, 2: 403, 3: 403, 4: 200}),
             ('config patch', 'PATCH', f'{API}/queue/config', {'expected_version': 1, 'slice_size': 6}, None, {None: 401, 1: 403, 2: 403, 3: 403, 4: 200}),
         ]
@@ -223,6 +224,20 @@ class ApiBase:
         body = self.w.login_client(badge='CG-4004').get(f'{API}/queue/dashboard').json()
         self.assertEqual(body['counts'], self.qstore.counts())
         self.assertEqual(body['config_version'], 1)
+
+    def test_the_feedback_report_reflects_a_real_decision_and_carries_no_reason_text(self):
+        cid = self.leased_medium()
+        rule = flagged(self.w, cid)[0]
+        typed = 'Phoned the member Maha Al-Test about this'
+        r = self.w.login_client(badge='CG-2002').post(f'{API}/work/claims/{cid}/findings/{rule}/decision',
+                                                        json={'action': 'dismiss_with_reason', 'reason': typed})
+        self.assertEqual(r.status_code, 200, r.text)
+        resp = self.w.login_client(badge='CG-4004').get(f'{API}/queue/feedback')
+        self.assertEqual(resp.status_code, 200)
+        body = resp.json()
+        self.assertEqual(body['rules'][rule]['dismissed'], 1)
+        for needle in (typed, 'Maha', cid, 'CG-2002'):
+            self.assertNotIn(needle, resp.text)
 
     def test_a_refused_request_is_audited(self):
         self.w.login_client(badge='CG-4004').get(f'{API}/work/inbox')

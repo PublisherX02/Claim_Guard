@@ -2,6 +2,8 @@
 
 What we deliver, what makes it good, who it is for, how it gets built, how we test it, and what it looks like in UML. The deliverables checklist (section 0) maps every submission item to its file.
 
+**Companion document.** [SPECIFICATION.md](SPECIFICATION.md) is the requirements specification (cahier des charges) and UML model of the same system as built in Phase 2: numbered requirements, business rules, a full specification of all 20 use cases (main scenario, secondary scenarios, extensions, failures), a failure catalogue and 14 UML diagrams. Use this file for the information-system view (quality, canvas, realisation steps) and SPECIFICATION.md for exactly what the system does.
+
 Status legend: **Done** = built and tested in this repo. **Partial** = some evidence, gaps stated. **Planned** = mentor-requested or designed, not built.
 Anything about customers or the market is a **hypothesis** until someone interviews real users. None of it is measured data.
 
@@ -118,6 +120,8 @@ What web research supports. These are web summaries, several from vendor or bill
 ---
 
 ## 5. UML models
+
+> **Updated model.** The diagrams in this section were drawn before Phase 2 and show a *target* architecture that included planned parts. The model of the system as actually built (identity and access, extension rules, the task queue and dispatcher, the NoSQL data model, failure and recovery) is in [SPECIFICATION.md, part 8](SPECIFICATION.md), with sources in `docs/uml/en/`. Where the two differ, SPECIFICATION.md is current.
 
 ### 5.1 Use case diagram
 ```mermaid
@@ -272,4 +276,4 @@ flowchart TB
 Kubernetes, Redis, NoSQL and the model pod are the mentor's Planned points. Only the rule engine, audit log and explanation code exist today.
 
 ### 5.8 Not modelled, on purpose
-An ER diagram is left out because the NoSQL schema is not decided yet. Add it when mentor point 9 is settled.
+An ER diagram was left out here because the NoSQL schema was not decided yet. It is now modelled as the MongoDB data model, diagram 12 of [SPECIFICATION.md](SPECIFICATION.md).

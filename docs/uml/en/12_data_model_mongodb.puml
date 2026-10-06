@@ -1,0 +1,144 @@
+@startuml 12_data_model_mongodb
+!include ../style.iuml
+title NoSQL data model (MongoDB): collections, embedded documents and references
+hide empty members
+
+package "Work queue database" {
+  class "claims" as CLAIMS <<collection>> {
+    {static} unique index : (claim_id, version)
+    {static} unique index : (claim_id, input_hash, rule_pack_hash)
+    {static} index : (state, state_at), lease.badge_id,\nenqueue_pending, claim.patient_id
+    --
+    claim_id : Text
+    version : Integer
+    input_hash : Text
+    state : DossierState
+    state_at : Timestamp
+    escalated : Boolean
+    decided_by : Text
+    enqueue_pending : Boolean (outbox marker)
+  }
+  class "claim" as CL <<embedded document>> {
+    the claim as received
+  }
+  class "results[15]" as RES <<embedded document>> {
+    the 15 official results
+  }
+  class "advisory[0..8]" as ADV <<embedded document>> {
+    the advisory checks
+  }
+  class "receipt" as REC <<embedded document>> {
+    lane, score, eligibility,
+    config_version, rule_pack_hash, result_hash
+  }
+  class "explanation" as EXPL <<embedded document>> {
+    findings : text and source per finding
+  }
+  class "decisions[]" as DEC <<embedded document>> {
+    rule_id, action, actor,
+    reason, at, round
+  }
+  class "lease" as LS <<embedded document>> {
+    badge_id, expires_at
+  }
+  class "signoff" as SG <<embedded document>> {
+    stage, first_by, second_by,
+    third_by, outcome, actions
+  }
+  class "shadow" as SH <<embedded document>> {
+    predicted_clear, model, at
+  }
+
+  class "configs" as CFG <<collection>> {
+    {static} unique index : version
+    --
+    version : Integer
+    points, lane_b_flagged, lane_b_score
+    slice_size, low_water, lease_seconds
+    aging_per_hour, ai_per_minute, ai_daily_budget
+    on_shift, exclusions
+  }
+  class "deals" as DEALS <<collection>> {
+    deal_id, seed, at, config_version, ids_hash
+    max_per_agent, full
+    agents[], claims[] (snapshot of the inputs)
+    planned[], assigned[]
+  }
+  class "dead_letters" as DL <<collection>> {
+    {static} unique index : dead_id
+    --
+    claim_id, version, input_hash,
+    reason (error type only),
+    attempts, at
+  }
+  class "cache" as CA <<collection, TTL>> {
+    {static} unique index : key
+    {static} TTL : expires_at
+    --
+    key (rule, shape, prompt version, model)
+    text : template accepted by the guard
+  }
+  class "counters" as CO <<collection, TTL>> {
+    {static} unique index : (counter, window)
+    {static} TTL : expires_at
+    --
+    quotas of the AI step
+  }
+}
+
+package "Access database" {
+  class "users" as US <<collection>> {
+    {static} unique index : badge_id
+    --
+    badge_id : Text
+    level : 1..4
+    grants : List
+    active, locked_until, failed_attempts
+    password_hash (bcrypt)
+    totp_secret_enc (encrypted)
+    must_change_password
+  }
+  class "used_totp" as UT <<collection, TTL>> {
+    {static} unique index : (badge_id, step)
+    {static} TTL : expires_at
+    --
+    a code works once
+  }
+  class "revoked_tokens" as RT <<collection, TTL>> {
+    {static} unique index : jti
+    {static} TTL : expires_at
+  }
+}
+
+CLAIMS *-- CL
+CLAIMS *-- RES
+CLAIMS *-- ADV
+CLAIMS *-- REC
+CLAIMS *-- EXPL
+CLAIMS *-- DEC
+CLAIMS *-- LS
+CLAIMS *-- SG
+CLAIMS *-- SH
+
+LS ..> US : badge_id
+DEC ..> US : actor
+REC ..> CFG : config_version
+DEALS ..> CFG : config_version
+DEALS ..> CLAIMS : claim_id, version
+DL ..> CLAIMS : claim_id, version
+UT ..> US : badge_id
+RT ..> US : jti of a user's token
+
+note bottom of CLAIMS
+  One document per version of a claim. Everything that
+  belongs to the dossier is embedded (atomic reads and
+  writes); links between collections are logical
+  references, with no foreign key.
+end note
+
+note bottom of US
+  Sessions are not stored: signed token + revocation
+  list. The audit and security logs are hash-chained
+  files, not collections.
+end note
+@enduml

@@ -24,7 +24,60 @@ The engine decides and the model only explains. The trusted core has no network 
 
 ![Data flow of one claim, 15 steps](docs/figures/dataflow.png)
 
-> **New to the project? Start with [SPECS.md](SPECS.md)**, the detailed specification, including every experiment. **[BLUEPRINT.md](BLUEPRINT.md)** is the project as an information system: deliverables, business canvas, realisation steps and UML.
+> **New to the project? Start with [SPECS.md](SPECS.md)**, the detailed specification, including every experiment. **[BLUEPRINT.md](BLUEPRINT.md)** is the project as an information system: deliverables, business canvas and realisation steps. **[SPECIFICATION.md](SPECIFICATION.md)** is its requirements specification (cahier des charges) and UML model: requirements, business rules, every use case with its scenarios and failures, and 14 diagrams.
+
+## Phase 2 deliverables at a glance
+
+Phase 1 built the claim checker: ingestion, the 15 rules, structured output and an audit log. Phase 2 adds what makes it usable by people and safe to run, and it is scored on three things (30 points): **detection quality** (15), **human-in-the-loop routing** (10) and **privacy and security guards** (5), with two written deliverables, the test evaluation report and the privacy and security note. The table says where each piece lives and what it leaves out; "Done" is only written where a test or a recorded result backs it, and the gaps are named in the Status column and in `docs/32`.
+
+| Deliverable | Where | Status |
+|---|---|---|
+| **Detection quality and benchmark** (15 points): macro F1 across rule categories, valid claims preserved | [docs/29_Test_Evaluation_Report.md](docs/29_Test_Evaluation_Report.md); evidence in `outputs/evaluation/`; reproduce with `python scripts/evaluate_phase2.py` | Done |
+| **Test evaluation report** (detection metrics, F1, false-positive rate, latency, limitations) | [docs/29_Test_Evaluation_Report.md](docs/29_Test_Evaluation_Report.md); explanation of the FHIR result below and in [SPECS.md section 10c](SPECS.md) | Done |
+| **Human-in-the-loop and escalation logic** (10 points): routing of low-confidence and high-severity cases, overrides, feedback log | Built: severity-weighted routing into lanes (green, A, B) from a published formula with a stored receipt; personal inboxes dealt by a seeded, replayable dispatcher; decisions bound to the lease and to permissions read again at the moment of the decision; two-person sign-off for high severity with a third senior to settle a disagreement; green claims verified or escalated by a person; shadow mode that records what an automatic clearer would have done and acts on nothing; every move audited ([SPECS.md section 10f](SPECS.md), `docs/31`). Overrides: a reviewer can dismiss a flagged finding with a reason (the original issue is preserved) and a disagreement between two seniors goes to a third. Feedback log: `GET /api/v1/queue/feedback` (level 4) reports per rule how often people confirmed or dismissed it, with exact intervals, and which rules are candidates for a human review of the rule; counts only, never reason text (`src/workqueue/feedback.py`). Not built: routing by model confidence (the engine is deterministic and the AI only explains; low-certainty results, `UNABLE_TO_ASSESS` and degraded runs, go to lane B) | Done, apart from model-confidence routing |
+| **Privacy, security and safety guards** (5 points): data minimization, access control, prompt and data guards, graceful handling of malformed FHIR | Built: clinical and fraud guard on AI text, quarantine of malformed FHIR, hash-chained audit log, fuzz-tested boundaries. Access control (badge, password and authenticator login, four clearance levels, masked identifiers, signed security audit log), tested with 21 attacks and 6 races on two stores (see [SPECS.md section 10d](SPECS.md)). Data minimization: deal documents no longer hold patient identifiers, and the logs, deals and dead letters are scanned for them after a real flow (`tests/test_data_minimization.py`). Prompt injection: the LLM01 battery now also rejects invisible characters (`tests/test_injection_owasp_llm01.py`) | Done, with the gaps listed in `docs/32` (no WORM storage, no external timestamp, identifiers unencrypted at rest) |
+| **Privacy and security note** (threat model, access control, least privilege, auditability) | [docs/32_Privacy_and_Security_Note.md](docs/32_Privacy_and_Security_Note.md): what is stored where and who can read it, minimization, access control, the audit trail against what an immutable design needs (built versus not built), AI and injection guards, dependency audit of every requirements file, and what a deployment would still need. `docs/20_Security_Audit.md` is the Phase 1 audit | Done |
+| **Requirements specification (cahier des charges) and UML model**: numbered requirements, business rules, a full specification of all 20 use cases (main scenario, secondary scenarios, extensions, failures), a failure catalogue and 14 UML diagrams | [SPECIFICATION.md](SPECIFICATION.md) (beside [BLUEPRINT.md](BLUEPRINT.md)); French summary for the UML professor in [docs/33](docs/33_Cahier_des_Charges_et_Modelisation_UML.md); diagram sources in `docs/uml/en/`, images in `docs/figures/uml/en/` | Done; every statement checked against the code, and what is not built is listed in part 9 of the specification |
+
+### Briefing: what the system is and how it is specified
+
+**In one paragraph.** ClaimGuard AI checks healthcare claims (synthetic data) before they go to an insurer. A deterministic engine applies 15 rules and returns a verdict per rule; a language model may only draft explanations and can never change a verdict; every claim, even a clean one, is then handed to a person; high-severity findings need two different seniors; everything is written to tamper-evident logs. The full specification, with the reasoning behind each choice, is [SPECIFICATION.md](SPECIFICATION.md).
+
+**How a claim travels.**
+
+1. *Intake*: validate, check the 15 rules, add 8 advisory checks, compute a triage receipt (green, A or B lane), store everything in one atomic write.
+2. *Preparation*: an asynchronous task asks a model for explanation templates (it never sees a claim value); on any failure the deterministic text is kept.
+3. *Dealing*: a dispatcher fills each eligible reviewer's personal queue (25 by default) with 30-minute leases; the dealing uses a recorded seed, so it can be replayed and verified.
+4. *Decision*: the reviewer sees a masked view and decides each finding; a high-severity finding needs a first signature, a countersignature and, on disagreement, a tie-break by a third senior.
+5. *Trace and correction*: every event is logged in a hash chain; a correction never edits a decided dossier, it is submitted again as a new version.
+
+**What the specification contains.**
+
+| Part | Content |
+|---|---|
+| Requirements | 22 functional and 17 non-functional requirements, each with priority, status and proof |
+| Business rules | The 15 rules, triage score, dealing, sign-off, decision, masking, versions, user administration, configuration |
+| Use cases | All 20, each with a main scenario, secondary scenarios, step-level extensions, failure scenarios and guarantees |
+| Failure model | 28 failure classes: detection, system response, what the user sees, what stays guaranteed |
+| UML | 14 diagrams: use cases, classes (business and queue), sequences (processing, sign-in, sign-off, failure and recovery), activity, state machine, components (two levels), deployment, packages, MongoDB data model |
+
+<p align="center"><img src="docs/figures/uml/en/01_use_cases.png" alt="Use case diagram" width="640"></p>
+
+<p align="center"><img src="docs/figures/uml/en/08_states_dossier.png" alt="State machine of a dossier" width="560"></p>
+
+The other diagrams are listed in [SPECIFICATION.md, part 8](SPECIFICATION.md), each with a commentary and the modelling choices still open for advice.
+
+**What is deliberately not built, so nobody is misled.** There is no web screen (the reviewer API exists and is tested); claims enter through a command-line tool, not over HTTP; the production language model is not yet wired into the queue (without a model the deterministic text is kept); the reviewer API's recheck route answers 501, and a correction is handled by resubmitting the claim as a new version; the audit log is tamper-evident, not immutable; claim data is not encrypted at rest. These are repeated, with the reasons, in part 9 of the specification and in [docs/32](docs/32_Privacy_and_Security_Note.md).
+
+### Why FHIR claims do not score 1.0
+
+On the organizers' answer key the engine scores F1 1.0 when it reads claims directly, and the same 600 claims read from CSV folders also score 1.0. Read from FHIR bundles they score **0.9745** (precision 1.0, recall 0.9502, status accuracy 0.9656). The cause is the input, not the rules:
+
+- Rule R009 ("authorization record matches service") must see the authorization record: patient, service, status, valid-from and valid-to dates and maximum quantity.
+- A FHIR bundle in this dataset carries only the authorization **reference number** (`preAuthRef`, present in 327 of the 600 bundles). It holds `Patient`, `Organization`, `Coverage`, `Claim` and `DocumentReference` resources and nothing that holds the record. The importer keeps the reference and creates an empty stub for the record.
+- The rulebook says a missing comparison input leaves the rule `UNABLE_TO_ASSESS`, so the engine abstains. The answer key was computed from the full claim, so it says PASS or FAIL.
+
+All **310** differences in the 9,000 results are this one case: 287 results the key calls PASS and 23 it calls FAIL, all reported as `UNABLE_TO_ASSESS`. Nothing else differs, and no failing result became a PASS. The 23 missed failures are why recall is 439 of 462 (0.9502). The cost is reviewer workload: 134 of the 201 fully clean claims receive an unnecessary abstention on R009 through FHIR. Guessing the missing record would reach 1.0 only by risking silent passes, which the project forbids. The real remedy is to look the authorization up by its reference in a payer registry, which the dataset does not include. Full evidence and breakdown: [SPECS.md section 10c](SPECS.md) and [docs/29, section 4](docs/29_Test_Evaluation_Report.md).
 
 ## How it works (text form)
 
@@ -79,26 +132,6 @@ The FHIR route cannot carry authorization details or free-text notes, so R009 re
 
 **Audit log.** It records ingestion, every rule check with its confidence fields, the AI's question (written before the model is called), the AI recommendation, and system and human decisions, as a hash chain plus a separately stored head-hash anchor. This is tamper-*evident*, not immutable: `docs/16_Audit_Log_Design.md` states what production immutability would additionally need (write-once storage, an externally held anchor, authenticated reviewers). Setting `AUDIT_ANCHOR_KEY` signs the anchor so it cannot be forged without the key (`docs/20_Security_Audit.md`).
 
-## Phase 2 deliverables at a glance
-
-| Deliverable | Where | Status |
-|---|---|---|
-| **Detection quality and benchmark** (15 points): macro F1 across rule categories, valid claims preserved | [docs/29_Test_Evaluation_Report.md](docs/29_Test_Evaluation_Report.md); evidence in `outputs/evaluation/`; reproduce with `python scripts/evaluate_phase2.py` | Done |
-| **Test evaluation report** (detection metrics, F1, false-positive rate, latency, limitations) | [docs/29_Test_Evaluation_Report.md](docs/29_Test_Evaluation_Report.md); explanation of the FHIR result below and in [SPECS.md section 10c](SPECS.md) | Done |
-| **Human-in-the-loop and escalation logic** (10 points): routing of low-confidence and high-severity cases, overrides, feedback log | Built: severity-weighted routing into lanes (green, A, B) from a published formula with a stored receipt; personal inboxes dealt by a seeded, replayable dispatcher; decisions bound to the lease and to permissions read again at the moment of the decision; two-person sign-off for high severity with a third senior to settle a disagreement; green claims verified or escalated by a person; shadow mode that records what an automatic clearer would have done and acts on nothing; every move audited ([SPECS.md section 10f](SPECS.md), `docs/31`). Not built: routing by model confidence (the engine is deterministic and the AI only explains) | Mostly |
-| **Privacy, security and safety guards** (5 points): data minimization, access control, prompt and data guards, graceful handling of malformed FHIR | Built: clinical and fraud guard on AI text, quarantine of malformed FHIR, hash-chained audit log, fuzz-tested boundaries. Access control (badge, password and authenticator login, four clearance levels, masked identifiers, signed security audit log), tested with 21 attacks and 6 races on two stores (see [SPECS.md section 10d](SPECS.md)) | Partly: the privacy and security note is not written yet |
-| **Privacy and security note** (threat model, access control, least privilege, auditability) | `docs/20_Security_Audit.md` is the Phase 1 audit, updated for the reviewer API; the Phase 2 note (threat model, least privilege, auditability) follows the security audits | Not written yet |
-
-### Why FHIR claims do not score 1.0
-
-On the organizers' answer key the engine scores F1 1.0 when it reads claims directly, and the same 600 claims read from CSV folders also score 1.0. Read from FHIR bundles they score **0.9745** (precision 1.0, recall 0.9502, status accuracy 0.9656). The cause is the input, not the rules:
-
-- Rule R009 ("authorization record matches service") must see the authorization record: patient, service, status, valid-from and valid-to dates and maximum quantity.
-- A FHIR bundle in this dataset carries only the authorization **reference number** (`preAuthRef`, present in 327 of the 600 bundles). It holds `Patient`, `Organization`, `Coverage`, `Claim` and `DocumentReference` resources and nothing that holds the record. The importer keeps the reference and creates an empty stub for the record.
-- The rulebook says a missing comparison input leaves the rule `UNABLE_TO_ASSESS`, so the engine abstains. The answer key was computed from the full claim, so it says PASS or FAIL.
-
-All **310** differences in the 9,000 results are this one case: 287 results the key calls PASS and 23 it calls FAIL, all reported as `UNABLE_TO_ASSESS`. Nothing else differs, and no failing result became a PASS. The 23 missed failures are why recall is 439 of 462 (0.9502). The cost is reviewer workload: 134 of the 201 fully clean claims receive an unnecessary abstention on R009 through FHIR. Guessing the missing record would reach 1.0 only by risking silent passes, which the project forbids. The real remedy is to look the authorization up by its reference in a payer registry, which the dataset does not include. Full evidence and breakdown: [SPECS.md section 10c](SPECS.md) and [docs/29, section 4](docs/29_Test_Evaluation_Report.md).
-
 ## Phase 2 deliverables and where each lives
 
 | Rubric item | Where it is | Verify |
@@ -110,9 +143,10 @@ All **310** differences in the 9,000 results are this one case: 287 results the 
 | **Test evaluation report** | `docs/29_Test_Evaluation_Report.md`, tables generated from the evidence and checked by a test | `python -m unittest discover -s tests -p test_eval_report.py` |
 | **Robustness of the trust boundaries** (supports the safety guards) | `tests/test_fuzz_*.py`, `scripts/fuzz_campaign.py`, [Fuzz testing](#fuzz-testing) | `python scripts/fuzz_campaign.py --examples 3000` (about 6 minutes) |
 | **Identity and access** (login with badge, password and authenticator code; four clearance levels; hide-not-disable responses; decisions bound to the session) | `src/access/`, `scripts/access_admin.py`, `scripts/serve_access.py`, [SPECS.md section 10d](SPECS.md), `docs/superpowers/specs/2026-10-04-identity-access-design.md` | `python scripts/access_experiments.py all` runs 25 checks against a real server; evidence in `outputs/defense/access.json` |
-| **Task queue and work dispatcher** (triage receipt and lanes, personal inboxes of 25, replayable dealing, AI step with circuit breaker and template cache, two-person sign-off, replay and dead letters, shadow mode) | `src/workqueue/`, `scripts/queue_admin.py`, `scripts/queue_experiments.py`, `docs/31_Task_Queue_and_Dispatcher.md`, [SPECS.md section 10f](SPECS.md), `docs/superpowers/specs/2026-10-04-task-queue-dispatcher-design.md` | `python scripts/queue_experiments.py` (about 2 minutes) writes `outputs/defense/queue.json`; `python tests/mutation_queue.py` breaks the queue code in 75 ways and every one must be caught |
+| **Task queue and work dispatcher** (triage receipt and lanes, personal inboxes of 25, replayable dealing, AI step with circuit breaker and template cache, two-person sign-off, replay and dead letters, shadow mode) | `src/workqueue/`, `scripts/queue_admin.py`, `scripts/queue_experiments.py`, `docs/31_Task_Queue_and_Dispatcher.md`, [SPECS.md section 10f](SPECS.md), `docs/superpowers/specs/2026-10-04-task-queue-dispatcher-design.md` | `python scripts/queue_experiments.py` (about 2 minutes) writes `outputs/defense/queue.json`; `python tests/mutation_queue.py` breaks the queue code in 77 ways and every one must be caught |
 | **Extension rules** (eight advisory checks beyond the mentor's fifteen: procedure pairs and modifiers, event-date and route requirements, diagnosis sequencing, and three that read earlier claims) | `rules/extensions/`, `src/extension_rules.py`, `src/claim_history.py`, `scripts/run_extensions.py`, `docs/30_Extension_Rules.md`, [SPECS.md section 10e](SPECS.md) | `python scripts/extension_experiments.py`; the official engine files and results are pinned by `tests/test_ext_separation.py` |
-| Routing by model confidence, the privacy and security note | Not built; see the table above | |
+| **Privacy and security note**, feedback report on reviewer decisions | `docs/32_Privacy_and_Security_Note.md`, `src/workqueue/feedback.py` | `python -m unittest discover -s tests -p test_wq_feedback.py`; `-p test_data_minimization.py` |
+| Routing by model confidence | Not built; see the table above | |
 
 ### Running the reviewer API
 
@@ -166,7 +200,7 @@ This is a narrated tour of the whole pipeline in eight scenes: ingestion of FHIR
 **3. Run the tests**
 
 ```bash
-python -m unittest discover -s tests          # 1609 tests, about 9 min with MongoDB and Redis (about 2 min for the offline core), no API key needed
+python -m unittest discover -s tests          # 1641 tests, about 12 min with MongoDB and Redis (about 2 min for the offline core), no API key needed
 python scripts/fuzz_campaign.py --examples 3000   # deeper fuzz run of the six trust boundaries (about 6 min); writes outputs/defense/fuzz.json
 ```
 
@@ -215,7 +249,7 @@ Expected: `evaluate.py` prints status accuracy 1.0 for the development split; `v
 | Independent oracle agreement (rules written again from the rulebook text alone) | **0 disagreements** over 107,635 generated claims (`scripts/status_coverage.py`), plus 37,000 boundary-aware mutants and 123 hand-derived edge cases |
 | Phase 2 detection evaluation | F1 **1.0** on the 50-claim split, the 150-claim validation split and the 400-claim development split; **no valid claim flagged** in any set (0 of 160 development claims with no failure, upper bound 1.85%); 0 disagreements with the independent oracle over 107,635 generated claims, 33,945 mutants and 123 hand-derived boundary cases. Through FHIR, F1 falls to 0.9745 because authorizations are not carried (rule R009 abstains; no failure becomes a pass). Every example set is cited with its label origin. `docs/29_Test_Evaluation_Report.md` |
 | Fuzz testing | **Six trust boundaries**, 25 property tests at 3,000 generated examples each plus one regression test, all passing; two real defects found and fixed (see Fuzz testing below). `outputs/defense/fuzz.json` |
-| Tests | 1609, none needing a network or an API key; those that exercise MongoDB or Redis are skipped, loudly, unless `MONGO_URI` / `REDIS_URL` are set (`REQUIRE_MONGO=1 REQUIRE_REDIS=1` turns a skip into a failure). 420 were last verified in CI on Python 3.10, 3.12 and 3.14 (commit named in `docs/19`); all 1609 passed locally with MongoDB and Redis required on 3.10, 3.12 and 3.14 (2026-10-06), and again on the project environment on 2026-10-06 (0 skipped); CI confirms after the push |
+| Tests | 1641, none needing a network or an API key; those that exercise MongoDB or Redis are skipped, loudly, unless `MONGO_URI` / `REDIS_URL` are set (`REQUIRE_MONGO=1 REQUIRE_REDIS=1` turns a skip into a failure). 420 were last verified in CI on Python 3.10, 3.12 and 3.14 (commit named in `docs/19`); 1609 of them passed locally with MongoDB and Redis required on 3.10, 3.12 and 3.14 (2026-10-06), and all 1641 passed on the project environment on 2026-10-06 (0 skipped); CI confirms after the push |
 | Live AI explanations (Mistral-Nemo-Instruct-2407 via Featherless.ai, prompt v1.6.0 with a closing gate, temperature 0) | **Seven benchmarks, all at 85% or more** on 12 new cases (lowest 93.2%): 97.5% live, 93.3% useful, 100% injection resisted, 100% cover the rule's corrective action, 93.2% cite an observed evidence value, 93.2% name a next step, 0 garbled answers shown. Chosen by four rounds of experiments, see below |
 | Local, free alternative (`gemma3:4b` via Ollama) | Beats the paid, hosted default on every automated metric: 97.2% live vs. 94.4%, 3.0 s vs. 4.1 s median latency, 0 garbled replies across an 84-case stress test. See below |
 | Security | audited against the OWASP Top 10 for LLM Applications and the OWASP Top 10: `docs/20_Security_Audit.md` |
@@ -325,7 +359,7 @@ Also built and tested, but off by default: a **cascade** (fluent model, then a r
 | `rules/` | `core.yar` (compiled rule pack), `rules.json`, `policies.json`, catalogues |
 | `schemas/` | JSON schemas for claims, results and review events |
 | `data/` | 600 synthetic claims in three splits, in JSONL, CSV and FHIR forms, with the public answer key |
-| `tests/` | 1609 tests, including `oracle.py` (independent reference implementation), the stress and security suites, and the `test_fuzz_*.py` fuzz tests with their shared `fuzz_strategies.py` |
+| `tests/` | 1641 tests, including `oracle.py` (independent reference implementation), the stress and security suites, and the `test_fuzz_*.py` fuzz tests with their shared `fuzz_strategies.py` |
 | `scripts/` | `demo.py` (narrated tour), audited runs, audit verification, `draw_diagrams.py`, AI evaluation, `fuzz_campaign.py` (deep fuzz run) and the experiment runner |
 | `experiments/` | Raw experiment data and `summary.json`; figures are in `docs/figures/` |
 | `outputs/` | Frozen evidence: metrics, audit samples, recorded live AI runs |
@@ -337,7 +371,9 @@ Also built and tested, but off by default: a **cascade** (fluent model, then a r
 | Read | For |
 |---|---|
 | [SPECS.md](SPECS.md) | Detailed specification: contracts, rules, the AI step, audit log, security, and every experiment |
+| [SPECIFICATION.md](SPECIFICATION.md) | The requirements specification (cahier des charges) and UML model, beside BLUEPRINT.md: 22 functional and 17 non-functional requirements, business rules, all 20 use cases with main, secondary, extension and failure scenarios, a catalogue of 28 failure classes, and 14 UML diagrams (sources in `docs/uml/en/`) |
 | [BLUEPRINT.md](BLUEPRINT.md) | The project as an information system: the submission deliverables and where each lives, quality characteristics (reliability, security, interoperability, performance, portability, maintainability), the business model canvas with cited desk research, the 12 realisation steps each with its proof of success, the environment tests, and seven UML diagrams |
+| [docs/33_Cahier_des_Charges_et_Modelisation_UML.md](docs/33_Cahier_des_Charges_et_Modelisation_UML.md) | Cahier des charges and UML modelling in French: requirements, constraints, business rules, use case sheets, 13 diagrams and the questions for the UML professor |
 | [docs/31_Task_Queue_and_Dispatcher.md](docs/31_Task_Queue_and_Dispatcher.md) | The task queue and work dispatcher: pipeline diagram, the triage formula, dealing, two-person sign-off, the AI step's cache and breaker, how to run it, the experiment and its limits |
 | [docs/30_Extension_Rules.md](docs/30_Extension_Rules.md) | The eight advisory extension rules E001 to E005 and E101 to E103: logic, source (confirmed or not), what is invented, tests and evidence |
 | `docs/29_Test_Evaluation_Report.md` | Phase 2 test evaluation: macro F1 by rule category, false positives on valid claims, latency, nine cited example sets, limitations |
@@ -363,4 +399,4 @@ No clinical judgement, medical-necessity decision, fraud accusation, automatic a
 
 ## Status
 
-Phase 1 (ingestion, rule engine, structured output, audit log) is complete. Phase 2: the detection evaluation and its report are done (see [Phase 2 deliverables at a glance](#phase-2-deliverables-at-a-glance)); human-in-the-loop routing, access control and the privacy and security note are not built yet. The architecture and data-flow document is `docs/22`, and the demo runs with `python scripts/demo.py`; the recorded video follows `docs/23`. Not yet built: the review interface as a mobile app on a local API server, authentication and the pitch.
+Phase 1 (ingestion, rule engine, structured output, audit log) is complete. Phase 2 is built: the detection evaluation and its report (`docs/29`), identity and access, the extension rules, the task queue and work dispatcher with its feedback report, and the privacy and security note (`docs/32`); see [Phase 2 deliverables at a glance](#phase-2-deliverables-at-a-glance) for where each lives and what it leaves out. The architecture and data-flow document is `docs/22`, and the demo runs with `python scripts/demo.py`; the recorded video follows `docs/23`. Not built: a reviewer web front end (the reviewer API exists and is tested; there is no screen on top of it), routing by model confidence, the pitch, and the unbuilt audit controls listed in `docs/32` section 4 (WORM storage, an external timestamp).

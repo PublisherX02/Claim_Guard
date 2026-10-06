@@ -1,0 +1,68 @@
+@startuml 10_deployment
+!include ../style.iuml
+title Deployment diagram: demonstration machine and target
+skinparam nodeFontStyle bold
+
+node "Reviewer's browser" as BR <<device>> {
+  artifact "HTTP client\n(httpOnly cookie + CSRF token)" as CLI
+}
+
+node "Machine or server (Windows 11 or Linux)" as HOST <<device>> {
+
+  node "Python 3.10 to 3.14 process" as PY <<execution environment>> {
+    component "Reviewer API\n(uvicorn, serve_access.py --queue)" as API
+    component "Rule engine" as ENG
+    artifact "rules/core.yar\nrules/*.json" as RULES
+  }
+
+  node "Celery worker" as WK <<execution environment>> {
+    component "Tasks: process_claim, deal,\nexpire, relay_sweep, reconcile" as TASKS
+  }
+
+  node "Container claimguard-mongo" as MG <<Docker>> {
+    database "MongoDB 7\n(--auth, 127.0.0.1:27017)" as MDB
+  }
+
+  node "Container claimguard-redis" as RD <<Docker>> {
+    database "Redis 7\n(no persistence, 127.0.0.1:6379)" as RDS
+  }
+
+  node "Ollama (local)" as OL <<service>> {
+    artifact "gemma3:4b" as GEM
+  }
+
+  node "Offline scripts" as OFF <<execution environment>> {
+    component "Audited review\n(run_audited_review, llm_adapter)" as REVIEW
+  }
+
+  folder "Files (logs)" as FS {
+    artifact "audit.jsonl + anchor\nsecurity_audit.jsonl" as LOGS
+  }
+}
+
+cloud "Hosted provider (Featherless)\nopen model" as HOSTED <<external service>>
+
+CLI --> API : HTTPS (TLS is the deployment's job)
+API --> MDB : pymongo
+API --> LOGS : append-only writes
+API ..> ENG
+ENG ..> RULES
+WK --> MDB
+WK --> RDS : message queue
+REVIEW --> GEM : explanations (local model)
+REVIEW ..> HOSTED : explanations (hosted option)
+WK ..> GEM : to be wired (injected model)
+
+note bottom of WK
+  Celery workers need Linux (Docker); on Windows the
+  demonstration runs the tasks in "eager" mode, inside
+  the API process. The queue's AI step receives an
+  injected model; the production adapter is not built:
+  without a model the deterministic text is kept.
+end note
+
+note right of HOSTED
+  Synthetic data only. With real data you would
+  need an on-premise model or a processing agreement.
+end note
+@enduml

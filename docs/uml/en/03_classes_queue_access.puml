@@ -1,0 +1,167 @@
+@startuml 03_classes_queue_access
+!include ../style.iuml
+title Class diagram: work queue, decisions, access and audit
+hide empty members
+
+package "Work queue" {
+  class QueueDossier {
+    +claim_id : Text
+    +version : Integer
+    +input_hash : Text
+    +state : DossierState
+    +state_at : Timestamp
+    +escalated : Boolean
+    +decided_by : Text
+  }
+  class TriageReceipt {
+    +lane : Lane
+    +score : Integer
+    +eligibility : Eligibility
+    +config_version : Integer
+    +rule_pack_hash : Text
+    +result_hash : Text
+    +created_at : Timestamp
+  }
+  class Lease {
+    +badge_id : Text
+    +expires_at : Timestamp
+  }
+  class Decision {
+    +rule_id : Text
+    +action : DecisionAction
+    +actor : Text
+    +reason : Text
+    +round : Integer
+    +at : Timestamp
+  }
+  class SignOff {
+    +stage : Stage
+    +first_by : Text
+    +second_by : Text
+    +third_by : Text
+    +outcome : Text
+  }
+  class ShadowPrediction {
+    +predicted_clear : Probability
+    +model : Text
+    +at : Timestamp
+  }
+  class Deal {
+    +deal_id : Text
+    +seed : Integer
+    +at : Timestamp
+    +config_version : Integer
+    +ids_hash : Text
+    +planned : List
+    +assigned : List
+  }
+  class RoutingConfiguration {
+    +version : Integer
+    +points : Table
+    +lane_b_flagged : Integer
+    +lane_b_score : Integer
+    +slice_size : Integer
+    +low_water : Integer
+    +lease_seconds : Integer
+    +aging_per_hour : Number
+    +ai_per_minute : Integer
+    +ai_daily_budget : Integer
+    +on_shift : List
+    +exclusions : List
+  }
+  class DeadLetter {
+    +dead_id : Text
+    +claim_id : Text
+    +version : Integer
+    +input_hash : Text
+    +reason : Text (error type only)
+    +attempts : Integer
+    +at : Timestamp
+  }
+}
+
+package "Access and traceability" {
+  class User {
+    +badge_id : Text
+    +level : Level
+    +grants : List
+    +active : Boolean
+    +locked : Boolean
+    +password_hash : Text
+    +totp_secret_enc : Text
+  }
+  class Session <<signed token, not stored>> {
+    +jti : Text
+    +expires_at : Timestamp
+    +csrf : Text
+  }
+  class AuditEvent {
+    +sequence : Integer
+    +recorded_at : Timestamp
+    +event_type : Text
+    +prev_hash : Text
+    +hash : Text
+  }
+}
+
+enum DossierState {
+  triaged
+  explained
+  explanation_skipped
+  ready
+  leased
+  awaiting_countersign
+  decided
+  dead_lettered
+}
+enum Lane {
+  green
+  A
+  B
+}
+enum DecisionAction {
+  confirm_issue
+  dismiss_with_reason
+  request_information
+  mark_corrected_for_recheck
+}
+enum Level {
+  L1 observer
+  L2 reviewer
+  L3 senior
+  L4 administrator
+}
+
+class Claim <<business domain>>
+
+QueueDossier "1" *-- "1" Claim : carries one version of
+QueueDossier "1" *-- "1" TriageReceipt
+QueueDossier "1" *-- "0..1" Lease : held during
+QueueDossier "1" *-- "0..*" Decision : records
+QueueDossier "1" *-- "0..1" SignOff : if high severity
+QueueDossier "1" *-- "0..1" ShadowPrediction : acts on nothing
+QueueDossier ..> DossierState
+TriageReceipt ..> Lane
+Decision ..> DecisionAction
+User ..> Level
+
+Lease "*" --> "1" User : held by
+Decision "*" --> "1" User : made by
+SignOff "*" --> "1..3" User : signed by
+Deal "1" o-- "*" QueueDossier : assigns
+Deal "*" --> "1" RoutingConfiguration : applies the version
+User "1" -- "0..*" Session : opens
+AuditEvent "*" ..> User : traces
+AuditEvent "*" ..> QueueDossier : traces
+DeadLetter "*" ..> QueueDossier : concerns
+
+note right of Lease
+  A reviewer decides only the dossiers dealt to
+  them, and only while the lease runs.
+end note
+
+note bottom of DossierState
+  The table of the code also defines "received" and
+  "rechecked"; neither is ever stored (see diagram 08).
+end note
+@enduml

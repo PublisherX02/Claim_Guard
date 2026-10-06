@@ -1,0 +1,165 @@
+@startuml 03_classes_file_et_acces
+!include style.iuml
+title Diagramme de classes : file de travail, décisions, accès et audit
+hide empty members
+
+package "File de travail" {
+  class DossierFile {
+    +claim_id : Texte
+    +version : Entier
+    +input_hash : Texte
+    +etat : EtatDossier
+    +state_at : Horodatage
+    +escalated : Booleen
+    +decided_by : Texte
+  }
+  class RecuTriage {
+    +lane : Voie
+    +score : Entier
+    +eligibility : Habilitation
+    +config_version : Entier
+    +rule_pack_hash : Texte
+    +result_hash : Texte
+    +created_at : Horodatage
+  }
+  class Bail {
+    +badge_id : Texte
+    +expires_at : Horodatage
+  }
+  class Decision {
+    +rule_id : Texte
+    +action : ActionDecision
+    +actor : Texte
+    +reason : Texte
+    +round : Entier
+    +at : Horodatage
+  }
+  class DoubleSignature {
+    +stage : Etape
+    +first_by : Texte
+    +second_by : Texte
+    +third_by : Texte
+    +outcome : Texte
+  }
+  class PredictionOmbre {
+    +predicted_clear : Probabilite
+    +model : Texte
+    +at : Horodatage
+  }
+  class Distribution {
+    +deal_id : Texte
+    +seed : Entier
+    +at : Horodatage
+    +config_version : Entier
+    +ids_hash : Texte
+    +planned : Liste
+    +assigned : Liste
+  }
+  class ConfigurationRoutage {
+    +version : Entier
+    +points : Table
+    +lane_b_flagged : Entier
+    +lane_b_score : Entier
+    +slice_size : Entier
+    +low_water : Entier
+    +lease_seconds : Entier
+    +aging_per_hour : Nombre
+    +ai_per_minute : Entier
+    +ai_daily_budget : Entier
+    +on_shift : Liste
+    +exclusions : Liste
+  }
+  class TacheEnEchec {
+    +dead_id : Texte
+    +claim_id : Texte
+    +version : Entier
+    +input_hash : Texte
+    +reason : Texte (type d'erreur seulement)
+    +attempts : Entier
+    +at : Horodatage
+  }
+}
+
+package "Accès et traçabilité" {
+  class Utilisateur {
+    +badge_id : Texte
+    +level : Niveau
+    +grants : Liste
+    +active : Booleen
+    +locked : Booleen
+    +password_hash : Texte
+    +totp_secret_enc : Texte
+  }
+  class Session <<jeton signé, non stocké>> {
+    +jti : Texte
+    +expires_at : Horodatage
+    +csrf : Texte
+  }
+  class EvenementAudit {
+    +sequence : Entier
+    +recorded_at : Horodatage
+    +event_type : Texte
+    +prev_hash : Texte
+    +hash : Texte
+  }
+}
+
+enum EtatDossier {
+  received
+  triaged
+  explained
+  explanation_skipped
+  ready
+  leased
+  awaiting_countersign
+  decided
+  rechecked
+  dead_lettered
+}
+enum Voie {
+  green
+  A
+  B
+}
+enum ActionDecision {
+  confirm_issue
+  dismiss_with_reason
+  request_information
+  mark_corrected_for_recheck
+}
+enum Niveau {
+  L1 observateur
+  L2 relecteur
+  L3 senior
+  L4 administrateur
+}
+
+class Reclamation <<domaine métier>>
+
+DossierFile "1" *-- "1" Reclamation : porte une version de
+DossierFile "1" *-- "1" RecuTriage
+DossierFile "1" *-- "0..1" Bail : détenu pendant
+DossierFile "1" *-- "0..*" Decision : enregistre
+DossierFile "1" *-- "0..1" DoubleSignature : si gravité élevée
+DossierFile "1" *-- "0..1" PredictionOmbre : n'agit sur rien
+DossierFile ..> EtatDossier
+RecuTriage ..> Voie
+Decision ..> ActionDecision
+Utilisateur ..> Niveau
+
+Bail "*" --> "1" Utilisateur : détenu par
+Decision "*" --> "1" Utilisateur : prise par
+DoubleSignature "*" --> "1..3" Utilisateur : signée par
+Distribution "1" o-- "*" DossierFile : attribue
+Distribution "*" --> "1" ConfigurationRoutage : applique la version
+Utilisateur "1" -- "0..*" Session : ouvre
+EvenementAudit "*" ..> Utilisateur : trace
+EvenementAudit "*" ..> DossierFile : trace
+TacheEnEchec "*" ..> DossierFile : concerne
+
+note right of Bail
+  Un relecteur ne décide que
+  les dossiers qui lui sont
+  attribués et tant que le bail court.
+end note
+@enduml

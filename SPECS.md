@@ -379,7 +379,7 @@ Residual: the offline file-based review flow has no authentication (the reviewer
 | Phase 2 evaluation | Nine cited example sets in three evidence tiers (organizer key, independent oracle, hand-derived); F1 1.0 on the three public splits, no valid claim flagged, FHIR path 0.9745 (R009 abstains); `docs/29_Test_Evaluation_Report.md`, evidence in `outputs/evaluation/` |
 | Fuzzing | Six trust boundaries, 25 property tests at 3,000 generated examples each plus one regression test, all passing; two defects found and fixed (section 10a) |
 | Security and red team | `docs/20` |
-| Suite | 1609 tests, offline (420 of them verified in CI on Python 3.10, 3.12 and 3.14; all 1609 passed locally with MongoDB and Redis required on all three, 2026-10-06, and 0 skipped on the project environment the same day); the committed audit sample's 6,000 result hashes are re-checked |
+| Suite | 1641 tests, offline (420 of them verified in CI on Python 3.10, 3.12 and 3.14; 1609 passed locally with MongoDB and Redis required on all three, 2026-10-06, and all 1641 with 0 skipped on the project environment the same day); the committed audit sample's 6,000 result hashes are re-checked |
 
 **Independent oracle at scale.** `tests/oracle.py` reimplements the 15 rules from `rules/rules.json` and `docs/04` alone; it imports nothing from `src/`, so the engine and the oracle cannot share a bug by construction — a mistake would have to be made independently, the same way, in both. `scripts/status_coverage.py` generates 107,635 claims with `tests/claim_gen.py` (half seeded from a fully valid claim then randomly damaged, half fully independent-random fields), scores each with both the engine and the oracle, and hard-fails on the first disagreement rather than only counting them, so the artifact below is either "0 disagreements" or the run did not complete:
 
@@ -694,7 +694,7 @@ the in-memory twin and on MongoDB; an independent routing oracle and a dealing-i
 "nothing left that someone could take"); Hypothesis for the formula, the dealing and the breaker; fault injection (duplicate and late
 delivery, a worker dying after the write, a dead broker, the guard crashing); a real Celery worker consuming from Redis; the HTTP permission
 matrix, CSRF, strict bodies and masking; the admin tool (operator login, every use logged, no secret printed); the scale experiment as a
-test; **75 mutants** of the queue code run by `tests/mutation_queue.py` on a temporary copy, all caught.
+test; **77 mutants** of the queue code run by `tests/mutation_queue.py` on a temporary copy, all caught.
 
 **Evidence** (`outputs/defense/queue.json`, generated at a named commit): the five scenarios above, the invariants over five seeds, and
 the assumptions (the people and the model are simulated, service times are `60 s + 45 s per flagged finding`, a finding is dismissed with
@@ -704,6 +704,44 @@ probability 0.1, a countersigner disagrees with probability 0.1).
 several dispatchers dealing at once. A decision is written to the claim and then to the review log, so a crash between the two leaves a
 decision without its log row. `request_information` keeps a claim in the inbox until the lease runs out. Celery workers need Linux. All
 figures about people and timing are simulation. Whether a trained model may ever sit in the decision path is a question for the mentor.
+
+### 10g. Reviewer feedback, data minimization and the injection guard
+
+Three additions that close the Phase 2 gaps left after identity and the queue. The full note is `docs/32_Privacy_and_Security_Note.md`.
+
+**Feedback report.** `src/workqueue/feedback.py` reads decided claims from the queue store (the source of truth: a decision is written
+there before it is copied to the review log) and `GET /api/v1/queue/feedback` (level 4, `queue.view`) serves it. Per rule it counts how
+often a flagged finding was finally confirmed or dismissed (a later decision on the same rule replaces an earlier one, so a
+countersigned finding counts once), how often information was requested or a claim marked corrected, and for the sign-off how often
+the second senior disagreed. Dismissal rates carry an exact Clopper-Pearson interval (the same routine as shadow mode), and a rule
+is a *review candidate* only with at least 20 final decisions and a lower bound above 0.5. A candidate is a prompt for a person to
+look at the rule; nothing in the engine changes. Only counts leave the module: no reason text, claim id or badge, because a
+reason is typed by a person and can hold personal data. The override path already existed (`dismiss_with_reason`, with the original
+issue preserved and an empty reason refused by `review_workflow.validate_decision`), so no second override action was added.
+
+**Data minimization.** A scan of a real flow (a claim readied, dealt and decided over HTTP) found the raw patient identifier in the deal
+document, where the plan kept it only to match conflict-of-interest exclusions. The snapshot now keeps `excluded_for`, the badges
+barred from that patient, and `verify(deal_id)` still reproduces the plan; deals written before the change still replay. The
+security log, review log, deal documents and dead letters are scanned for the claim's real identifiers on both stores
+(`tests/test_data_minimization.py`). Two mutants cover the change (`tests/mutation_queue.py`, 77 in all, none survive). Identifiers
+remain unmasked at rest inside the claim and each result's evidence; the API masks them on the way out. That is stated as a limit,
+not hidden.
+
+**Invisible characters in model replies.** A zero-width space inside a word ("app" + U+200B + "roved") matched no approval pattern, an
+open limit of the earlier LLM01 battery. `check_grounding` now rejects zero-width and joiner characters, bidirectional controls,
+the word joiner, line and paragraph separators, variation selectors, tag characters, the combining grapheme joiner and the soft hyphen
+unless the same character is in the finding (the byte-order mark was already caught by the foreign-script rule). `scripts/scan_invisible.py`
+(run on a fresh clone) checks the 76 committed result files (292,045 strings, about 18 million characters): 30 strings contain such a character, all raw
+replies of experiments e1, e2, e3 and e7 that are mixed-language gibberish the older guards already reject, so nothing accepted
+before is rejected now. The new test fails 50 times when the check is disabled. Still open and documented: non-English
+Latin text and Base64 pass the text guards; neither can change a verdict or the review flag.
+
+**Not built, and why.** An RFC 3161 timestamp on the audit head (needs a CMS library and a live authority; the suite promises no
+network), WORM or INSERT-only log storage, encryption at rest, and the two-pass explanation (it would change the AI step behind the
+frozen experiment numbers). **Dependencies:** `pip-audit` is clean for `requirements.txt`, `requirements-dev.txt` and the experiments
+file. The opt-in local-model file and the third-party comparison system's file had findings and were raised on 2026-10-06 (their earlier
+pins are kept in comments, for the frozen results); the comparison code's unit tests and an agent build and query pass on the new
+versions, GPU model loading was not re-run (`docs/32`, section 6).
 
 ## 11. Experiments in detail
 

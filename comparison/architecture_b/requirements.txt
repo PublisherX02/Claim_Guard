@@ -2,17 +2,23 @@
 # existed upstream). NOT part of Architecture A's own requirements.txt -- see
 # comparison/README.md for why and how to install these separately.
 faiss-cpu==1.9.0
-sentence-transformers==3.3.1
-langchain==0.3.13
-langchain-core==0.3.28
-langchain-openai==0.2.14
-langgraph==0.2.76
+sentence-transformers==5.6.0
+langchain==1.4.3
+langchain-core==1.6.7
+langchain-openai==1.6.7
+langgraph==1.2.14
 pytesseract==0.3.13
-pdfplumber==0.11.4
+pdfplumber==0.11.9
+pdfminer.six==20251230
 python-docx==1.1.2
 pandas==2.2.3
 openpyxl==3.1.5
-Pillow==11.0.0
+Pillow==12.3.0
 pypdfium2==4.30.0
-python-dotenv==1.0.1
+python-dotenv==1.2.2
 numpy==1.26.4
+
+# 2026-10-06: raised to clear the vulnerabilities pip-audit and GitHub reported (all 96 packages of the resolved set audit clean).
+# The comparison results recorded under outputs/architecture_comparison/ were produced with the earlier pins:
+#   sentence-transformers 3.3.1, langchain 0.3.13, langchain-core 0.3.28, langchain-openai 0.2.14, langgraph 0.2.76,
+#   pdfplumber 0.11.4 (pdfminer.six 20231228), Pillow 11.0.0, python-dotenv 1.0.1.

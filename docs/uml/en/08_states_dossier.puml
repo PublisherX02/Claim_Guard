@@ -1,0 +1,49 @@
+@startuml 08_states_dossier
+!include ../style.iuml
+title State machine diagram: life cycle of a dossier in the queue
+hide empty description
+
+[*] --> triaged : intake writes the dossier directly in this state\n(the event log records received -> triaged)
+
+state "Active dossier" as Active {
+  state triaged
+  state explained
+  state explanation_skipped
+  state ready
+  state leased
+  state awaiting_countersign
+
+  triaged --> ready : green lane (no finding)
+  triaged --> explained : explanation kept by the guard
+  triaged --> explanation_skipped : AI unavailable, guard refusal,\nbudget spent or deadline passed
+  explained --> ready
+  explanation_skipped --> ready
+  ready --> leased : deal (lease placed)
+  leased --> ready : lease expired or handed back,\nor sign-off disagreement (escalation)
+  leased --> awaiting_countersign : first signature\n(high severity)
+  awaiting_countersign --> leased : lease to another senior
+}
+
+leased --> decided : every finding resolved
+Active --> dead_lettered : failure after the retries\n(back-off between attempts)
+dead_lettered --> triaged : replayed by the administrator (level 4)\n(once only)
+decided --> [*]
+
+note right of decided
+  A decided dossier is never changed. A corrected claim
+  submitted again is a NEW document (version n+1) that
+  starts at "triaged"; the old version stays "decided".
+end note
+
+note bottom of ready
+  Every transition is one event added to the log; a
+  transition from the wrong state is refused.
+end note
+
+note as N1
+  <b>Defined in the code's transition table but never used:</b>
+  "received" (only the origin of the first logged event) and
+  "rechecked" (decided -> rechecked -> triaged). No code path
+  moves a dossier into "rechecked" today.
+end note
+@enduml
