@@ -127,12 +127,14 @@ Configuration documents written before this change load with these defaults.
 ## 9. Evidence we will produce (all simulated, all seeded)
 
 1. **Convergence.** A pool of simulated reviewers with known upheld probabilities (most rules about 0.97; R006 0.35; R013 0.5): how the estimate, interval and status evolve, and after how many decisions R006 becomes doubtful.
-2. **Routing effect.** The share of claims sent to seniors with routing off and on; results compared hash by hash to prove no verdict changed.
-3. **Active learning gain.** With a fixed budget of reviewed claims, uncertainty-first ordering against arrival order: mean interval width, and decisions needed until every rule is measured.
+2. **Routing effect and senior load.** The share of claims sent to seniors with routing off and on, and the resulting senior queue length and waiting time under the same arrivals. This matters: docs/31 already shows 253 of 500 claims need a senior, and routing doubtful findings to seniors could make that worse. If it does, the document says so and names the setting (`doubtful_below`, or leaving routing off) that limits it. Results are compared hash by hash to prove no verdict changed.
+3. **Active learning gain.** With a fixed budget of reviewed claims, uncertainty-first ordering against arrival order: mean interval width, and decisions needed until every rule is measured. This is a demonstration of the mechanism, not a finding: ordering by interval width shrinks intervals faster almost by construction, and the document words it that way.
 4. **Poisoning.** One reviewer dismissing everything among five, with and without the cap and the minimum-reviewers rule.
 5. **Invariants.** Receipts with the feature off equal the baseline for the 600 public claims; a tampered snapshot is detected by `verify`; replay of a deal with an uncertainty term still matches.
 
 State plainly in the document: the reviewers are simulated, so this shows the mechanism and not real-world accuracy.
+
+**Label shift.** Once a rule is doubtful its findings go to seniors, so later labels for that rule come mostly from seniors, who may uphold at a different rate than the earlier reviewers. The estimate then mixes two populations. The mitigation is the reviewer cap and the minimum-reviewers rule, plus a documented limit: the estimate describes the people who reviewed, not the rule in the abstract.
 
 ## 10. Testing
 
