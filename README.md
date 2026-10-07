@@ -178,13 +178,9 @@ same suites against MongoDB, and `REQUIRE_MONGO=1` (as CI does) to make a missin
 git clone https://github.com/Chbaya7-Hamza/Claim_Guard.git
 cd Claim_Guard
 
-# with uv (recommended)
+# uv is the package manager (install: https://docs.astral.sh/uv/ ); CI uses it too
 uv venv --python 3.10 .venv
 uv pip install --python .venv -r requirements-dev.txt   # runtime packages plus Hypothesis, which the fuzz tests need
-
-# or with plain pip
-python -m venv .venv
-.venv/bin/pip install -r requirements-dev.txt      # Windows: .venv\Scripts\pip install -r requirements-dev.txt
 ```
 
 On Windows use `.venv\Scripts\python.exe` wherever the commands below say `python`; on macOS and Linux use `.venv/bin/python` (or activate the environment).

@@ -42,8 +42,8 @@ Architecture B's dependencies (`langchain`, `langgraph`, `faiss-cpu`,
 `sentence-transformers`) are NOT part of Architecture A's own `requirements.txt`
 and are not installed by Architecture A's CI. To run this comparison locally:
 
-    python -m venv comparison/.venv
-    comparison/.venv/Scripts/pip install -r comparison/architecture_b/requirements.txt -r comparison/architecture_b/requirements-harness.txt
+    uv venv comparison/.venv
+    uv pip install --python comparison/.venv -r comparison/architecture_b/requirements.txt -r comparison/architecture_b/requirements-harness.txt
     ollama pull gemma3:4b   # if not already pulled
     ollama serve            # if not already running
 
