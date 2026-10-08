@@ -23,12 +23,13 @@ jobs:
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: astral-sh/setup-uv@v6
         with:
           python-version: '3.10'
-          cache: pip
+          enable-cache: true
+          activate-environment: true
       - name: Install pinned dependencies
-        run: python -m pip install -r requirements.txt
+        run: uv pip install -r requirements.txt
       - name: Every Python file compiles
         run: python -m compileall -q src scripts tests
       - name: The rule pack compiles and the JSON files parse
@@ -76,12 +77,13 @@ jobs:
         python: ['3.10', '3.12', '3.14']
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: astral-sh/setup-uv@v6
         with:
           python-version: ${{ matrix.python }}
-          cache: pip
+          enable-cache: true
+          activate-environment: true
       - name: Install pinned dependencies
-        run: python -m pip install -r requirements-dev.txt
+        run: uv pip install -r requirements-dev.txt
       - name: Full test suite (no API key; MongoDB and Redis tests must run, not skip)
         env:
           FEATHERLESS_API_KEY: ''
@@ -99,12 +101,13 @@ jobs:
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: astral-sh/setup-uv@v6
         with:
           python-version: '3.10'
-          cache: pip
+          enable-cache: true
+          activate-environment: true
       - name: Install pinned dependencies
-        run: python -m pip install -r requirements.txt
+        run: uv pip install -r requirements.txt
       - name: Run the rules on all three public splits and require a perfect score
         run: |
           set -e
@@ -133,12 +136,13 @@ jobs:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
-      - uses: actions/setup-python@v5
+      - uses: astral-sh/setup-uv@v6
         with:
           python-version: '3.10'
-          cache: pip
+          enable-cache: true
+          activate-environment: true
       - name: Install pinned dependencies
-        run: python -m pip install -r requirements.txt
+        run: uv pip install -r requirements.txt
       - name: Adversarial suites (OWASP mapping, red-team findings, hostile input, prompt injection, audit tampering)
         env:
           FEATHERLESS_API_KEY: ''
@@ -147,12 +151,14 @@ jobs:
             tests.test_stress_ingest tests.test_stress_ai_boundary tests.test_stress_review_page
       - name: Static analysis (bandit, medium severity and above fails the build)
         run: |
-          python -m pip install bandit==1.9.4
+          uv pip install bandit==1.9.4
           bandit -q -r src scripts -ll
       - name: Known vulnerabilities in dependencies (pip-audit)
         run: |
-          python -m pip install pip-audit
-          pip-audit -r requirements.txt
+          # pip-audit's own virtualenv step (ensurepip) fails on uv-managed Python, so resolve the full
+          # transitive set with uv and audit that list without letting pip-audit build an environment.
+          uv pip compile requirements.txt -o "$RUNNER_TEMP/locked.txt" -q
+          uvx pip-audit -r "$RUNNER_TEMP/locked.txt" --no-deps --disable-pip
       - name: Secret scan of the whole history (gitleaks)
         uses: gitleaks/gitleaks-action@v2
         env:

@@ -612,7 +612,7 @@ class MedGemmaExplanationProvider:
     local and free. Not an HTTP call, so this is not an OpenAICompatibleProvider subclass -- it implements
     the same ExplanationProvider protocol directly, and reimplements the closing-gate retry inline so it
     gets the identical treatment the HTTP-based providers get, for a fair comparison. Needs
-    `pip install -r experiments/requirements-local-models.txt` and the gated model's license accepted on
+    `uv pip install -r experiments/requirements-local-models.txt` and the gated model's license accepted on
     huggingface.co (the token in the environment/`~/.cache/huggingface/token` must belong to an account
     that has accepted it) -- neither is a project dependency, both are opt-in for this experiment."""
     PROVIDER = 'medgemma'

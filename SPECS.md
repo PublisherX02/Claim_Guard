@@ -232,7 +232,7 @@ tested so far, on the RTX 4060 (8 GB) this was developed on, GPU placement confi
 |---|---|---|---|
 | `gemma3:4b` (Ollama library) | **Yes** | 83/84 (98.8%) | 1.8-5 s per call warm; the one rejection is a genuine hallucinated rule citation (below), not a formatting slip or a garbled reply |
 | `qwen3:4b` (Ollama library) | **No — disqualified, not just slow (below)** | Unusable: no `max_tokens` value tested worked across the 36-case set | Defaults to a hidden "thinking" mode that spends the token budget reasoning before writing an answer. Neither documented way to disable it (`/no_think` suffix, `chat_template_kwargs.enable_thinking=false`) works through Ollama's packaging of this model — verified, not assumed |
-| `google/medgemma-4b-it` (official, gated, via `transformers` + 4-bit) | **Yes** | 30/36 (83.3%, 36-case tuning set) | The third-party GGUF (`unsloth/medgemma-1.5-4b-it-GGUF`) wrote a visible, unfenced `"thought\n..."` preamble and duplicated its own JSON answer with no separator -- a chat-template mismatch in that specific conversion, not a MedGemma problem: the *official* checkpoint (gated, `license: other`, Health AI Developer Foundations terms; `"gated": "auto"` so access is instant on acceptance) produces clean, correctly-fenced JSON with no preamble. Runs in 4-bit (`bitsandbytes`, NF4) at 3.2 GB VRAM. Needs `pip install -r experiments/requirements-local-models.txt`; loading an 8 GB checkpoint via `transformers`' memory-mapped load can hit a Windows "paging file is too small" error under memory pressure -- freeing RAM (not resizing the page file) was enough here |
+| `google/medgemma-4b-it` (official, gated, via `transformers` + 4-bit) | **Yes** | 30/36 (83.3%, 36-case tuning set) | The third-party GGUF (`unsloth/medgemma-1.5-4b-it-GGUF`) wrote a visible, unfenced `"thought\n..."` preamble and duplicated its own JSON answer with no separator -- a chat-template mismatch in that specific conversion, not a MedGemma problem: the *official* checkpoint (gated, `license: other`, Health AI Developer Foundations terms; `"gated": "auto"` so access is instant on acceptance) produces clean, correctly-fenced JSON with no preamble. Runs in 4-bit (`bitsandbytes`, NF4) at 3.2 GB VRAM. Needs `uv pip install -r experiments/requirements-local-models.txt`; loading an 8 GB checkpoint via `transformers`' memory-mapped load can hit a Windows "paging file is too small" error under memory pressure -- freeing RAM (not resizing the page file) was enough here |
 
 **Stress test, `gemma3:4b`, the largest single-model battery run in this project** (`scripts/stress_test_local_model.py`):
 all 84 exercise cases (25 supplied + 11 own injection variants + all four 12-case "fresh" confirmation rounds) run
@@ -275,7 +275,7 @@ for a fair comparison since this one is not an HTTP call):
   side is missing.
 
 Reproduce: `python scripts/run_llm_explanations.py --provider medgemma --cases exercises/llm_explanation_cases.jsonl --output outputs/llm_explanations_medgemma.jsonl --no-scorecard` (needs
-`pip install -r experiments/requirements-local-models.txt` and the gated license accepted). Raw data:
+`uv pip install -r experiments/requirements-local-models.txt` and the gated license accepted). Raw data:
 `outputs/llm_explanations_medgemma.jsonl`, `outputs/llm_injection_variants_medgemma.jsonl`.
 
 **Qwen3, disqualified -- not on quality, on unprovisionable resource requirements.** Requested by name (the mentor
