@@ -1,0 +1,3 @@
+# The desktop window. pywebview shows the console in Microsoft Edge WebView2 (already part of Windows 10/11); pythonnet is its Windows bridge.
+# The local demo additionally needs the server requirements (../requirements.txt). The packaged app (build_windows.ps1) is only the window.
+pywebview==6.2.1

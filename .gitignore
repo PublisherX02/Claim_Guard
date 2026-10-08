@@ -6,3 +6,5 @@ __pycache__/
 agentdb.rvf
 agentdb.rvf.lock
 instance/
+desktop/build/
+desktop/dist/
