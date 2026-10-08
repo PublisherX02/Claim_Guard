@@ -26,7 +26,7 @@ import time
 from . import breaker as brk
 from .explain import MAX_TEMPLATE_CHARS, PLACEHOLDERS
 
-PROMPT_VERSION = '2.0.0-template'
+PROMPT_VERSION = '2.1.0-template'
 PASS1_INSTRUCTIONS = (
     'You help a human reviewer of a synthetic, educational health-insurance claims exercise. A deterministic rule engine has flagged a '
     'claim. Write a short explanation (two or three sentences) of why the rule below flagged it, in plain English, as a TEMPLATE.\n'
@@ -36,6 +36,9 @@ PASS1_INSTRUCTIONS = (
     '- Do not say a claim is approved, accepted, paid or payable; do not judge medical necessity; do not suggest fraud.\n'
     '- End with one sentence telling the reviewer what to check or request, based on the rule\'s corrective action.\n'
     'Reply with the template text only.')
+EXAMPLE = ('This claim was flagged because {value} is higher than the limit the rulebook allows for line {line}. A person should '
+           'compare the billed amount with the price list before anything is paid or rejected. Please check the price list and ask '
+           'the provider to confirm the amount.')
 PASS2_INSTRUCTIONS = (
     'Put the text below, word for word, into one JSON object of the form {"template": "<the text>"}. Do not change, add or remove any '
     'word. Reply with the JSON object only.')
@@ -69,10 +72,15 @@ class TemplateModel:
         if rule is None:
             raise brk.Fatal(f"unknown rule {request['rule_id']!r}")
         status, severity, lines = (request['failure_shape'].split('/') + ['', '', ''])[:3]
-        excerpt = {k: rule[k] for k in ('rule_id', 'title', 'severity', 'logic', 'corrective_action') if k in rule}
-        return (PASS1_INSTRUCTIONS + '\n\n## Rule (from the rulebook)\n' + json.dumps(excerpt, indent=2, ensure_ascii=False) +
-                f'\n\n## Outcome\nstatus: {status}\nseverity: {severity}\naffected lines: {"none" if lines == "0" else "one" if lines == "1" else "several"}\n'
-                f'\nAllowed placeholders: {", ".join(request.get("placeholders") or PLACEHOLDERS)}\n')
+        facts = [('Rule', f"{rule.get('rule_id')}: {rule.get('title', '')}"), ('What it checks', rule.get('logic', '')),
+                 ('What the rulebook says to do', rule.get('corrective_action', ''))]
+        rule_text = '\n'.join(f'{k}: {v}' for k, v in facts if v)
+        shape = 'none' if lines == '0' else 'one' if lines == '1' else 'several'
+        return (PASS1_INSTRUCTIONS + '\n\n## Example of the kind of answer wanted (a different rule)\n' + EXAMPLE +
+                '\n\n## The rule to explain\n' + rule_text +
+                f'\n\nOutcome: status {status}, severity {severity}, affected lines: {shape}\n'
+                f'Allowed placeholders: {", ".join(request.get("placeholders") or PLACEHOLDERS)}\n'
+                "Now write the explanation of this rule's outcome in two or three sentences, as plain sentences, not JSON.\n")
 
     @staticmethod
     def pass2_prompt(text):

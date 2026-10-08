@@ -94,7 +94,7 @@ class Deadline(unittest.TestCase):
 
         def slow(prompt, timeout):
             clock.advance(40)
-            return GOOD if 'Rule (from the rulebook)' in prompt else '{"template": "%s"}' % GOOD
+            return GOOD if 'The rule to explain' in prompt else '{"template": "%s"}' % GOOD
         m = TemplateModel(slow, RULES, two_pass=True, clock=clock)
         # 40 s per call against a 70 s ceiling: pass 1 gets 70 s, pass 2 gets the 30 s left (clock now 40), and finishes at 80.
         self.assertEqual(m(REQ, deadline=70.0), GOOD)
@@ -182,7 +182,7 @@ class TwoPass(unittest.TestCase):
         fake = Script(GOOD, '{"template": "%s"}' % GOOD)
         TemplateModel(fake, RULES, two_pass=True)(REQ, 10 ** 9)
         self.assertIn(GOOD, fake.prompts[1])
-        self.assertNotIn('Rule (from the rulebook)', fake.prompts[1])
+        self.assertNotIn('The rule to explain', fake.prompts[1])
 
     def test_the_two_modes_have_different_cache_identities(self):
         a, b = TemplateModel(Script(), RULES, name='m'), TemplateModel(Script(), RULES, name='m', two_pass=True)

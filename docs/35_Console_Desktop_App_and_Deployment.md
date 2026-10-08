@@ -47,7 +47,7 @@ powershell -ExecutionPolicy Bypass -File desktop/build_windows.ps1         # bui
 
 For a demo in a browser instead: `python scripts/serve_access.py --demo`, open the printed address, and get a sign-in code with `python scripts/demo_code.py CG-2002`.
 
-## 3. Deployment on one server
+## 3. Deployment on one server (hand-over notes for whoever deploys)
 
 One machine, Docker Compose, everything on that machine (no cloud service). Files are in `deploy/`.
 
@@ -71,7 +71,11 @@ bash deploy/install.sh claims.example.org public # a real domain pointing here: 
 
 **Keep `.env` safe and backed up.** Without `FERNET_KEY` the authenticator seeds cannot be read, and without `PII_KEY` pseudonyms change. Regenerating `.env` on an installed system locks everyone out.
 
-**Optional local model.** Set `QUEUE_AI_PROVIDER=ollama` and `OLLAMA_MODEL=<model>` in `.env`, start with `--profile ai`, then `docker compose -f deploy/compose.yml --env-file .env exec ollama ollama pull <model>`. The model sees only the rule's own text and the failure's shape, never a claim value (`src/workqueue/model_adapter.py`). Without it each flagged finding keeps the engine's own explanation. A GPU needs the NVIDIA container toolkit and the commented block in `deploy/compose.yml`. Which model to choose is still an open question for the mentor (on-premises model under 15B).
+**Hosting gemma3 on the server (on-premises model).** Add `ai` to the install: `bash deploy/install.sh <address> internal ai` (or `CG_MODEL=<other model> bash ...`). It starts an Ollama container on the private network, downloads the model once (gemma3:4b is about 3.3 GB), runs `scripts/check_queue_model.py` and prints how many of the 15 rules produced an accepted draft. Nothing leaves the machine: the worker calls `http://ollama:11434`. On an installed system, set `QUEUE_AI_PROVIDER=ollama` and `OLLAMA_MODEL=gemma3:4b` in `.env`, run compose with `--profile ai`, then `docker compose -f deploy/compose.yml --env-file .env --profile ai exec ollama ollama pull gemma3:4b`. A GPU needs the NVIDIA container toolkit and the commented block in `deploy/compose.yml`; without one it runs on the CPU (slower, see below).
+
+What the model does and does not do: it writes a short plain-English template for each flagged finding, from the rule's own text only. It never sees a claim value (the placeholders `{value}` and `{line}` are filled in by the system afterwards), never sets a status, and every draft passes the same guard as before. If the model is down, slow or answers in the wrong shape, the circuit breaker opens and the claim keeps the engine's own explanation: a model failure never blocks or changes a claim.
+
+**Measured 2026-10-08 against the real gemma3:4b on the development PC** (`scripts/check_queue_model.py`): with the first prompt (the rule shown as JSON) only 1 of 4 rules produced an accepted draft, because the 4B model echoed the JSON back. After rewriting the prompt as plain sentences with one worked example (`PROMPT_VERSION 2.1.0-template`), **15 of 15 rules were accepted, about 11 seconds each**. **Not measured:** the quality of those explanations. Reading them, several state specifics the model cannot know (it is not shown the claim), for example "the invoice number, member ID ... are missing" for R001, so they read as more certain than they are; they are labelled as AI drafts in the console, but a human must still judge the claim from the evidence. Latency on the target server depends on its CPU or GPU; run the check script there. Which model size to use, and whether a model under 15B is required, is still a question for the mentor. Two-pass mode (`QUEUE_AI_TWO_PASS=1`) has not been tried on a live model.
 
 **Backups and updates.** `bash deploy/backup.sh` writes `backup/<time>/mongo.archive.gz` and `audit-logs.tgz` with checksums (schedule it with cron and copy it off the machine). Restore: stop the stack, `docker compose ... exec -T mongo mongorestore --archive --gzip --drop -u ... -p ... --authenticationDatabase admin < mongo.archive.gz`, and untar the audit logs into the `claimguard_claimguard_data` volume. Update: `git pull` then `docker compose -f deploy/compose.yml --env-file .env up -d --build`. Run exactly one worker: it also runs the scheduler.
 
