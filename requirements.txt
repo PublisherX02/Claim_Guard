@@ -22,3 +22,7 @@ pymongo==4.18.2
 # celery, redis: the claim queue (src/workqueue/tasks.py). Redis is only the broker; MongoDB is the source of truth. Optional for the offline engine.
 celery==5.6.3
 redis==8.1.0
+# pyasn1, pyasn1-modules: ASN.1 structures of RFC 3161 timestamp tokens and CMS (src/timestamp_anchor.py). The signature and certificate
+# checks use cryptography above. Optional for the offline engine: only the timestamp step imports them.
+pyasn1==0.6.4
+pyasn1-modules==0.4.2

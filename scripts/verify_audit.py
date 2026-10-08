@@ -23,6 +23,23 @@ from audit import digest
 from audit_log import anchor_status, verify_ai_ordering, verify_with_anchor
 
 
+def timestamp_report(a):
+    """Print the timestamp state (separate from the chain state). Returns False when it fails the stated requirement."""
+    import timestamp_anchor
+    anchor = Path(a.log).with_name(Path(a.log).name + '.head.json')
+    ca = Path(a.tsa_ca).read_bytes() if a.tsa_ca else None
+    st = timestamp_anchor.timestamp_status(a.log, anchor, ca)
+    msg = {'none': 'Timestamp: none (the log was never stamped by a Time-Stamp Authority).',
+           'unverified': 'Timestamp: a token exists but was NOT checked (no --tsa-ca given).',
+           'current': f'Timestamp: verified, covers the whole log; signed at {st.get("gen_time")} by {st.get("tsa_subject")}.',
+           'stale': f'Timestamp: verified but {st.get("unstamped_events")} newer event(s) are not yet stamped (token from {st.get("gen_time")}).',
+           'invalid': f'Timestamp: INVALID: {st.get("reason")}'}[st['state']]
+    print(msg)
+    if st['state'] == 'invalid':
+        return False
+    return st['state'] == 'current' or not a.require_timestamp
+
+
 def main(argv=None):
     p = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     p.add_argument('--log', required=True)
@@ -31,6 +48,10 @@ def main(argv=None):
                    help='do not fail on rows after the anchored position (only for a log a writer is still appending to)')
     p.add_argument('--require-key', action='store_true',
                    help='exit non-zero unless the anchor is HMAC-signed and AUDIT_ANCHOR_KEY is set here to verify it')
+    p.add_argument('--tsa-ca', help='PEM file with the CA(s) allowed to issue the TSA certificate: also check the RFC 3161 timestamp '
+                   '(reported separately from the chain; see scripts/timestamp_log.py)')
+    p.add_argument('--require-timestamp', action='store_true',
+                   help='exit non-zero unless a verified timestamp token covers the anchor (needs --tsa-ca); a stale token fails too')
     a = p.parse_args(argv)
     head, count = verify_with_anchor(a.log, strict=not a.allow_unanchored)
     print(f'Chain OK: {count} events, matches anchor exactly; head {head}')
@@ -44,8 +65,11 @@ def main(argv=None):
               'Whoever can write the log can rewrite it and its anchor together and still pass this check (docs/20, F4).')
     if a.require_key and not (status['anchor_signed'] and status['key_configured']):
         raise SystemExit('--require-key: the anchor is not HMAC-signed and verified with a configured AUDIT_ANCHOR_KEY')
+    ts_ok = timestamp_report(a)
     stats = verify_ai_ordering(a.log)
     print('AI ordering OK:', json.dumps(stats))
+    if not ts_ok:
+        raise SystemExit('--require-timestamp: no verified timestamp covers the anchor (or the timestamp is invalid)')
     if not a.results:
         return
     results = {}
