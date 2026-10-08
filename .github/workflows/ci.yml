@@ -148,7 +148,8 @@ jobs:
           FEATHERLESS_API_KEY: ''
         run: |
           python -m unittest -v tests.test_security_owasp tests.test_redteam_findings tests.test_garbled_output_guard \
-            tests.test_stress_ingest tests.test_stress_ai_boundary tests.test_stress_review_page \n            tests.test_timestamp_anchor
+            tests.test_stress_ingest tests.test_stress_ai_boundary tests.test_stress_review_page \
+            tests.test_timestamp_anchor
       - name: Static analysis (bandit, medium severity and above fails the build)
         run: |
           uv pip install bandit==1.9.4
