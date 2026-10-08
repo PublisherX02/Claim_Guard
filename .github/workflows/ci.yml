@@ -155,7 +155,10 @@ jobs:
           bandit -q -r src scripts -ll
       - name: Known vulnerabilities in dependencies (pip-audit)
         run: |
-          uvx pip-audit -r requirements.txt
+          # pip-audit's own virtualenv step (ensurepip) fails on uv-managed Python, so resolve the full
+          # transitive set with uv and audit that list without letting pip-audit build an environment.
+          uv pip compile requirements.txt -o "$RUNNER_TEMP/locked.txt" -q
+          uvx pip-audit -r "$RUNNER_TEMP/locked.txt" --no-deps --disable-pip
       - name: Secret scan of the whole history (gitleaks)
         uses: gitleaks/gitleaks-action@v2
         env:
