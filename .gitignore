@@ -8,3 +8,4 @@ agentdb.rvf.lock
 instance/
 desktop/build/
 desktop/dist/
+backup/

@@ -1,0 +1,9 @@
+# For a real domain name that points at this machine (ports 80 and 443 reachable): Caddy gets and renews a Let's Encrypt certificate.
+{$CG_SITE} {
+	encode zstd gzip
+	header {
+		-Server
+		Strict-Transport-Security "max-age=31536000"
+	}
+	reverse_proxy api:8443
+}

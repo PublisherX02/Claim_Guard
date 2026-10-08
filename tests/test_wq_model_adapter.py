@@ -236,6 +236,13 @@ class EnvWiring(unittest.TestCase):
         self.assertIsNone(model_from_env({}, RULES))
         self.assertIsNone(model_from_env({'QUEUE_AI_PROVIDER': '  '}, RULES))
 
+    def test_ollama_address_comes_from_the_environment(self):
+        from workqueue.model_adapter import model_from_env
+        model = model_from_env({'QUEUE_AI_PROVIDER': 'ollama', 'OLLAMA_BASE_URL': 'http://ollama:11434/'}, RULES)
+        self.assertIsNotNone(model)
+        provider = model.complete.__closure__[0].cell_contents            # from_provider's closure holds the provider
+        self.assertEqual(str(provider.client.base_url).rstrip('/'), 'http://ollama:11434/v1')
+
     def test_unknown_provider_is_a_configuration_error(self):
         from workqueue.model_adapter import model_from_env
         with self.assertRaises(ValueError):

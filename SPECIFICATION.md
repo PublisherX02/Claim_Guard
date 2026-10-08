@@ -122,7 +122,7 @@ Priority follows MoSCoW (M must, S should, C could, W will not). Status: **Done*
 | FR-17 | Manage users: create, change level and rights, unlock, reset the second factor | M | Done | `scripts/access_admin.py`, `/users` routes |
 | FR-18 | Keep a hash-chained audit log, verifiable, with an anchor | M | Done | `src/audit_log.py`, `scripts/verify_audit.py` |
 | FR-19 | Record in shadow mode what an automatic clearer would have done, without acting | C | Done | `src/workqueue/shadow.py` |
-| FR-20 | Provide a web screen for reviewers | S | Not built | Only the API exists |
+| FR-20 | Provide a web screen for reviewers | S | Built (2026-10-08) | Reviewer console served by the API and shown in a desktop window; see docs/35. Checked with an automated browser, not a manual accessibility audit |
 | FR-21 | Accept claim submission over HTTP | C | Not built | Command-line tool only |
 | FR-22 | Route by model confidence | W | Not built | Choice: the engine is deterministic and the AI only explains |
 
@@ -893,7 +893,7 @@ Four scenarios: the broker is down (outbox and relay sweep every 10 s), a task f
 
 ### 9.2 What is not built, stated plainly
 
-- **No web screen.** Only the reviewer API exists (FR-20).
+- **Console limits.** The web console exists (FR-20, docs/35) but has had no manual accessibility audit or phone test, refreshes by polling, and has no recheck screen.
 - **No HTTP submission.** Claims enter through `queue_admin submit` (FR-21).
 - **Production model not wired into the queue.** The AI step takes an injected model; with none, the deterministic text is kept (FR-06 partial). The offline flow does use a local or hosted model.
 - **The recheck route is not built.** `POST /claims/{id}/recheck` answers 501. Correction is handled by resubmission as a new version (FR-13 partial).

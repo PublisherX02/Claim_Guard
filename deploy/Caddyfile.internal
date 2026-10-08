@@ -1,0 +1,8 @@
+# For a machine reached by IP address or an internal name: Caddy issues a certificate from its own private authority.
+# Browsers show a warning until you trust that authority (docs/35 says how); the desktop app can be pointed at it the same way.
+{$CG_SITE} {
+	tls internal
+	encode zstd gzip
+	header -Server
+	reverse_proxy api:8443
+}

@@ -148,4 +148,8 @@ def model_from_env(env, rules):
                'nvidia': llm_adapter.NvidiaExplanationProvider}
     if which not in classes:
         raise ValueError(f'QUEUE_AI_PROVIDER must be one of {sorted(classes)}, not {which!r}')
-    return from_provider(classes[which](), rules() if callable(rules) else rules, two_pass=env.get('QUEUE_AI_TWO_PASS') == '1')
+    kwargs = {}
+    base = (env.get('OLLAMA_BASE_URL') or '').strip().rstrip('/')
+    if which == 'ollama' and base:
+        kwargs['base_url'] = base if base.endswith('/v1') else base + '/v1'      # e.g. http://ollama:11434 in the compose stack
+    return from_provider(classes[which](**kwargs), rules() if callable(rules) else rules, two_pass=env.get('QUEUE_AI_TWO_PASS') == '1')

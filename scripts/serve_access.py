@@ -36,6 +36,9 @@ def main(argv=None, env=None, out=None, run=None, store=None, data_dir=None, cla
     parser.add_argument('--dev', action='store_true')
     parser.add_argument('--demo', action='store_true', help='implies --dev --queue; also seeds demo accounts and claims and runs the workers in-process')
     parser.add_argument('--queue', action='store_true', help='also serve the work queue routes (needs the queue database)')
+    parser.add_argument('--behind-proxy', action='store_true',
+                        help='listen without TLS because a TLS-terminating proxy in front is the only thing that can reach this port; '
+                             'client addresses are then read from X-Forwarded-For (only from TRUSTED_PROXY_IPS, default: any sender, so keep the port private)')
     parser.add_argument('--ssl-keyfile')
     parser.add_argument('--ssl-certfile')
     try:
@@ -44,10 +47,14 @@ def main(argv=None, env=None, out=None, run=None, store=None, data_dir=None, cla
         return e.code if isinstance(e.code, int) else 2
     if args.demo:
         args.dev = args.queue = True
+        env.setdefault('COOKIE_SECURE', 'false')           # the demo is plain http on this PC
     if args.dev and args.host not in LOCAL:
         say('error: dev mode is only allowed on localhost')
         return 2
-    if args.host not in LOCAL and not (args.ssl_keyfile and args.ssl_certfile):
+    if args.behind_proxy and args.dev:
+        say('error: --behind-proxy is for real deployments, not dev mode')
+        return 2
+    if args.host not in LOCAL and not (args.ssl_keyfile and args.ssl_certfile) and not args.behind_proxy:
         say('error: refusing to listen on a non-local address without TLS (give --ssl-keyfile and --ssl-certfile)')
         return 2
     try:
@@ -80,7 +87,8 @@ def main(argv=None, env=None, out=None, run=None, store=None, data_dir=None, cla
     if run is None:
         import uvicorn
         run = uvicorn.run
-    run(app, host=args.host, port=args.port, server_header=False, ssl_keyfile=args.ssl_keyfile, ssl_certfile=args.ssl_certfile)
+    proxy = {'proxy_headers': True, 'forwarded_allow_ips': (env.get('TRUSTED_PROXY_IPS') or '*').strip()} if args.behind_proxy else {}
+    run(app, host=args.host, port=args.port, server_header=False, ssl_keyfile=args.ssl_keyfile, ssl_certfile=args.ssl_certfile, **proxy)
     return 0
 
 

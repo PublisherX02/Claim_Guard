@@ -10,13 +10,13 @@ server must use https; plain http is accepted only for this PC (127.0.0.1, local
 port bound to this PC only, with generated demo accounts that exist for the life of the window.
 """
 import argparse
+import http.client
 import json
 import socket
 import sys
 import tempfile
 import threading
 import time
-import urllib.request
 from pathlib import Path
 from urllib.parse import urlparse
 
@@ -77,13 +77,14 @@ def free_port():
         return s.getsockname()[1]
 
 
-def wait_until_up(base, seconds=90):
+def wait_until_up(port, seconds=90):
     end = time.time() + seconds
     while time.time() < end:
         try:
-            with urllib.request.urlopen(base + '/healthz', timeout=2) as r:
-                if r.status == 200:
-                    return True
+            conn = http.client.HTTPConnection('127.0.0.1', port, timeout=2)
+            conn.request('GET', '/healthz')
+            if conn.getresponse().status == 200:
+                return True
         except OSError:
             time.sleep(0.4)
     return False
@@ -116,7 +117,7 @@ def start_local_demo():
     threading.Thread(target=serve_access.main, args=(['--demo', '--port', str(port)],),
                      kwargs={'out': sink, 'data_dir': data_dir}, daemon=True).start()
     base = f'http://127.0.0.1:{port}'
-    if not wait_until_up(base):
+    if not wait_until_up(port):
         raise SystemExit('the local demo did not start; see ' + str(data_dir / 'server.log'))
     return base, DemoBridge(data_dir / 'demo_accounts.json')
 

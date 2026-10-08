@@ -410,8 +410,11 @@ def create_app(service, claims, review_log, securitylog, settings, clock=time.ti
     def audit_verify(request: Request, principal: Any = Depends(need('audit.verify'))):
         security = securitylog.verify()
         try:
-            _, count = verify_with_anchor(review_log.path, strict=False)
-            review = {'ok': True, 'events': count}
+            if not review_log.path.exists():                       # nothing decided yet: an empty log is intact, not a failure
+                review = {'ok': True, 'events': 0}
+            else:
+                _, count = verify_with_anchor(review_log.path, strict=False)
+                review = {'ok': True, 'events': count}
         except (ValueError, OSError) as e:
             review = {'ok': False, 'error': str(e)[:300]}
         run(lambda: service.record('audit_verify', badge_id=principal.badge, ok=bool(security['ok'] and review['ok'])), request, principal)
