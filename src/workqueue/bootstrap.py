@@ -71,6 +71,7 @@ def build_queue(stack, env=None, dev=False, queue_store=None, engine=None, clock
     service = QueueService(store, dispatcher, stack.service, stack.securitylog, review_log, clock)
     from yara_engine import engine_code_hash, pack_hash
     intake = Intake(store, engine, stack.securitylog, clock, pack_hash(), engine_code_hash(), history=StoreHistory(store))
+    service.intake = intake
     step = explain.ExplainStep(store, model or explain.no_model, guard or explain.default_guard, CircuitBreaker(clock), clock,
                                random.Random(), service.routing_config, explain.deterministic_text,
                                model_name=getattr(model, 'name', 'none') if model else 'none')

@@ -89,5 +89,5 @@ def build_app(env, dev=False, store=None, data_dir=None, claims_path=None, bind_
         from workqueue import bootstrap as queue_bootstrap
         stack.queue = queue_bootstrap.build_queue(stack, env, dev=dev, queue_store=queue_store)
         service = stack.queue.service
-    app = api.create_app(stack.service, claims, review_log, stack.securitylog, stack.settings, queue=service)
+    app = api.create_app(stack.service, claims, review_log, stack.securitylog, stack.settings, queue=service, ui=True)
     return app, stack

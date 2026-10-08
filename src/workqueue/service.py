@@ -31,6 +31,7 @@ RESOLVING = review_workflow.RESOLVING
 GREEN_ACTIONS = ('verify_clear', 'escalate')
 CONFIG_FIELDS = frozenset(f.name for f in dataclasses.fields(rc.RoutingConfig)) - {'version'}
 LOG_VALUE_CHARS = 400
+MAX_SUBMIT = 25
 ROUNDS = {None: 1, 'countersign': 2, 'tiebreak': 3}
 
 
@@ -104,6 +105,7 @@ class QueueService:
     def __init__(self, store, dispatcher, access, securitylog, review_log, clock):
         self.store, self.dispatcher, self.access = store, dispatcher, access
         self.securitylog, self.review_log, self.clock = securitylog, review_log, clock
+        self.intake = None                                   # set by the wiring; only the submit route needs it
 
     # ---- permissions and ownership
     def _fresh(self, principal):
@@ -341,6 +343,26 @@ class QueueService:
         return {'counts': self.store.counts(), 'waiting': waiting, 'awaiting_countersign': sum(1 for d in signed), 'oldest_waiting_seconds': oldest, 'on_shift': len(agents),
                 'on_shift_senior': len(senior), 'inbox_sizes': inboxes, 'shortages': shortages, 'config_version': cfg.version,
                 'slice_size': cfg.slice_size}
+
+    def submit_claims(self, principal, claims):
+        """Hand claims to intake (validate, run the engine, write the receipt). The outbox marker intake leaves is what the relay
+        sweep publishes to the workers, so this call does no processing itself. One claim failing never stops the others."""
+        self._require(principal, 'routing.manage')
+        if self.intake is None:
+            raise ValueError('this server was started without a claim intake')
+        if type(claims) is not list or not claims or len(claims) > MAX_SUBMIT:
+            raise ValueError(f'send between 1 and {MAX_SUBMIT} claims at a time')
+        self.access.record('queue_admin', actor=principal.badge, command='submit_http')
+        rows = []
+        for claim in claims:
+            claim_id = claim.get('claim_id') if isinstance(claim, dict) else None
+            try:
+                receipt = self.intake.submit(claim)
+            except ValueError as e:
+                rows.append({'claim_id': claim_id if isinstance(claim_id, str) else None, 'accepted': False, 'reason': str(e)[:200]})
+                continue
+            rows.append({'claim_id': claim_id, 'accepted': True, 'lane': receipt['lane'], 'score': receipt['score']})
+        return rows
 
     def get_config(self, principal):
         self._require(principal, 'routing.manage')

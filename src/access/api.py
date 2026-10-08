@@ -23,6 +23,7 @@ from pydantic import BaseModel, ConfigDict, Field
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
 from . import masking, permissions
+from .ui import UI_CSP, UI_PREFIX
 from .service import AuthError, DuplicateUser, Forbidden
 
 API = '/api/v1'
@@ -111,7 +112,10 @@ class SecurityHeaders:
         async def send_with_headers(message):
             if message['type'] == 'http.response.start':
                 names = {n for n, _ in _SECURITY_HEADERS}
-                message = {**message, 'headers': [h for h in message.get('headers', []) if h[0].lower() not in names] + _SECURITY_HEADERS}
+                headers = _SECURITY_HEADERS
+                if scope.get('path', '').startswith(UI_PREFIX):          # the console's own files: scripts and styles from this origin only
+                    headers = [(n, UI_CSP.encode() if n == b'content-security-policy' else v) for n, v in headers]
+                message = {**message, 'headers': [h for h in message.get('headers', []) if h[0].lower() not in names] + headers}
             await send(message)
         await self.app(scope, receive, send_with_headers)
 
@@ -208,7 +212,7 @@ def _client_ip(request):
 
 
 # ---- the application --------------------------------------------------------------------------------------------------
-def create_app(service, claims, review_log, securitylog, settings, clock=time.time, queue=None):
+def create_app(service, claims, review_log, securitylog, settings, clock=time.time, queue=None, ui=False):
     app = FastAPI(title='ClaimGuard reviewer API', docs_url=None, redoc_url=None, openapi_url=None)
     app.add_middleware(RequestGuard)
     app.add_middleware(SecurityHeaders)
@@ -444,6 +448,10 @@ def create_app(service, claims, review_log, securitylog, settings, clock=time.ti
     @app.post(API + '/users/{badge_id}/reset-totp')
     def users_reset_totp(badge_id: str, request: Request, principal: Any = Depends(need('users.manage'))):
         return {'provisioning_uri': run(lambda: service.reset_totp(principal, badge_id), request, principal)}
+
+    if ui:
+        from . import ui as console
+        console.install(app)
 
     if queue is not None:
         from workqueue import api as queue_api
