@@ -317,8 +317,41 @@ class QueueService:
         return {'claim_state': 'ready'}
 
     # ---- the administrator's side
+    TRACE_VERSION_FIELDS = ('state', 'state_at', 'escalated', 'decided_by', 'signoff', 'lease')
+
+    def trace(self, principal, claim_id):
+        """Everything that is on record about one claim, for an auditor: each stored version with its state history, the rule pack and
+        configuration it was triaged under, every decision, and the security-log entries that name it. No claim values are returned:
+        a trace says who did what and when, not what the claim contained."""
+        self._require(principal, 'audit.view')
+        latest = self.store.get(claim_id)
+        if latest is None:
+            raise NotFound(claim_id)
+        versions = []
+        for v in range(1, latest['version'] + 1):
+            doc = latest if v == latest['version'] else self.store.get(claim_id, v)
+            if doc is None:
+                continue
+            receipt = doc.get('receipt', {})
+            versions.append({
+                'version': doc['version'], 'input_hash': doc.get('input_hash'),
+                'receipt': {k: receipt.get(k) for k in ('lane', 'score', 'eligibility', 'config_version', 'rule_pack_hash', 'engine_version', 'facts_hash', 'degraded',
+                                                        'result_hash', 'created_at')},
+                **{k: doc.get(k) for k in self.TRACE_VERSION_FIELDS},
+                'events': doc.get('events', []), 'decisions': doc.get('decisions', []),
+                'findings': [{'rule_id': r.get('rule_id'), 'status': r.get('status'), 'severity': r.get('severity')} for r in doc.get('results', [])
+                             if r.get('status') in ('FAIL', 'UNABLE_TO_ASSESS')],
+                'explanation_sources': {rid: v.get('source') for rid, v in ((doc.get('explanation') or {}).get('findings') or {}).items()},
+            })
+        log = [r for r in self.securitylog.scan(50_000) if r['event'].get('claim_id') == claim_id]
+        return {'claim_id': claim_id, 'versions': versions, 'security_log': log[-200:]}
+
     def dashboard(self, principal):
         self._require(principal, 'queue.view')
+        return self.dashboard_snapshot()
+
+    def dashboard_snapshot(self):
+        """The dashboard numbers without a permission check: for the caller that already checked one (the API route, the health report)."""
         now = self.clock()
         cfg = self.routing_config()
         agents = [a for a in self.dispatcher.agents() if a.active and a.badge_id in cfg.on_shift]

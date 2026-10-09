@@ -109,8 +109,9 @@ class QueueWorld(World):
         return [] if not path.exists() else [r for r in path.read_text(encoding='utf-8').split('\n') if r.strip()]
 
     # ---- HTTP
-    def build_app(self):
-        self.app = api.create_app(self.service, self.claims, self.review_log, self.log, self.settings, clock=self.clock, queue=self.queue)
+    def build_app(self, extra_probes=()):
+        self.app = api.create_app(self.service, self.claims, self.review_log, self.log, self.settings, clock=self.clock, queue=self.queue,
+                                  extra_probes=extra_probes)
         return self.app
 
     def client(self):

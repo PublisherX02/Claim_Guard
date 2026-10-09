@@ -15,7 +15,7 @@ from access_api_world import ApiWorld
 from fastapi.testclient import TestClient
 
 UI_DIR = ROOT / 'src' / 'access' / 'ui'
-OWN_SCRIPTS = ('lib.js', 'views-work.js', 'views-admin.js', 'app.js')
+OWN_SCRIPTS = ('lib.js', 'views-work.js', 'views-admin.js', 'views-ops.js', 'app.js')
 SINKS = re.compile(r'innerHTML|outerHTML|insertAdjacentHTML|document\.write|\beval\s*\(|new Function|setAttribute\(\s*[\'"]style|srcdoc|javascript:', re.I)
 
 

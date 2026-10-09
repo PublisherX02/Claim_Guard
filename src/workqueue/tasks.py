@@ -9,6 +9,7 @@ from celery import Celery
 
 from . import reconcile as reconcile_mod
 from . import relay
+from .jobs import run_job
 from .explain import backoff
 from .worker import dead_letter, process
 
@@ -50,19 +51,23 @@ def make_app(broker_url, backend=None, *, eager=False, runtime=None):
 
     @app.task(name='workqueue.deal', shared=False)
     def deal():
-        return len(app.runtime.dispatcher.deal(full=False).assigned)
+        rt = app.runtime
+        return run_job(rt.store, rt.clock, 'deal', lambda: len(rt.dispatcher.deal(full=False).assigned))
 
     @app.task(name='workqueue.expire', shared=False)
     def expire():
-        return app.runtime.dispatcher.expire()
+        rt = app.runtime
+        return run_job(rt.store, rt.clock, 'expire', rt.dispatcher.expire)
 
     @app.task(name='workqueue.relay_sweep', shared=False)
     def relay_sweep():
-        return relay.sweep(app.runtime.store, publisher(app), app.runtime.clock())
+        rt = app.runtime
+        return run_job(rt.store, rt.clock, 'relay', lambda: relay.sweep(rt.store, publisher(app), rt.clock()))
 
     @app.task(name='workqueue.reconcile', shared=False)
     def reconcile():
-        report = reconcile_mod.reconcile(app.runtime.store, app.runtime.clock())
+        rt = app.runtime
+        report = run_job(rt.store, rt.clock, 'reconcile', lambda: reconcile_mod.reconcile(rt.store, rt.clock()))
         return {'ok': report.ok, 'findings': len(report.findings)}
 
     return app

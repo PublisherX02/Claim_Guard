@@ -72,6 +72,10 @@ def install(app, queue, need, principal_dep, run):
     def dashboard(request: Request, principal: Any = Depends(need('queue.view'))):
         return go(lambda: queue.dashboard(principal), request, principal)
 
+    @app.get(API + '/ops/trace/{claim_id}')
+    def trace(claim_id: str, request: Request, principal: Any = Depends(need('audit.view'))):
+        return go(lambda: queue.trace(principal, claim_id), request, principal)
+
     @app.get(f'{API}/queue/feedback')
     def feedback_report(request: Request, principal: Any = Depends(need('queue.view'))):
         return go(lambda: feedback.report(queue.store), request, principal)

@@ -8,7 +8,7 @@
   var NAV = [
     ['Work', [['#/inbox', 'My inbox', 'claims.decide'], ['#/claims', 'All claims', 'claims.view']]],
     ['Queue', [['#/queue', 'Overview', 'queue.view'], ['#/submit', 'Submit claims', 'routing.manage'], ['#/config', 'Routing settings', 'routing.manage']]],
-    ['Administration', [['#/users', 'Users', 'users.manage'], ['#/audit', 'Audit trail', 'audit.view']]]
+    ['Administration', [['#/health', 'System health', 'queue.view'], ['#/audit', 'Audit and traceability', 'audit.view'], ['#/users', 'Users', 'users.manage']]]
   ];
   var LEVELS = { 1: 'Viewer', 2: 'Reviewer', 3: 'Senior reviewer', 4: 'Administrator' };
 
@@ -116,7 +116,9 @@
     [/^#\/submit$/, 'routing.manage', function (m, el) { CG.views.submit(el); }, '#/submit'],
     [/^#\/config$/, 'routing.manage', function (m, el) { CG.views.config(el); }, '#/config'],
     [/^#\/users$/, 'users.manage', function (m, el) { CG.views.users(el); }, '#/users'],
-    [/^#\/audit$/, 'audit.view', function (m, el) { CG.views.audit(el); }, '#/audit']
+    [/^#\/health$/, 'queue.view', function (m, el) { CG.views.health(el); }, '#/health'],
+    [/^#\/audit$/, 'audit.view', function (m, el) { CG.views.audit(el); }, '#/audit'],
+    [/^#\/trace\/(.+)$/, 'audit.view', function (m, el) { CG.views.trace(el, decodeURIComponent(m[1])); }, '#/audit']
   ];
 
   function route() {

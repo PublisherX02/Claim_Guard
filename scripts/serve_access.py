@@ -59,7 +59,7 @@ def main(argv=None, env=None, out=None, run=None, store=None, data_dir=None, cla
         return 2
     try:
         app, stack = bootstrap.build_app(env, dev=args.dev, store=store, data_dir=data_dir, claims_path=claims_path, bind_host=args.host,
-                                       queue=args.queue)
+                                       queue=args.queue, demo=args.demo)
     except config.ConfigError as e:
         say(f'configuration error: {e}')
         return 2

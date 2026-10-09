@@ -7,6 +7,7 @@ a hostile badge or path typed by an attacker can neither bloat the log nor smugg
 import json
 import math
 import os
+from collections import deque
 from pathlib import Path
 
 from audit_log import ANCHOR_KEY_ENV, SECURITY_EVENTS, AuditLog, anchor_status, verify_with_anchor
@@ -91,6 +92,20 @@ class SecurityLog:
                 row = json.loads(line)
                 rows.append({'sequence': row['sequence'], 'recorded_at': row['recorded_at'], 'event': row['event']})
         return rows[offset:offset + limit]
+
+    def scan(self, max_rows=50_000):
+        """The most recent `max_rows` rows, oldest first, read in one pass (the audit panel's filters and counts work on this)."""
+        if type(max_rows) is not int or max_rows < 1:
+            raise ValueError('max_rows must be a positive whole number')
+        if not self.path.exists():
+            return []
+        recent = deque(maxlen=max_rows)
+        with open(self.path, encoding='utf-8') as f:
+            for line in f:
+                if line.strip():
+                    row = json.loads(line)
+                    recent.append({'sequence': row['sequence'], 'recorded_at': row['recorded_at'], 'event': row['event']})
+        return list(recent)
 
     def verify(self):
         status = anchor_status(self.path)

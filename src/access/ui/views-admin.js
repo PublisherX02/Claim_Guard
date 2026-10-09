@@ -211,34 +211,4 @@
   };
 
   // ---- audit ------------------------------------------------------------------------------------------------------------------
-  CG.views.audit = function (root) {
-    var offset = 0, limit = 50, table = h('div'), pager = h('div', { class: 'row' }), verdict = h('div');
-    function load() {
-      CG.api('GET', '/audit/events?limit=' + limit + '&offset=' + offset).then(function (d) {
-        CG.clear(table); CG.clear(pager);
-        table.appendChild(CG.table([
-          { label: '#', num: true, get: function (r) { return r.sequence; } },
-          { label: 'When', get: function (r) { return r.recorded_at; } },
-          { label: 'Event', get: function (r) { return CG.chip(r.event.event_type, 'neutral'); } },
-          { label: 'Details', get: function (r) { var e = {}; Object.keys(r.event).forEach(function (k) { if (k !== 'event_type') e[k] = r.event[k]; }); return h('span', { class: 'mono small', text: JSON.stringify(e) }); } }
-        ], d.events));
-        pager.appendChild(h('button', { class: 'btn small', type: 'button', text: 'Previous', disabled: offset === 0, onclick: function () { offset = Math.max(0, offset - limit); load(); } }));
-        pager.appendChild(h('button', { class: 'btn small', type: 'button', text: 'Next', disabled: d.events.length < limit, onclick: function () { offset += limit; load(); } }));
-      }, CG.fail);
-    }
-    var check = h('button', { class: 'btn', type: 'button', text: 'Verify the logs', onclick: function () {
-      CG.api('GET', '/audit/verify').then(function (r) {
-        CG.clear(verdict);
-        var ok = r.security.ok && r.review.ok;
-        verdict.appendChild(h('div', { class: 'notice ' + (ok ? 'good' : 'bad') },
-          h('b', { text: ok ? 'Both logs are intact. ' : 'A log failed its check. ' }),
-          'Security log: ' + (r.security.ok ? r.security.events + ' events, chain valid' : (r.security.error || 'failed')) + '. Review log: ' + (r.review.ok ? r.review.events + ' events, chain valid' : (r.review.error || 'failed')) + '.'));
-      }, CG.fail);
-    } });
-    if (!CG.has('audit.verify')) check.disabled = true;
-    root.appendChild(h('div', { class: 'row between' }, h('h1', { text: 'Audit trail' }), check));
-    root.appendChild(verdict);
-    root.appendChild(h('div', { class: 'card' }, table, pager));
-    load();
-  };
 })();

@@ -12,7 +12,9 @@ from urllib.parse import parse_qs, urlparse
 import pyotp
 from access import passwords
 
+from . import reconcile as reconcile_mod
 from . import relay, routing_config as rc
+from .jobs import run_job
 from .tasks import make_app, publisher
 
 DEMO_ACCOUNTS = ((1, 'CG-1001', 'Demo Viewer'), (2, 'CG-2002', 'Demo Reviewer Amal'), (2, 'CG-2003', 'Demo Reviewer Omar'),
@@ -71,10 +73,10 @@ class WorkerLoop:
     """Does what the Celery worker and its scheduler do, on a thread: publish the outbox (which runs the pipeline eagerly), deal claims
     into inboxes, return lapsed leases. The same functions, the same stores; only the clock tick is different."""
 
-    def __init__(self, queue, relay_every=1.5, deal_every=2.0, expire_every=20.0):
+    def __init__(self, queue, relay_every=1.5, deal_every=2.0, expire_every=20.0, reconcile_every=120.0):
         self.queue = queue
         self.app = make_app('memory://', eager=True, runtime=queue.runtime)
-        self.every = {'relay': relay_every, 'deal': deal_every, 'expire': expire_every}
+        self.every = {'relay': relay_every, 'deal': deal_every, 'expire': expire_every, 'reconcile': reconcile_every}
         self.stop = threading.Event()
         self.thread = threading.Thread(target=self._run, name='claimguard-demo-worker', daemon=True)
         self.errors = 0
@@ -86,11 +88,13 @@ class WorkerLoop:
     def tick(self, name):
         rt = self.queue.runtime
         if name == 'relay':
-            relay.sweep(rt.store, publisher(self.app), rt.clock())
+            run_job(rt.store, rt.clock, 'relay', lambda: relay.sweep(rt.store, publisher(self.app), rt.clock()))
         elif name == 'deal':
-            rt.dispatcher.deal(full=False)
+            run_job(rt.store, rt.clock, 'deal', lambda: len(rt.dispatcher.deal(full=False).assigned))
+        elif name == 'expire':
+            run_job(rt.store, rt.clock, 'expire', rt.dispatcher.expire)
         else:
-            rt.dispatcher.expire()
+            run_job(rt.store, rt.clock, 'reconcile', lambda: reconcile_mod.reconcile(rt.store, rt.clock()))
 
     def _run(self):
         last = {k: 0.0 for k in self.every}

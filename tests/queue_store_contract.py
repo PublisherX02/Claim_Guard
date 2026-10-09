@@ -291,6 +291,25 @@ class StoreContract:
         self.assertIsNone(self.store.pop_dead_letter('X1'))
         self.assertEqual(self.store.dead_letters(), [])
 
+    def test_a_store_answers_a_ping(self):
+        self.assertTrue(self.store.ping())
+
+    def test_job_records_count_runs_and_failures_and_keep_the_last_success(self):
+        self.assertEqual(self.store.jobs(), [])
+        self.store.record_job('relay', NOW, True, 'published 2')
+        self.store.record_job('relay', NOW + 10, False, 'broker down')
+        self.store.record_job('deal', NOW + 5, True)
+        jobs = {j['name']: j for j in self.store.jobs()}
+        self.assertEqual(sorted(jobs), ['deal', 'relay'])
+        self.assertEqual((jobs['relay']['runs'], jobs['relay']['failures'], jobs['relay']['ok']), (2, 1, False))
+        self.assertEqual((jobs['relay']['at'], jobs['relay']['last_ok_at']), (NOW + 10, NOW))
+        self.assertEqual((jobs['deal']['runs'], jobs['deal']['failures'], jobs['deal']['ok']), (1, 0, True))
+
+    def test_job_records_refuse_malformed_input(self):
+        for args in (('', NOW, True), ('x', 'now', True), ('x', NOW, 'yes'), ('x', NOW, True, 'd' * 201), (7, NOW, True)):
+            with self.assertRaises((ValueError, TypeError)):
+                self.store.record_job(*args)
+
     def test_the_cache_round_trips_text(self):
         self.assertIsNone(self.store.cache_get('k'))
         self.store.cache_put('k', 'template text')

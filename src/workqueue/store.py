@@ -126,6 +126,9 @@ class QueueStore(Protocol):
     def cache_get(self, key): ...
     def cache_put(self, key, text): ...
     def bump(self, counter, window_key, limit): ...
+    def record_job(self, name, now, ok, detail=''): ...
+    def jobs(self): ...
+    def ping(self): ...
 
 
 class MemoryQueueStore:
@@ -137,6 +140,7 @@ class MemoryQueueStore:
         self._configs = []
         self._deals = []
         self._dead = {}
+        self._jobs = {}
         self._cache = {}
         self._counters = {}
 
@@ -362,6 +366,24 @@ class MemoryQueueStore:
         check_text(key, 'key'); check_text(text, 'text')
         with self._lock:
             self._cache[key] = text
+
+    def ping(self):
+        return True
+
+    def record_job(self, name, now, ok, detail=''):
+        """Remember the last time a scheduled job ran and whether it worked (the health panel reads this; it is not part of any decision)."""
+        check_text(name, 'name'); check_number(now, 'now')
+        if not name or type(ok) is not bool or not isinstance(detail, str) or len(detail) > 200:
+            raise ValueError('ok must be a boolean and detail short text')
+        with self._lock:
+            old = self._jobs.get(name, {})
+            self._jobs[name] = {'name': name, 'at': now, 'ok': ok, 'detail': detail,
+                                'runs': old.get('runs', 0) + 1, 'failures': old.get('failures', 0) + (0 if ok else 1),
+                                'last_ok_at': now if ok else old.get('last_ok_at')}
+
+    def jobs(self):
+        with self._lock:
+            return copy.deepcopy(sorted(self._jobs.values(), key=lambda j: j['name']))
 
     def bump(self, counter, window_key, limit):
         check_text(counter, 'counter'); check_text(window_key, 'window_key')

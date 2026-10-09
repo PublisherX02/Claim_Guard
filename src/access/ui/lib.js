@@ -129,4 +129,61 @@
       return CG.h('img', { class: 'qr', alt: 'QR code for the authenticator app', src: q.createDataURL(5, 0) });
     } catch (e) { return null; }
   };
+
+  // ---- small charts (inline SVG, no library, colours come from the stylesheet) -------------------------------------------
+  var NS = 'http://www.w3.org/2000/svg';
+  CG.svg = function (tag, attrs) {
+    var el = document.createElementNS(NS, tag);
+    if (attrs) Object.keys(attrs).forEach(function (k) { if (attrs[k] !== null && attrs[k] !== undefined) el.setAttribute(k, String(attrs[k])); });
+    for (var i = 2; i < arguments.length; i++) if (arguments[i]) el.appendChild(arguments[i]);
+    return el;
+  };
+  CG.svgText = function (attrs, text) { var t = CG.svg('text', attrs); t.textContent = text; return t; };
+
+  /* A stacked bar chart. spec = { title, labels: [x labels], series: [{ name, values: [numbers], cls: 's0'..'s3' }], height, yLabel }.
+   * Every bar carries a native tooltip (<title>), the SVG has a role and a text label, and the table of the same numbers is one click away
+   * wherever the chart is used, so the picture is never the only way to read the data. */
+  CG.barChart = function (spec) {
+    var W = 640, H = spec.height || 150, L = 36, B = 18, T = 6, R = 4;
+    var n = spec.labels.length, totals = spec.labels.map(function (_, i) { return spec.series.reduce(function (a, s) { return a + (s.values[i] || 0); }, 0); });
+    var max = Math.max.apply(null, totals.concat([1]));
+    var step = (W - L - R) / Math.max(1, n), bw = Math.max(1, step * 0.72);
+    var svg = CG.svg('svg', { viewBox: '0 0 ' + W + ' ' + H, class: 'chart', role: 'img', 'aria-label': spec.title + '. Highest bar: ' + max + '.', preserveAspectRatio: 'none' });
+    [0, 0.5, 1].forEach(function (f) {
+      var y = T + (H - T - B) * (1 - f);
+      svg.appendChild(CG.svg('line', { x1: L, x2: W - R, y1: y, y2: y, class: 'grid' }));
+      svg.appendChild(CG.svgText({ x: L - 4, y: y + 3, class: 'axis', 'text-anchor': 'end' }, String(Math.round(max * f))));
+    });
+    spec.labels.forEach(function (label, i) {
+      var y = H - B, x = L + i * step + (step - bw) / 2;
+      spec.series.forEach(function (s) {
+        var v = s.values[i] || 0;
+        if (!v) return;
+        var h = (H - T - B) * v / max;
+        y -= h;
+        svg.appendChild(CG.svg('rect', { x: x, y: y, width: bw, height: h, class: 'bar-' + s.cls }, (function () { var t = CG.svg('title'); t.textContent = label + ': ' + v + ' ' + s.name; return t; })()));
+      });
+    });
+    [0, Math.floor((n - 1) / 2), n - 1].forEach(function (i) {
+      if (i < 0 || i >= n) return;
+      svg.appendChild(CG.svgText({ x: L + i * step + step / 2, y: H - 4, class: 'axis', 'text-anchor': i === 0 ? 'start' : i === n - 1 ? 'end' : 'middle' }, spec.labels[i]));
+    });
+    var legend = CG.h('div', { class: 'legend' }, spec.series.map(function (s) { return CG.h('span', null, CG.h('i', { class: 'swatch bar-' + s.cls }), ' ' + s.name); }));
+    return CG.h('figure', { class: 'figure' }, svg, legend);
+  };
+
+  /* Horizontal bars for a few labelled counts: items = [{ label, value, cls }]. */
+  CG.hbars = function (items, total) {
+    var max = Math.max.apply(null, items.map(function (i) { return i.value; }).concat([1]));
+    return CG.h('div', { class: 'hbars' }, items.map(function (it) {
+      var fill = CG.h('i', { class: 'bar-' + (it.cls || 's0') });
+      fill.style.width = (100 * it.value / max) + '%';
+      return CG.h('div', { class: 'hbar' }, CG.h('span', { class: 'hl', text: String(it.label).replace(/_/g, ' ') }), CG.h('div', { class: 'bar' }, fill),
+        CG.h('span', { class: 'hv', text: String(it.value) + (total ? ' (' + Math.round(100 * it.value / Math.max(1, total)) + '%)' : '') }));
+    }));
+  };
+
+  CG.status = function (s) { return CG.h('span', { class: 'dot ' + s, role: 'img', 'aria-label': s }); };
+  CG.when = function (iso) { var d = new Date(iso); return isNaN(d) ? String(iso || '-') : d.toLocaleString(); };
+
 })();

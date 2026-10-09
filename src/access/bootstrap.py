@@ -7,6 +7,7 @@ the first run signed. That file exists only for local demos; production reads ev
 import json
 import os
 import secrets
+import time
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -76,7 +77,7 @@ def build_stack(env, dev=False, store=None, data_dir=None, bind_host='127.0.0.1'
     return Stack(settings, store, log, AccessService(store, settings, log, **({'clock': clock} if clock else {})), directory)
 
 
-def build_app(env, dev=False, store=None, data_dir=None, claims_path=None, bind_host='127.0.0.1', queue=False, queue_store=None):
+def build_app(env, dev=False, store=None, data_dir=None, claims_path=None, bind_host='127.0.0.1', queue=False, queue_store=None, demo=False):
     from audit_log import AuditLog
     from engine_core import config as engine_config
 
@@ -84,10 +85,12 @@ def build_app(env, dev=False, store=None, data_dir=None, claims_path=None, bind_
     review_log = AuditLog(stack.data_dir / 'review_audit.jsonl')
     path = claims_path or env.get('CLAIMS_PATH') or ROOT / 'data' / 'development' / 'claims.jsonl'
     claims = claimstore.FileClaimStore.from_jsonl(path, engine_config(ROOT))
-    service = None
+    service, probes = None, []
     if queue:
         from workqueue import bootstrap as queue_bootstrap
+        from workqueue import health as queue_health
         stack.queue = queue_bootstrap.build_queue(stack, env, dev=dev, queue_store=queue_store)
         service = stack.queue.service
-    app = api.create_app(stack.service, claims, review_log, stack.securitylog, stack.settings, queue=service, ui=True)
+        probes = queue_health.queue_probes(stack.queue, env, time.time, demo=demo)
+    app = api.create_app(stack.service, claims, review_log, stack.securitylog, stack.settings, queue=service, ui=True, extra_probes=probes)
     return app, stack
