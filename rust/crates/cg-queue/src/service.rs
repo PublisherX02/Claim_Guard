@@ -524,7 +524,7 @@ impl QueueService {
 }
 
 /// `audit.append`'s and `review_workflow.validate_decision`'s checks, on the fields the queue builds itself.
-fn validate_decision(decision: &Value, finding: &Value) -> Result<(), String> {
+pub fn validate_decision(decision: &Value, finding: &Value) -> Result<(), String> {
     let text = |k: &str| decision[k].as_str().unwrap_or("");
     if !ACTIONS.contains(&text("action")) {
         return Err("Decision does not match review_event schema: action".into());
