@@ -4,8 +4,8 @@
 
 **Short answer.**
 1. **Same behaviour, checked by machine.** Every layer was compared with the Python build on the same inputs: the 15 rules on 10,600 claims, the 8 extension rules on 6,000 claims, the audit log, passwords, session tokens, authenticator codes and pseudonyms value by value, the AI step's prompts (181 of 181 byte-identical), and the HTTP API on 132 requests as four different roles. The only API differences are listed in section 4.
-2. **Smaller and faster to start.** The container image is 159 MB (Python: 362 MB). The numbers measured on this laptop are in section 6.
-3. **Attacked, not just tested.** An 83-check black-box penetration test over real sockets, a 400,000-request fuzz of the API boundary, and a mutation test that breaks the security rules one line at a time (section 5). The pen test found two real weaknesses (slow-connection exhaustion and an oversized-header allowance); both are fixed and covered.
+2. **Smaller and lighter.** The container image is 159 MB (Python: 362 MB), the server starts in 3 s instead of 5 and uses about 25 MB less memory; request speed is about the same (section 6).
+3. **Attacked, not just tested.** An 83-check black-box penetration test over real sockets, a 400,000-request fuzz of the API boundary, and a mutation test of 36 security-rule breakages, all caught after eight test gaps were closed (section 5). The pen test found two real weaknesses (slow-connection exhaustion and an oversized-header allowance); both are fixed and covered.
 4. **Not finished:** an external RFC 3161 timestamp, cloud model providers, and the recheck route. Section 7 lists everything that is missing.
 
 ---
@@ -100,7 +100,9 @@ Random method, path, query, headers and body (binary, text with control and bidi
 
 ### 5.3 Mutation test of the security rules (`rust/tools/mutate.py`)
 
-MUTATION_PLACEHOLDER
+Each mutant breaks one security rule in one line (CSRF check off, permission check always true, throttle never blocks, cookie not HttpOnly, body limit enlarged, high-severity check off, forwarded-for trusted without a proxy, token expiry ignored, revoked tokens accepted, one-time code reusable, a viewer allowed to unmask, notes always visible, a signer allowed to countersign their own decision, a lease not tied to its owner, an expired lease still usable, an unflagged finding decidable, and others). The tests must fail for each one.
+
+**First run: 36 mutants, 28 caught, 8 survived** (one pattern also matched twice and was made specific). Each survivor was a real gap: no test checked the forced-password-change gate, that a mid-level reviewer cannot decide a high-severity finding, the framing header, that login and decision bodies refuse unknown fields, that a viewer sees no action buttons, that a refused request is written to the security log, the exact permission list of each level, or that a passed finding cannot be decided. Tests were added for each (and one loose assertion tightened). **After the fix: all 36 mutants are caught.** The Python queue has its own 77-mutant run (`tests/mutation_queue.py`); the two are not the same list.
 
 ### 5.4 What the pen test cannot show
 
@@ -108,7 +110,18 @@ It attacks the server process, not the deployment. TLS, the proxy's header rules
 
 ## 6. Footprint
 
-FOOTPRINT_PLACEHOLDER
+Same laptop, both servers in demo mode with the same 60 sample claims and the in-process workers, one signed-in reviewer sending requests one after another over a new connection each time (`rust/tools/footprint.py`; one afternoon, one noisy Windows machine, so read these as an order of magnitude):
+
+| | Python (FastAPI + uvicorn) | Rust |
+|---|---|---|
+| Time until the server answers | 5.1 s | 3.1 s |
+| Memory, idle | 92 MB | 67 MB |
+| Memory, after 800 requests | 94 MB | 66 MB |
+| `GET /claims?limit=50`, median / 95th percentile | 16.7 / 35 ms | 15.3 / 30 ms |
+| `GET /work/inbox`, median / 95th percentile | 43.7 / 66 ms | 32.3 / 50 ms |
+| Container image | 362 MB | 159 MB |
+
+Most of a request here is opening a connection on Windows, not the work; the rules themselves cost microseconds (`docs/36`), and a person waits seconds for the AI step either way. The measurement found one real problem: the first Rust claim listing was *slower* than Python (37 ms) because it copied every claim's results on each request; the listing summaries are now computed once when the store is built. The honest summary is that Rust is a little lighter and quicker, not an order of magnitude, for this workload; the reasons to prefer it are memory safety, the small image, no interpreter to patch, and one binary to ship.
 
 ## 7. What is not done
 

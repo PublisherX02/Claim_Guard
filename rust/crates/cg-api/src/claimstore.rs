@@ -12,10 +12,35 @@ pub const STATUSES: [&str; 4] = ["PASS", "FAIL", "UNABLE_TO_ASSESS", "NOT_APPLIC
 const FLAGGED: [&str; 2] = ["FAIL", "UNABLE_TO_ASSESS"];
 pub const MAX_PAGE: usize = 200;
 
+/// What a listing needs about one claim, worked out once when the store is built (the store never changes afterwards).
+struct Digest {
+    row: Value,
+    statuses: Vec<String>,
+    /// (rule id, status) of every result, to answer rule filters without touching the results again.
+    rules: Vec<(String, String)>,
+}
+
 pub struct FileClaimStore {
     order: Vec<String>,
     claims: BTreeMap<String, Value>,
     results: BTreeMap<String, Value>,
+    digests: BTreeMap<String, Digest>,
+}
+
+fn digest(id: &str, results: &Value) -> Digest {
+    let list = results.as_array().map(Vec::as_slice).unwrap_or(&[]);
+    let flagged: Vec<&Value> = list.iter().filter(|r| r["status"].as_str().is_some_and(|s| FLAGGED.contains(&s))).collect();
+    let top = flagged.iter().filter_map(|r| r["severity"].as_str()).max_by_key(|s| if *s == "high" { 2 } else { 1 });
+    let mut counts = Map::new();
+    for r in list {
+        let c = counts.entry(r["status"].as_str().unwrap_or("").to_string()).or_insert(json!(0));
+        *c = json!(c.as_i64().unwrap_or(0) + 1);
+    }
+    Digest {
+        row: json!({"claim_id": id, "counts": counts, "max_severity": top, "flagged": !flagged.is_empty()}),
+        statuses: list.iter().map(|r| r["status"].as_str().unwrap_or("").to_string()).collect(),
+        rules: list.iter().map(|r| (r["rule_id"].as_str().unwrap_or("").to_string(), r["status"].as_str().unwrap_or("").to_string())).collect(),
+    }
 }
 
 fn claim_id_ok(id: &str) -> bool {
@@ -28,12 +53,13 @@ fn rule_id_ok(id: &str) -> bool {
 
 impl FileClaimStore {
     pub fn new(claims: Vec<(Value, Value)>) -> FileClaimStore {
-        let mut s = FileClaimStore { order: vec![], claims: BTreeMap::new(), results: BTreeMap::new() };
+        let mut s = FileClaimStore { order: vec![], claims: BTreeMap::new(), results: BTreeMap::new(), digests: BTreeMap::new() };
         for (c, r) in claims {
             let id = c["claim_id"].as_str().unwrap_or("").to_string();
             if s.claims.insert(id.clone(), c).is_none() {
                 s.order.push(id.clone());
             }
+            s.digests.insert(id.clone(), digest(&id, &r));
             s.results.insert(id, r);
         }
         s
@@ -71,27 +97,20 @@ impl FileClaimStore {
         }
         let mut rows = vec![];
         for id in &self.order {
-            let results = self.results[id].as_array().cloned().unwrap_or_default();
+            let d = &self.digests[id];
             if let Some(rid) = rule_id {
-                let hit = results.iter().filter(|r| r["rule_id"] == rid).any(|r| match status { Some(s) => r["status"] == s, None => r["status"].as_str().is_some_and(|s| FLAGGED.contains(&s)) });
+                let hit = d.rules.iter().filter(|(r, _)| r == rid).any(|(_, st)| match status { Some(s) => st == s, None => FLAGGED.contains(&st.as_str()) });
                 if !hit {
                     continue;
                 }
             } else if let Some(s) = status {
-                if !results.iter().any(|r| r["status"] == s) {
+                if !d.statuses.iter().any(|st| st == s) {
                     continue;
                 }
             }
-            let flagged: Vec<&Value> = results.iter().filter(|r| r["status"].as_str().is_some_and(|s| FLAGGED.contains(&s))).collect();
-            let top = flagged.iter().filter_map(|r| r["severity"].as_str()).max_by_key(|s| if *s == "high" { 2 } else { 1 });
-            let mut counts = Map::new();
-            for r in &results {
-                let c = counts.entry(r["status"].as_str().unwrap_or("").to_string()).or_insert(json!(0));
-                *c = json!(c.as_i64().unwrap_or(0) + 1);
-            }
-            rows.push(json!({"claim_id": id, "counts": counts, "max_severity": top, "flagged": !flagged.is_empty()}));
+            rows.push(&d.row);
         }
-        Ok(rows.into_iter().skip(offset).take(limit).collect())
+        Ok(rows.into_iter().skip(offset).take(limit).cloned().collect())
     }
 
     pub fn get(&self, claim_id: &str) -> Option<(Value, Value)> {
