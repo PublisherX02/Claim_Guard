@@ -6,19 +6,20 @@
 1. **Same behaviour, checked by machine.** Every layer was compared with the Python build on the same inputs: the 15 rules on 10,600 claims, the 8 extension rules on 6,000 claims, the audit log, passwords, session tokens, authenticator codes and pseudonyms value by value, the AI step's prompts (181 of 181 byte-identical), and the HTTP API on 132 requests as four different roles. The only API differences are listed in section 4.
 2. **Smaller and lighter.** The container image is 159 MB (Python: 362 MB), the server starts in 3 s instead of 5 and uses about 25 MB less memory; request speed is about the same (section 6).
 3. **Attacked, not just tested.** An 83-check black-box penetration test over real sockets, a 400,000-request fuzz of the API boundary, and a mutation test of 36 security-rule breakages, all caught after eight test gaps were closed (section 5). The pen test found two real weaknesses (slow-connection exhaustion and an oversized-header allowance); both are fixed and covered.
-4. **Not finished:** an external RFC 3161 timestamp, cloud model providers, and the recheck route. Section 7 lists everything that is missing.
+4. **Not finished:** cloud model providers, a real Redis broker and the recheck route. Section 7 lists everything that is missing.
 
 ---
 
 ## 1. What it is made of
 
-One Cargo workspace in `rust/`, eight crates. A crate never reaches "up": the engine knows nothing of the web, the web layer knows nothing of the database.
+One Cargo workspace in `rust/`, nine crates. A crate never reaches "up": the engine knows nothing of the web, the web layer knows nothing of the database.
 
 | Crate | Job | Python counterpart |
 |---|---|---|
 | `cg-core` | numbers that behave like Python's (exact integers and decimals, float text), strict dates, the claim as the rules see it, transport checks | `engine_core.py`, `facts_extractor.rule_view` |
 | `cg-engine` | the 15 rules and the 8 extension rules; YARA-X rule packs; extension history | `facts_extractor.py`, `yara_engine.py`, `extension_rules.py`, `claim_history.py` |
 | `cg-audit` | the hash-chained audit log, canonical JSON, anchor file | `audit_log.py` |
+| `cg-timestamp` | the RFC 3161 trusted timestamp on the log's anchor: request, HTTP exchange with a Time-Stamp Authority, full verification (CMS signature, certificate chain to a trusted CA, validity at the stamped time, timeStamping usage, nonce), sidecar and status | `timestamp_anchor.py` |
 | `cg-access` | badge, password, authenticator code, session tokens, four clearance levels, masking, security log | `src/access/` |
 | `cg-mongo` | MongoDB stores for users and for the queue | `store_mongo.py`, `workqueue/store_mongo.py` |
 | `cg-queue` | triage lanes, dealing, leases, two-person sign-off, AI step (guard, breaker, cache, model client), replay | `src/workqueue/` |
@@ -44,6 +45,7 @@ The two builds read and write each other's files and database records. That is a
 | Rule results for a claim | `rust/tools/compare_engine.py`: public splits + 3,000 generated + 3,000 damaged claims, every field equal |
 | Extension results | `rust/tools/compare_extensions.py`: 6,000 claims with earlier-claim history, every rule fires, passes, is not applicable and is unable to assess in the corpus; 0 differences |
 | The AI step's prompts | `rust/tools/compare_model.py`: 181 prompts (15 rules x statuses x severities x line counts), byte-identical |
+| RFC 3161 requests, tokens and sidecars | `crates/cg-timestamp` tests: the request is byte-identical to Python's, and 19 tokens signed by the Python test authority (valid, wrong head or count or nonce, forged signature, untrusted issuer, no or non-critical timeStamping usage, expired certificate, garbage, trailing bytes, flipped bytes) get the verdict Python gives; `rust/tools/compare_timestamp.py`: each build stamps over real HTTP and the other verifies, stale and rewritten logs, a TSA that is down (10 checks) |
 
 **One deliberate difference.** The dealing of claims to reviewers is seeded and replayable, but the random generator is different (ChaCha8 instead of Python's Mersenne Twister), so a deal recorded by one build can be replayed and verified only by the same build. Verification of a stored deal never crosses languages.
 
@@ -57,6 +59,7 @@ cg worker                                           # production queue worker (r
 cg admin create-admin --badge CG-0001 --name "..."  # accounts (also: list, unlock, reset-totp)
 cg queue --badge CG-4004 reconcile                  # operator tools (also: submit, replay, rerun, deadletters, deadletter-replay, verify-deal)
 cg evaluate claims.jsonl                            # the 15 results per claim as JSON lines
+cg timestamp stamp --log audit.jsonl --tsa-url https://tsa.example/tsr   # RFC 3161 stamp of the log's anchor (also: verify --tsa-ca ca.pem)
 cg extensions claims.jsonl                          # the 8 advisory results, history taken from the same file
 ```
 
@@ -125,7 +128,6 @@ Most of a request here is opening a connection on Windows, not the work; the rul
 
 ## 7. What is not done
 
-- **External timestamp (RFC 3161).** Not ported. The Python tool `scripts/timestamp_log.py` still stamps and verifies the same log and anchor files, because the formats are shared; the Rust health panel shows the timestamp check as "unknown".
 - **Cloud model providers.** Only an on-premises OpenAI-compatible server (Ollama) is supported, over plain HTTP on the private network. Sending even rule text to a cloud service is not wanted for a hospital.
 - **Recheck route.** Answers 501 in both builds; a correction is resubmitted as a new version of the claim.
 - **Redis.** The Rust worker needs no broker: the outbox in MongoDB is the queue and the relay marks a claim published only after processing. Redis stays in the Compose file for the health panel and future caching. Whether the mentor expects Redis to be a real broker is an open question.
@@ -135,7 +137,7 @@ Most of a request here is opening a connection on Windows, not the work; the rul
 ## 8. Checking it again
 
 ```
-cd rust && cargo test --release --workspace                           # 170 tests (set MONGO_URI and REQUIRE_MONGO=1 to include the real-database contracts)
+cd rust && cargo test --release --workspace                           # 176 tests (set MONGO_URI and REQUIRE_MONGO=1 to include the real-database contracts)
 python rust/tools/compare_engine.py && python rust/tools/compare_extensions.py
 python rust/tools/compare_audit.py && python rust/tools/compare_access.py && python rust/tools/compare_model.py
 python rust/tools/conformance.py                                       # starts both servers

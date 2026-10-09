@@ -359,6 +359,7 @@ pub fn access_probes(service: Arc<AccessService>, securitylog: Arc<SecurityLog>,
     let (m, svc, st, sl, dd, ck) = (metrics, service, audit_status, securitylog, data_dir, clock);
     let svc2 = svc.clone();
     let sl2 = sl.clone();
+    let sl3 = sl.clone();
     vec![
         probe("api", "Reviewer API", "core", move || {
             let s = m.snapshot(15);
@@ -409,7 +410,18 @@ pub fn access_probes(service: Arc<AccessService>, securitylog: Arc<SecurityLog>,
             }
             res(OK, "the log head is anchored and signed", s)
         }),
-        probe("timestamp", "External timestamp (RFC 3161)", "optional", move || res(UNKNOWN, "no external timestamp (optional: stamp the log with a Time-Stamp Authority)", json!({"state": "none"}))),
+        probe("timestamp", "External timestamp (RFC 3161)", "optional", move || {
+            // the trusted CA file (TSA_CA_FILE) lets the probe check the token itself; without it a token is reported as unverified
+            let ca = std::env::var("TSA_CA_FILE").ok().filter(|p| !p.is_empty()).and_then(|p| std::fs::read_to_string(p).ok());
+            let log = sl3.path().to_path_buf();
+            let st = cg_timestamp::timestamp_status(&log, &cg_audit::anchor_path_of(&log), ca.as_deref());
+            match st["state"].as_str().unwrap_or("") {
+                "current" => res(OK, "an RFC 3161 timestamp covers the whole log", st),
+                "none" => res(UNKNOWN, "no external timestamp (optional: stamp the log with a Time-Stamp Authority)", st),
+                "stale" => res(OK, &format!("timestamp valid; {} newer events are not stamped yet", st["unstamped_events"]), st),
+                other => res(DEGRADED, &format!("timestamp state: {other}"), st),
+            }
+        }),
         probe("signals", "Security signals (last hour)", "optional", move || {
             let rows = sl2.scan(MAX_SCAN_ROWS).unwrap_or_default();
             let cutoff = ck() - HOUR as f64;

@@ -28,6 +28,7 @@ fn main() {
         Some("audit-append") => audit_append(&args),
         Some("xcheck") => xcheck(),
         Some("extensions") => extensions(&args),
+        Some("timestamp") => std::process::exit(timestamp(&args[2..])),
         Some("health") => std::process::exit(serve::health(&args[2..])),
         Some("worker") => std::process::exit(serve::worker(&args[2..])),
         Some("admin") => std::process::exit(tools::admin(&args[2..])),
@@ -195,4 +196,39 @@ fn extensions(args: &[String]) {
             }
         }
     }
+}
+
+/// `cg timestamp stamp --log L --tsa-url URL [--timeout S]` / `cg timestamp verify --log L [--tsa-ca PEM]`: stamp the audit log's anchor with
+/// an RFC 3161 Time-Stamp Authority, or check an existing stamp. `verify` exits 1 only for "invalid"; `stamp` exits 2 when the authority
+/// cannot be reached (the log and the previous token are untouched).
+fn timestamp(args: &[String]) -> i32 {
+    let a = |n: &str| args.iter().position(|x| x == n).and_then(|i| args.get(i + 1)).cloned();
+    let (Some(cmd), Some(log)) = (args.first().cloned(), a("--log")) else {
+        println!("usage: cg timestamp stamp --log L --tsa-url URL [--timeout S] | cg timestamp verify --log L [--tsa-ca PEM]");
+        return 2;
+    };
+    let log = PathBuf::from(log);
+    let anchor = cg_audit::anchor_path_of(&log);
+    if cmd == "stamp" {
+        let Some(url) = a("--tsa-url") else {
+            println!("error: stamp needs --tsa-url");
+            return 2;
+        };
+        let timeout: f64 = a("--timeout").and_then(|v| v.parse().ok()).unwrap_or(10.0);
+        return match cg_timestamp::stamp_log(&log, &anchor, &url, timeout) {
+            Ok(side) => {
+                println!("Stamped head {}... at {} events; token saved to {}.", side["head"].as_str().unwrap_or("").chars().take(16).collect::<String>(), side["count"], cg_timestamp::sidecar_path(&log).display());
+                println!("Run `verify` with the TSA CA certificate to check it; stamping does not verify the token.");
+                0
+            }
+            Err(e) => {
+                println!("NOT timestamped: {e}. The log is unaffected; the previous token (if any) is kept.");
+                2
+            }
+        };
+    }
+    let ca = a("--tsa-ca").and_then(|p| std::fs::read_to_string(p).ok());
+    let st = cg_timestamp::timestamp_status(&log, &anchor, ca.as_deref());
+    println!("Timestamp: {st}");
+    if st["state"] == "invalid" { 1 } else { 0 }
 }

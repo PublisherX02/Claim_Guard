@@ -16,7 +16,7 @@ sys.path.insert(0, str(ROOT / 'tests'))
 import timestamp_anchor as ta  # noqa: E402
 from local_tsa import LocalTSA, make_ca, make_tsa_cert, pem  # noqa: E402
 
-OUT = ROOT / 'rust' / 'crates' / 'cg-audit' / 'tests' / 'fixtures'
+OUT = ROOT / 'rust' / 'crates' / 'cg-timestamp' / 'tests' / 'fixtures'
 HEAD, COUNT, NONCE = 'ab' * 32, 7, 12345
 
 

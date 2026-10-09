@@ -173,7 +173,7 @@ pub fn verify(path: &Path) -> Result<(String, u64), AuditError> {
     Ok((previous, count))
 }
 
-fn anchor_path_of(log: &Path) -> PathBuf {
+pub fn anchor_path_of(log: &Path) -> PathBuf {
     let mut name = log.file_name().map(|n| n.to_os_string()).unwrap_or_default();
     name.push(".head.json");
     log.with_file_name(name)
