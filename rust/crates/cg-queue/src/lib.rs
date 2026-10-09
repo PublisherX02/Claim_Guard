@@ -10,6 +10,7 @@ pub mod flow;
 pub mod guard;
 pub mod shadow;
 pub mod routing_config;
+pub mod service;
 pub mod states;
 pub mod store;
 pub mod triage;

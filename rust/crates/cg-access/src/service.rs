@@ -403,7 +403,7 @@ impl AccessService {
     }
 }
 
-#[cfg(test)]
+/// A small world for tests here and in other crates (not used by the server).
 pub mod testkit {
     //! A small world for tests here and in the API crate: users, a clock that can be moved, a security log in a temp dir.
     use super::*;
@@ -411,7 +411,7 @@ pub mod testkit {
     use std::sync::atomic::{AtomicU64, Ordering};
 
     pub struct World {
-        pub svc: AccessService,
+        pub svc: Arc<AccessService>,
         pub store: Arc<MemoryStore>,
         pub clock: Arc<AtomicU64>,
         pub dir: tempfile::TempDir,
@@ -426,7 +426,7 @@ pub mod testkit {
         let settings = crate::settings::test_settings();
         let log = Arc::new(SecurityLog::open(dir.path().join("sec.jsonl"), &settings.audit_anchor_key).unwrap());
         let store = Arc::new(MemoryStore::new());
-        let svc = AccessService::new(store.clone(), settings, log, clock_fn);
+        let svc = Arc::new(AccessService::new(store.clone(), settings, log, clock_fn));
         World { svc, store, clock, dir, seeds: Mutex::new(HashMap::new()) }
     }
 

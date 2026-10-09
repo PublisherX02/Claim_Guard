@@ -117,7 +117,7 @@ pub fn load_settings(env: &HashMap<String, String>, dev: bool, bind_host: &str) 
     })
 }
 
-#[cfg(test)]
+/// Settings for tests: dev mode, cheap hashing, one fixed audit key (the audit writer key is process-wide).
 pub fn test_settings() -> Settings {
     let mut env = HashMap::new();
     env.insert("COOKIE_SECURE".into(), "false".into());
