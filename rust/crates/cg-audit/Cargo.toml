@@ -1,0 +1,17 @@
+[package]
+name = "cg-audit"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+cg-core = { path = "../cg-core" }
+serde_json.workspace = true
+num-bigint.workspace = true
+num-traits.workspace = true
+sha2.workspace = true
+hex.workspace = true
+hmac = "0.12"
+thiserror.workspace = true
+
+[dev-dependencies]
+tempfile = "3"

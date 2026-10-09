@@ -1,0 +1,15 @@
+[package]
+name = "cg-cli"
+version.workspace = true
+edition.workspace = true
+
+[[bin]]
+name = "cg"
+path = "src/main.rs"
+
+[dependencies]
+cg-core = { path = "../cg-core" }
+cg-engine = { path = "../cg-engine" }
+cg-audit = { path = "../cg-audit" }
+serde.workspace = true
+serde_json.workspace = true
