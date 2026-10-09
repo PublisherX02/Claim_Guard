@@ -143,6 +143,11 @@ fn xcheck() {
             "fernet_encrypt" => json!(totp::encrypt_secret(&s("plain"), &s("key")).ok()),
             "fernet_decrypt" => json!(totp::decrypt_secret(&s("token"), &s("key")).ok()),
             "totp_code" => json!(totp::code_at(&s("secret"), req["step"].as_i64().unwrap_or(0))),
+            "pass1_prompt" => {
+                let rules = cg_queue::model::rulebook_rules(std::path::Path::new(&s("root"))).unwrap_or_default();
+                let m = cg_queue::model::TemplateModel::new(std::sync::Arc::new(|_, _| Ok(String::new())), rules, "x", false);
+                json!(m.pass1_prompt(&req["request"]).ok())
+            }
             "pseudonym" => json!(masking::pseudonym(&s("key"), &s("prefix"), &s("value")).ok()),
             "provisioning_uri" => json!(totp::provisioning_uri(&s("secret"), &s("badge"), "ClaimGuard")),
             _ => Value::Null,

@@ -19,6 +19,7 @@ fancy-regex = "0.14"
 unicode-normalization = "0.1"
 unicode-general-category = "1"
 rand_chacha = "0.3"
+ureq = { version = "2", default-features = false, features = ["json"] }
 
 [dev-dependencies]
 tempfile = "3"

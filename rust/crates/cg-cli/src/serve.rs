@@ -264,7 +264,8 @@ fn start(a: Args, dev: bool, queue: bool) -> Result<(), String> {
         svc.set_intake(intake.clone());
         let sc = store.clone();
         let breaker = Arc::new(CircuitBreaker::new(clock.clone()));
-        let explain = Arc::new(ExplainStep::new(store.clone(), Arc::new(NoModel), default_guard(), breaker.clone(), clock.clone(), Arc::new(move || flow::routing_config(&*sc))));
+        let model: Arc<dyn cg_queue::explain::Model> = cg_queue::model::model_from_env(&env, cg_queue::model::rulebook_rules(&root)?)?.unwrap_or_else(|| Arc::new(NoModel));
+        let explain = Arc::new(ExplainStep::new(store.clone(), model, default_guard(), breaker.clone(), clock.clone(), Arc::new(move || flow::routing_config(&*sc))));
         probes = queue_probes(svc.clone(), breaker, explain.model_name(), env.get("REDIS_URL").cloned().filter(|s| !s.is_empty()), a.demo, clock.clone());
         let rt = Arc::new(Runtime { store: store.clone(), explain, clock: clock.clone(), max_retries: 3 });
         if a.demo {
