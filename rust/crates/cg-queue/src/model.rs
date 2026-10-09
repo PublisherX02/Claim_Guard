@@ -282,9 +282,23 @@ mod tests {
         std::thread::spawn(move || {
             for stream in listener.incoming().flatten() {
                 let mut stream = stream;
-                let mut buf = vec![0u8; 16384];
-                let n = stream.read(&mut buf).unwrap_or(0);
-                s2.lock().unwrap().push_str(&String::from_utf8_lossy(&buf[..n]));
+                // read the whole request: headers first, then as many body bytes as Content-Length announces
+                let mut got: Vec<u8> = vec![];
+                let mut chunk = [0u8; 4096];
+                let _ = stream.set_read_timeout(Some(std::time::Duration::from_secs(2)));
+                loop {
+                    let n = stream.read(&mut chunk).unwrap_or(0);
+                    got.extend_from_slice(&chunk[..n]);
+                    let text = String::from_utf8_lossy(&got).to_string();
+                    let Some(split) = text.find("\r\n\r\n") else {
+                        if n == 0 { break } else { continue }
+                    };
+                    let want = text[..split].to_lowercase().split("content-length:").nth(1).and_then(|r| r.split_whitespace().next().and_then(|v| v.parse::<usize>().ok())).unwrap_or(0);
+                    if got.len() >= split + 4 + want || n == 0 {
+                        break;
+                    }
+                }
+                s2.lock().unwrap().push_str(&String::from_utf8_lossy(&got));
                 let _ = write!(stream, "HTTP/1.1 {status} X\r\ncontent-type: application/json\r\ncontent-length: {}\r\nconnection: close\r\n\r\n{body}", body.len());
             }
         });

@@ -16,3 +16,6 @@ data/development/csv
 data/development/fhir_bundles.jsonl
 .env
 *.pdf
+rust/target
+**/target
+benchmarks

@@ -8,6 +8,7 @@ use axum::Router;
 use std::collections::HashMap;
 use std::net::SocketAddr;
 use std::sync::Arc;
+use std::time::Duration;
 
 #[derive(Clone)]
 struct App {
@@ -65,10 +66,55 @@ pub fn router(api: Arc<Api>, behind_proxy: bool) -> Router {
     Router::new().fallback(dispatch).with_state(App { api, behind_proxy })
 }
 
-/// Serves until the shutdown future resolves, then lets in-flight requests finish.
+/// Connection limits. A client that sends its request headers slowly, or sends nothing, is cut off; the total number of open connections
+/// and the size of a header block are bounded, so a few sockets cannot starve the server (slowloris) and a giant header cannot use memory.
+pub const HEADER_READ_TIMEOUT: Duration = Duration::from_secs(10);
+pub const MAX_HEADER_BYTES: usize = 16 * 1024;
+pub const MAX_CONNECTIONS: usize = 2048;
+pub const CONNECTION_LIFETIME: Duration = Duration::from_secs(300);
+
+/// Serves until the shutdown future resolves, then lets in-flight requests finish (up to five seconds).
 pub async fn serve(api: Arc<Api>, addr: SocketAddr, behind_proxy: bool, shutdown: impl std::future::Future<Output = ()> + Send + 'static) -> std::io::Result<()> {
     let listener = tokio::net::TcpListener::bind(addr).await?;
-    axum::serve(listener, router(api, behind_proxy).into_make_service_with_connect_info::<SocketAddr>()).with_graceful_shutdown(shutdown).await
+    serve_on(listener, api, behind_proxy, shutdown).await
+}
+
+pub async fn serve_on(listener: tokio::net::TcpListener, api: Arc<Api>, behind_proxy: bool, shutdown: impl std::future::Future<Output = ()> + Send + 'static) -> std::io::Result<()> {
+    use hyper_util::rt::{TokioIo, TokioTimer};
+    use tower::ServiceExt;
+    let app = router(api, behind_proxy);
+    let slots = Arc::new(tokio::sync::Semaphore::new(MAX_CONNECTIONS));
+    let open = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+    tokio::pin!(shutdown);
+    loop {
+        let (stream, peer) = tokio::select! {
+            accepted = listener.accept() => match accepted {
+                Ok(pair) => pair,
+                Err(_) => { tokio::time::sleep(Duration::from_millis(50)).await; continue }
+            },
+            _ = &mut shutdown => break,
+        };
+        let Ok(permit) = slots.clone().try_acquire_owned() else { continue }; // over the limit: drop the connection at once
+        let _ = stream.set_nodelay(true);
+        let (app, open) = (app.clone(), open.clone());
+        open.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+        tokio::spawn(async move {
+            let service = hyper::service::service_fn(move |mut req: hyper::Request<hyper::body::Incoming>| {
+                req.extensions_mut().insert(ConnectInfo(peer));
+                app.clone().oneshot(req)
+            });
+            let mut http = hyper::server::conn::http1::Builder::new();
+            http.timer(TokioTimer::new()).header_read_timeout(HEADER_READ_TIMEOUT).max_buf_size(MAX_HEADER_BYTES).keep_alive(true);
+            let _ = tokio::time::timeout(CONNECTION_LIFETIME, http.serve_connection(TokioIo::new(stream), service)).await;
+            open.fetch_sub(1, std::sync::atomic::Ordering::SeqCst);
+            drop(permit);
+        });
+    }
+    let end = std::time::Instant::now() + Duration::from_secs(5);
+    while open.load(std::sync::atomic::Ordering::SeqCst) > 0 && std::time::Instant::now() < end {
+        tokio::time::sleep(Duration::from_millis(50)).await;
+    }
+    Ok(())
 }
 
 #[cfg(test)]

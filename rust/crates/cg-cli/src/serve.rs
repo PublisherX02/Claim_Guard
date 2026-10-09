@@ -211,3 +211,22 @@ pub fn worker(args: &[String]) -> i32 {
     let _ = handle.join();
     0
 }
+
+/// `cg health --port N` asks the local server for /healthz; `cg health --file F --max-age S` checks that the worker touched F recently.
+/// Exit 0 when healthy. For container health checks (the image has no curl).
+pub fn health(args: &[String]) -> i32 {
+    use std::io::{Read, Write};
+    let flag = |n: &str| args.iter().position(|a| a == n).and_then(|i| args.get(i + 1)).cloned();
+    if let Some(file) = flag("--file") {
+        let max: u64 = flag("--max-age").and_then(|v| v.parse().ok()).unwrap_or(60);
+        let age = std::fs::metadata(&file).and_then(|m| m.modified()).ok().and_then(|t| t.elapsed().ok()).map(|d| d.as_secs());
+        return if age.is_some_and(|a| a <= max) { 0 } else { 1 };
+    }
+    let port: u16 = flag("--port").and_then(|v| v.parse().ok()).unwrap_or(8443);
+    let Ok(mut s) = std::net::TcpStream::connect_timeout(&std::net::SocketAddr::from(([127, 0, 0, 1], port)), std::time::Duration::from_secs(3)) else { return 1 };
+    let _ = s.set_read_timeout(Some(std::time::Duration::from_secs(3)));
+    let _ = s.write_all(b"GET /healthz HTTP/1.1\r\nhost: localhost\r\nconnection: close\r\n\r\n");
+    let mut out = String::new();
+    let _ = s.read_to_string(&mut out);
+    if out.starts_with("HTTP/1.1 200") { 0 } else { 1 }
+}

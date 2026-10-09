@@ -173,7 +173,11 @@ pub fn start_workers(q: &QueueStack, stop: Arc<AtomicBool>) -> std::thread::Join
             let every = [("relay", 1.5), ("deal", 2.0), ("expire", 20.0), ("reconcile", 120.0)];
             let mut last = [f64::MIN; 4];
             let mono = std::time::Instant::now();
+            let alive = std::env::var("CG_WORKER_ALIVE_FILE").ok().filter(|s| !s.is_empty());
             while !stop.load(Ordering::SeqCst) {
+                if let Some(f) = &alive {
+                    let _ = std::fs::write(f, b"alive"); // touched every tick so a container health check can tell the loop is running
+                }
                 let now = mono.elapsed().as_secs_f64();
                 for (i, (name, gap)) in every.iter().enumerate() {
                     if now - last[i] < *gap {

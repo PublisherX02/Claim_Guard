@@ -474,6 +474,10 @@ dependencies = [
  "cg-engine",
  "cg-queue",
  "hex",
+ "hyper",
+ "hyper-util",
+ "rand 0.8.8",
+ "rand_chacha 0.3.1",
  "rustls",
  "serde",
  "serde_json",
@@ -482,6 +486,7 @@ dependencies = [
  "tempfile",
  "thiserror 1.0.69",
  "tokio",
+ "tower",
  "url",
 ]
 

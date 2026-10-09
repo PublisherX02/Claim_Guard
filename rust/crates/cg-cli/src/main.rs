@@ -28,6 +28,7 @@ fn main() {
         Some("audit-append") => audit_append(&args),
         Some("xcheck") => xcheck(),
         Some("extensions") => extensions(&args),
+        Some("health") => std::process::exit(serve::health(&args[2..])),
         Some("worker") => std::process::exit(serve::worker(&args[2..])),
         Some("admin") => std::process::exit(tools::admin(&args[2..])),
         Some("queue") => std::process::exit(tools::queue(&args[2..])),
