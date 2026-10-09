@@ -7,8 +7,11 @@
 //!
 //! Any driver failure except a duplicate key becomes `StoreError::Unavailable`, which callers treat as "refuse".
 
+pub mod bsonconv;
+pub mod queue;
 pub mod users;
 
+pub use queue::MongoQueueStore;
 pub use users::MongoUserStore;
 
 use mongodb::sync::Client;

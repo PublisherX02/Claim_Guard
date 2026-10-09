@@ -459,7 +459,10 @@ name = "cg-mongo"
 version = "0.1.0"
 dependencies = [
  "cg-access",
+ "cg-core",
+ "cg-queue",
  "mongodb",
+ "num-traits",
  "rand 0.8.8",
  "serde_json",
  "thiserror 1.0.69",
