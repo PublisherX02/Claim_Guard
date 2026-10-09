@@ -71,6 +71,30 @@ pub struct Intake {
     pub clock: Clock,
     pub rule_pack_hash: String,
     pub engine_version: String,
+    /// The advisory (extension) results for a claim; None stores `[]`. Never allowed to stop a claim from being triaged.
+    pub advisory: Option<AdvisoryFn>,
+}
+
+pub type AdvisoryFn = Arc<dyn Fn(&Value) -> Vec<Value> + Send + Sync>;
+
+/// Earlier claims of the same patient read from the queue store (`workqueue/history.py`), for the history-aware extension rules.
+pub struct StoreHistory(pub Arc<dyn QueueStore>);
+
+impl cg_engine::extensions::History for StoreHistory {
+    fn earlier_claims(&self, claim: &Value) -> std::result::Result<Vec<Value>, String> {
+        let Some(pid) = claim.get("patient_id").and_then(Value::as_str).filter(|s| !s.is_empty()) else { return Ok(vec![]) };
+        let rows = self.0.claims_for_patient(pid).map_err(|e| e.to_string())?;
+        Ok(cg_engine::extensions::earlier_of(claim, rows))
+    }
+}
+
+/// The advisory function the server uses: the extension rules over the store's history.
+pub fn advisory_fn(ext: Arc<cg_engine::extensions::Extensions>, store: Arc<dyn QueueStore>) -> AdvisoryFn {
+    Arc::new(move |claim| {
+        let history = StoreHistory(store.clone());
+        let mut errors = vec![];
+        ext.evaluate(claim, Some(&history), &mut errors).unwrap_or_default()
+    })
 }
 
 impl Intake {
@@ -85,6 +109,11 @@ impl Intake {
             }
         }
         Ok(None)
+    }
+
+    fn advisory_for(&self, claim: &Value) -> Vec<Value> {
+        let Some(f) = &self.advisory else { return vec![] };
+        std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| f(claim))).unwrap_or_default()
     }
 
     /// Validates, runs the engine, writes the triage receipt and stores everything in one atomic write. The same claim twice is stored
@@ -105,7 +134,7 @@ impl Intake {
             let version = self.store.get(&claim_id, None).map_err(fail)?.map_or(1, |l| l["version"].as_i64().unwrap_or(0) + 1);
             let results = (self.engine)(claim).map_err(IntakeError::Failed)?;
             let receipt = triage::make_receipt(claim, &results, &cfg, &self.rule_pack_hash, &self.engine_version, (self.clock)());
-            let doc = json!({"claim_id": claim_id, "version": version, "input_hash": ihash, "claim": claim, "results": results, "receipt": receipt, "advisory": []});
+            let doc = json!({"claim_id": claim_id, "version": version, "input_hash": ihash, "claim": claim, "results": results, "receipt": receipt, "advisory": self.advisory_for(claim)});
             if self.store.put_triaged(&doc).map_err(fail)? {
                 // shadow mode must never affect a claim
                 let _ = shadow::record(&*self.store, &claim_id, version, shadow::predict_clear(&receipt), receipt["created_at"].as_f64().unwrap_or(0.0));

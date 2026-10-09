@@ -5,6 +5,7 @@
 //! (a person looks at it) and never a PASS; the other fourteen are unaffected.
 
 pub mod details;
+pub mod extensions;
 pub mod pack;
 
 use cg_core::config::{Config, ConfigError};

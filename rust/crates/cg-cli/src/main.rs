@@ -25,7 +25,8 @@ fn main() {
         Some("audit-verify") => audit_verify(&args),
         Some("audit-append") => audit_append(&args),
         Some("xcheck") => xcheck(),
-        Some("serve") => std::process::exit(serve::run(&args[2..])),
+        Some("extensions") => extensions(&args),
+        Some("serve") =>std::process::exit(serve::run(&args[2..])),
         _ => {
             eprintln!("usage: cg evaluate <claims.jsonl> [--root DIR] | cg audit-verify <log> [--strict] | cg audit-append <log> <events.jsonl> [--review]");
             std::process::exit(2);
@@ -147,5 +148,40 @@ fn xcheck() {
             _ => Value::Null,
         };
         println!("{out}");
+    }
+}
+
+/// `cg extensions <claims.jsonl> [--root DIR]`: the advisory (extension) results of every claim, with the earlier claims taken from the
+/// same file (what `claim_history.InMemoryHistory` does). One JSON line per claim.
+fn extensions(args: &[String]) {
+    use cg_engine::extensions::{Extensions, InMemoryHistory};
+    let Some(input) = args.get(2) else {
+        eprintln!("usage: cg extensions <claims.jsonl> [--root DIR]");
+        std::process::exit(2);
+    };
+    let root = PathBuf::from(arg(args, "--root").unwrap_or_else(|| ".".into()));
+    let ext = Extensions::load(&root).unwrap_or_else(|e| {
+        eprintln!("error: {e}");
+        std::process::exit(2)
+    });
+    let text = std::fs::read_to_string(input).unwrap_or_else(|e| {
+        eprintln!("error: cannot read {input}: {e}");
+        std::process::exit(2)
+    });
+    let claims: Vec<Value> = text.lines().filter(|l| !l.trim().is_empty()).filter_map(|l| serde_json::from_str(l).ok()).collect();
+    let history = InMemoryHistory::new(&claims);
+    let out = std::io::stdout();
+    let mut out = std::io::BufWriter::new(out.lock());
+    for claim in &claims {
+        let mut errors = vec![];
+        match ext.evaluate(claim, Some(&history), &mut errors) {
+            Ok(results) => {
+                let _ = writeln!(out, "{}", json!({"claim_id": claim.get("claim_id"), "advisory": results, "tool_errors": errors}));
+            }
+            Err(e) => {
+                eprintln!("error: {e}");
+                std::process::exit(3);
+            }
+        }
     }
 }

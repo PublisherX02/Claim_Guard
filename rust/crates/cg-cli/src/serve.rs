@@ -257,9 +257,10 @@ fn start(a: Args, dev: bool, queue: bool) -> Result<(), String> {
     let (mut queue_service, mut probes, mut worker) = (None, vec![], None);
     let mut demo_claims: Vec<Value> = vec![];
     if let Some(store) = queue_store {
+        let extensions = Arc::new(cg_engine::extensions::Extensions::load(&root).map_err(|e| format!("extension rules: {e}"))?);
         let dispatcher = Arc::new(Dispatcher { store: store.clone(), agents: agents_from_access(access.clone()), clock: clock.clone(), rng_seed: None, log: Some(securitylog.clone()) });
         let svc = Arc::new(QueueService::new(store.clone(), dispatcher.clone(), access.clone(), securitylog.clone(), review_log.clone(), clock.clone()));
-        let intake = Arc::new(Intake { store: store.clone(), engine: engine_fn(engine.clone()), log: securitylog.clone(), clock: clock.clone(), rule_pack_hash: engine.pack.hash(), engine_version: engine.code_hash() });
+        let intake = Arc::new(Intake { store: store.clone(), engine: engine_fn(engine.clone()), log: securitylog.clone(), clock: clock.clone(), rule_pack_hash: engine.pack.hash(), engine_version: engine.code_hash(), advisory: Some(flow::advisory_fn(extensions.clone(), store.clone())) });
         svc.set_intake(intake.clone());
         let sc = store.clone();
         let breaker = Arc::new(CircuitBreaker::new(clock.clone()));

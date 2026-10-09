@@ -14,3 +14,4 @@ sha2.workspace = true
 hex.workspace = true
 thiserror.workspace = true
 yara-x = "1.21"
+fancy-regex = "0.14"

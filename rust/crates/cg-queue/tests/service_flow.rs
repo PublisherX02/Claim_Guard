@@ -56,7 +56,7 @@ fn q() -> Q {
     let review_log = Arc::new(AuditLog::open(w.dir.path().join("review.jsonl")).unwrap());
     let queue = Arc::new(QueueService::new(store.clone(), dispatcher.clone(), w.svc.clone(), w.svc.log.clone(), review_log, clock.clone()));
     let e = engine();
-    let intake = Arc::new(Intake { store: store.clone(), engine: engine_fn(e.clone()), log: w.svc.log.clone(), clock: clock.clone(), rule_pack_hash: e.pack.hash(), engine_version: e.code_hash() });
+    let intake = Arc::new(Intake { store: store.clone(), engine: engine_fn(e.clone()), log: w.svc.log.clone(), clock: clock.clone(), rule_pack_hash: e.pack.hash(), engine_version: e.code_hash(), advisory: Some(cg_queue::flow::advisory_fn(Arc::new(cg_engine::extensions::Extensions::load(&root()).unwrap()), store.clone())) });
     queue.set_intake(intake.clone());
     let sc = store.clone();
     let explain = Arc::new(ExplainStep::new(store.clone(), Arc::new(NoModel), default_guard(), Arc::new(CircuitBreaker::new(clock.clone())), clock.clone(), Arc::new(move || cg_queue::flow::routing_config(&*sc))));
@@ -375,4 +375,22 @@ fn a_heartbeat_extends_only_my_leases() {
     assert!(after > before + 500.0);
     assert!(matches!(q.queue.heartbeat(&q.p("CG-4004")), Err(QueueError::Forbidden(_))));
     let _ = RoutingConfig::default();
+}
+
+#[test]
+fn advisory_results_are_stored_with_the_claim_and_see_earlier_claims() {
+    let q = q();
+    let first = q.claims[0].clone();
+    q.intake.submit(&first).unwrap();
+    let mut again = first.clone();
+    again["claim_id"] = json!("CG-REPEAT-0001");
+    again["submission_date"] = json!("2099-01-01");
+    q.intake.submit(&again).unwrap();
+    let doc = q.store.get("CG-REPEAT-0001", None).unwrap().unwrap();
+    let adv = doc["advisory"].as_array().unwrap();
+    assert_eq!(adv.len(), 8);
+    let e101 = adv.iter().find(|a| a["rule_id"] == "E101").unwrap();
+    assert_eq!(e101["status"], "FAIL", "the same lines were billed on an earlier claim");
+    let original = q.store.get(first["claim_id"].as_str().unwrap(), None).unwrap().unwrap();
+    assert_ne!(original["advisory"].as_array().unwrap().iter().find(|a| a["rule_id"] == "E101").unwrap()["status"], "FAIL", "a claim has no earlier claim of its own");
 }

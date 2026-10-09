@@ -537,6 +537,7 @@ version = "0.1.0"
 dependencies = [
  "bigdecimal",
  "cg-core",
+ "fancy-regex",
  "hex",
  "num-bigint",
  "num-traits",

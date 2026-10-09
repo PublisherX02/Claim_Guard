@@ -37,6 +37,12 @@ impl Pack {
         Ok(Pack { rules, path, bytes })
     }
 
+    /// A pack from generated source (the extension rules' pack is built from their catalogue). `name` is only for messages and hashing.
+    pub fn from_source(text: String, name: PathBuf) -> Result<Pack, PackError> {
+        let rules: &'static yara_x::Rules = Box::leak(Box::new(yara_x::compile(text.as_str()).map_err(|e| PackError::Compile(e.to_string()))?));
+        Ok(Pack { rules, path: name, bytes: text.into_bytes() })
+    }
+
     /// `yara_engine.pack_hash`: sha256 of the pack file.
     pub fn hash(&self) -> String {
         hex::encode(Sha256::digest(&self.bytes))
