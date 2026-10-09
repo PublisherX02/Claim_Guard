@@ -3,7 +3,7 @@
 **What this is.** After the language comparison (`docs/36`) the team chose Rust for the whole system. This document describes the Rust build that now sits beside the Python one: what it is made of, how it was proved to behave like the Python reference, how it is run, how it was attacked, and what it still does not do. The Python tree is kept unchanged as the reference and as the oracle for every comparison below.
 
 **Short answer.**
-1. **Same behaviour, checked by machine.** Every layer was compared with the Python build on the same inputs: the 15 rules on 10,600 claims, the 8 extension rules on 6,000 claims, the audit log, passwords, session tokens, authenticator codes and pseudonyms value by value, the AI step's prompts (181 of 181 byte-identical), and the HTTP API on 132 requests as four different roles. The only API differences are listed in section 4.
+1. **Same behaviour, checked by machine.** Every layer was compared with the Python build on the same inputs: the 15 rules on 10,600 claims, the 8 extension rules on 6,000 claims, the audit log, passwords, session tokens, authenticator codes and pseudonyms value by value, the AI step's prompts (181 of 181 byte-identical), and the HTTP API on 132 requests as four different roles. The only API difference left is explained in section 4.
 2. **Smaller and lighter.** The container image is 159 MB (Python: 362 MB), the server starts in 3 s instead of 5 and uses about 25 MB less memory; request speed is about the same (section 6).
 3. **Attacked, not just tested.** An 83-check black-box penetration test over real sockets, a 400,000-request fuzz of the API boundary, and a mutation test of 36 security-rule breakages, all caught after eight test gaps were closed (section 5). The pen test found two real weaknesses (slow-connection exhaustion and an oversized-header allowance); both are fixed and covered.
 4. **Not finished:** cloud model providers, a real Redis broker and the recheck route. Section 7 lists everything that is missing.
@@ -71,9 +71,10 @@ cg extensions claims.jsonl                          # the 8 advisory results, hi
 
 `rust/tools/conformance.py` starts both servers in demo mode and sends 132 requests as the four roles (viewer, reviewer, senior, administrator): listings with good and bad parameters, claim views, unmask, decisions with good and bad bodies, audit queries, health, users, queue routes, console files, wrong methods. Status codes and the JSON shape of every answer are compared (volatile values ignored, fixed vocabularies such as error codes, review states, allowed actions and permission lists compared exactly).
 
-**Result: 129 of 132 identical.** The three differences:
+**Result: 131 of 132 identical.** The differences found, and the one left:
 - *Decision rejection detail* (found by this test, fixed): the Rust API did not return the explanatory `detail` text with `decision_rejected`.
-- *Reviewer and senior inboxes* (two requests): each server deals different claims to the reviewers, so the first claim differs; and the Rust queue now stores the extension results too, but the inbox view of them is compared only in the engine-level test above, not here.
+- *Extension results in the inbox* (found by this test before the extension rules were ported, now fixed): the Rust inbox carried no advisory results.
+- *Senior inbox* (still differs, by design of the test): each server deals different claims to the reviewers, so the first claim in the list is a different claim with a different optional-field shape; the shape of every claim and advisory field is equal in the other requests.
 
 `rust/tools/e2e_split.py` runs the production topology on a real MongoDB: `cg serve --queue` and `cg worker` as two processes, an administrator who puts reviewers on shift and submits 25 claims, the worker process triaging and dealing them, a reviewer deciding through the queue routes, the claim trace, the health panel (showing the worker alive) and the audit chains verifying. All steps pass.
 
