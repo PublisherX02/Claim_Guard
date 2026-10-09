@@ -12,6 +12,8 @@ use serde_json::{json, Value};
 use std::io::{BufRead, BufReader, Write};
 use std::path::PathBuf;
 
+mod serve;
+
 fn arg(args: &[String], name: &str) -> Option<String> {
     args.iter().position(|a| a == name).and_then(|i| args.get(i + 1)).cloned()
 }
@@ -23,6 +25,7 @@ fn main() {
         Some("audit-verify") => audit_verify(&args),
         Some("audit-append") => audit_append(&args),
         Some("xcheck") => xcheck(),
+        Some("serve") => std::process::exit(serve::run(&args[2..])),
         _ => {
             eprintln!("usage: cg evaluate <claims.jsonl> [--root DIR] | cg audit-verify <log> [--strict] | cg audit-append <log> <events.jsonl> [--review]");
             std::process::exit(2);

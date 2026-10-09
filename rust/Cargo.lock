@@ -505,11 +505,15 @@ name = "cg-cli"
 version = "0.1.0"
 dependencies = [
  "cg-access",
+ "cg-api",
  "cg-audit",
  "cg-core",
  "cg-engine",
+ "cg-mongo",
+ "cg-queue",
  "serde",
  "serde_json",
+ "tokio",
 ]
 
 [[package]]

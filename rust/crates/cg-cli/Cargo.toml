@@ -14,3 +14,7 @@ cg-audit = { path = "../cg-audit" }
 cg-access = { path = "../cg-access" }
 serde.workspace = true
 serde_json.workspace = true
+cg-api = { path = "../cg-api" }
+cg-queue = { path = "../cg-queue" }
+cg-mongo = { path = "../cg-mongo" }
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "net", "signal", "time"] }
