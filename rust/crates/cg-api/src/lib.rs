@@ -598,13 +598,14 @@ impl Api {
         if finding["severity"] == "high" && !p.permissions.contains("claims.decide_high") {
             return Err(self.forbid(req, &p));
         }
-        let reviewable = finding["status"].as_str().is_some_and(|s| s == "FAIL" || s == "UNABLE_TO_ASSESS");
-        if !reviewable || cg_core::text::blank(&b.reason) {
-            return Err(ApiError::new(422, "decision_rejected"));
-        }
         let decision = json!({"claim_id": id, "rule_id": rule, "action": b.action, "actor": p.badge(), "reason": b.reason,
             "created_at": cg_audit::iso_of(std::time::Duration::from_secs_f64(self.now())), "original_status": finding["status"]});
-        self.review_log.append_review_decisions(&[decision]).map_err(|_| ApiError::new(422, "decision_rejected"))?;
+        let rejected = |detail: Option<String>| {
+            let e = ApiError::new(422, "decision_rejected");
+            match detail { Some(d) => e.with("detail", json!(d.chars().take(300).collect::<String>())), None => e }
+        };
+        cg_queue::service::validate_decision(&decision, &finding).map_err(|m| rejected(Some(m)))?;
+        self.review_log.append_review_decisions(&[decision]).map_err(|_| rejected(None))?;
         self.access.record("decision", json!({"badge_id": p.badge(), "claim_id": id, "rule_id": rule, "action": b.action})).map_err(|e| self.serr(e.into(), req, &p))?;
         let state = review_state(&results, self.review_log.path()).get(&(id.to_string(), rule.to_string())).copied();
         Ok(ApiResponse::json(200, &json!({"recorded": true, "review_state": state})))
