@@ -120,6 +120,13 @@ pub fn line(v: &Value) -> String {
     out
 }
 
+/// `json.dumps(obj, ensure_ascii=False)`: default separators, keys in insertion order, non-ASCII kept.
+pub fn dumps(v: &Value) -> String {
+    let mut out = String::new();
+    write(&mut out, v, false, false, false);
+    out
+}
+
 /// `audit.digest`
 pub fn digest(v: &Value) -> String {
     hex::encode(Sha256::digest(canonical(v).as_bytes()))

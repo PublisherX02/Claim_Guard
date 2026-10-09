@@ -3,6 +3,7 @@
 //! different seniors, and every move is one append-only event.
 
 pub mod contract;
+pub mod guard;
 pub mod routing_config;
 pub mod states;
 pub mod store;
