@@ -78,5 +78,17 @@ class RustImage(unittest.TestCase):
         self.assertIn('"cg", "health"', self.text)
 
 
+class RustInstall(unittest.TestCase):
+    def test_install_never_overwrites_an_existing_env_and_runs_the_rust_tools(self):
+        text = (DEPLOY / 'install.sh').read_text(encoding='utf-8')
+        self.assertIn('set -euo pipefail', text)
+        self.assertRegex(text, r'if \[ -e \.env \]')
+        self.assertIn('umask 077', text)
+        self.assertIn('deploy/rust/compose.yml', text)
+        self.assertIn('cg admin create-admin', text)
+        self.assertNotIn('python', text.lower().replace('# ', ' '))
+        self.assertNotIn('deploy/compose.yml', text.replace('deploy/rust/compose.yml', ''))
+
+
 if __name__ == '__main__':
     unittest.main()

@@ -28,6 +28,7 @@ fn main() {
         Some("audit-append") => audit_append(&args),
         Some("xcheck") => xcheck(),
         Some("extensions") => extensions(&args),
+        Some("model-check") => std::process::exit(model_check()),
         Some("timestamp") => std::process::exit(timestamp(&args[2..])),
         Some("health") => std::process::exit(serve::health(&args[2..])),
         Some("worker") => std::process::exit(serve::worker(&args[2..])),
@@ -231,4 +232,49 @@ fn timestamp(args: &[String]) -> i32 {
     let st = cg_timestamp::timestamp_status(&log, &anchor, ca.as_deref());
     println!("Timestamp: {st}");
     if st["state"] == "invalid" { 1 } else { 0 }
+}
+
+/// `cg model-check`: asks the configured model (QUEUE_AI_PROVIDER=ollama, OLLAMA_BASE_URL, OLLAMA_MODEL) for the explanation template of
+/// each rule and reports how many came back in the required shape and how long each took. Exit 0 only if all were accepted. No claim data
+/// is involved: the model sees the rulebook's own text.
+fn model_check() -> i32 {
+    let root = serve_root();
+    let env: std::collections::HashMap<String, String> = std::env::vars().collect();
+    let rules = match cg_queue::model::rulebook_rules(&root) {
+        Ok(r) => r,
+        Err(e) => {
+            println!("error: {e}");
+            return 2;
+        }
+    };
+    let model = match cg_queue::model::model_from_env(&env, rules.clone()) {
+        Ok(Some(m)) => m,
+        Ok(None) => {
+            println!("QUEUE_AI_PROVIDER is not set: the queue would use no model. Set it to ollama.");
+            return 2;
+        }
+        Err(e) => {
+            println!("error: {e}");
+            return 2;
+        }
+    };
+    let now = || std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_secs_f64()).unwrap_or(0.0);
+    let mut accepted = 0;
+    for (id, rule) in &rules {
+        let shape = format!("FAIL/{}/1", rule["severity"].as_str().unwrap_or("high"));
+        let start = std::time::Instant::now();
+        match model.ask(&json!({"rule_id": id, "failure_shape": shape}), now() + 90.0) {
+            Ok(text) => {
+                accepted += 1;
+                println!("{id} ok {:5.1}s  {:?}", start.elapsed().as_secs_f64(), text.chars().take(110).collect::<String>());
+            }
+            Err(e) => println!("{id} REJECTED {:5.1}s  {}", start.elapsed().as_secs_f64(), format!("{e:?}").chars().take(100).collect::<String>()),
+        }
+    }
+    println!("accepted {accepted} of {} with {}", rules.len(), model.name());
+    if accepted == rules.len() { 0 } else { 1 }
+}
+
+fn serve_root() -> PathBuf {
+    std::env::var("CLAIMGUARD_ROOT").map(PathBuf::from).unwrap_or_else(|_| PathBuf::from("."))
 }

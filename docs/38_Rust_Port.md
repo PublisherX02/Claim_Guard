@@ -63,7 +63,7 @@ cg timestamp stamp --log audit.jsonl --tsa-url https://tsa.example/tsr   # RFC 3
 cg extensions claims.jsonl                          # the 8 advisory results, history taken from the same file
 ```
 
-- **Container stack:** `docker compose -f deploy/rust/compose.yml --env-file .env up -d --build` (same proxy, MongoDB, Redis and optional Ollama as `deploy/compose.yml`, with `cg serve` and `cg worker` in place of the Python server and Celery). The image has a health check that needs no extra tools (`cg health`).
+- **Container stack:** `bash deploy/rust/install.sh <address> internal|public [ai]` (generates the secrets, starts the stack, waits for health, creates the first administrator, and with `ai` hosts and checks the Ollama model with `cg model-check`), or by hand `docker compose -f deploy/rust/compose.yml --env-file .env up -d --build`. The stack was brought up from the built image with throw-away secrets on 2026-10-09: all five containers healthy, the console and `/healthz` answered through the TLS proxy with the HSTS header (same proxy, MongoDB, Redis and optional Ollama as `deploy/compose.yml`, with `cg serve` and `cg worker` in place of the Python server and Celery). The image has a health check that needs no extra tools (`cg health`).
 - **Desktop:** `desktop/dist/ClaimGuard.exe` contains the window, the Rust server, the rule files and the sample claims, so "local demo" runs from the exe alone; the server stops with the window, even if the window is killed.
 - **Model:** set `QUEUE_AI_PROVIDER=ollama` and `OLLAMA_BASE_URL=http://ollama:11434` (plain HTTP on the private network, by design). Without it, every claim keeps the engine's own explanation.
 
