@@ -2,8 +2,13 @@
 //! the dispatcher keeps each reviewer's inbox topped up, leases bring a claim back when someone walks away, high-severity claims need two
 //! different seniors, and every move is one append-only event.
 
+pub mod breaker;
 pub mod contract;
+pub mod dispatcher;
+pub mod explain;
+pub mod flow;
 pub mod guard;
+pub mod shadow;
 pub mod routing_config;
 pub mod states;
 pub mod store;
