@@ -22,6 +22,7 @@ fn main() {
         Some("evaluate") => evaluate(&args),
         Some("audit-verify") => audit_verify(&args),
         Some("audit-append") => audit_append(&args),
+        Some("xcheck") => xcheck(),
         _ => {
             eprintln!("usage: cg evaluate <claims.jsonl> [--root DIR] | cg audit-verify <log> [--strict] | cg audit-append <log> <events.jsonl> [--review]");
             std::process::exit(2);
@@ -103,5 +104,45 @@ fn audit_append(args: &[String]) {
             eprintln!("{e}");
             std::process::exit(1);
         }
+    }
+}
+
+/// `cg xcheck`: reads one JSON request per line on stdin and answers one JSON line each. It exposes the primitives of the access layer
+/// (password hashes, tokens, one-time codes, encrypted seeds, pseudonyms) so tools/compare_access.py can check, value by value, that the
+/// Python and Rust builds read and write each other's data.
+fn xcheck() {
+    use cg_access::{masking, passwords, settings::Settings, tokens, totp};
+    let stdin = std::io::stdin();
+    for line in stdin.lock().lines().map_while(Result::ok) {
+        if line.trim().is_empty() {
+            continue;
+        }
+        let req: Value = serde_json::from_str(&line).unwrap_or(Value::Null);
+        let s = |k: &str| req.get(k).and_then(Value::as_str).unwrap_or("").to_string();
+        let out = match s("op").as_str() {
+            "verify_password" => json!(passwords::verify_password(&s("password"), &s("hash"))),
+            "hash_password" => json!(passwords::hash_password(&s("password"), req["rounds"].as_u64().unwrap_or(4) as u32).ok()),
+            "issue_token" => {
+                let mut env = std::collections::HashMap::new();
+                env.insert("JWT_SECRET".to_string(), s("secret"));
+                env.insert("BCRYPT_ROUNDS".to_string(), "4".to_string());
+                let st: Settings = cg_access::settings::load_settings(&env, true, "127.0.0.1").expect("settings");
+                let t = tokens::issue(&st, &s("badge"), req["now"].as_f64().unwrap_or(0.0));
+                json!({"token": t.token, "jti": t.jti, "csrf": t.csrf, "expires_at": t.expires_at})
+            }
+            "decode_token" => {
+                let mut env = std::collections::HashMap::new();
+                env.insert("JWT_SECRET".to_string(), s("secret"));
+                let st = cg_access::settings::load_settings(&env, true, "127.0.0.1").expect("settings");
+                tokens::decode(&st, &s("token"), req["now"].as_f64().unwrap_or(0.0)).map(|p| json!({"sub": p["sub"], "jti": p["jti"], "csrf": p["csrf"]})).unwrap_or(Value::Null)
+            }
+            "fernet_encrypt" => json!(totp::encrypt_secret(&s("plain"), &s("key")).ok()),
+            "fernet_decrypt" => json!(totp::decrypt_secret(&s("token"), &s("key")).ok()),
+            "totp_code" => json!(totp::code_at(&s("secret"), req["step"].as_i64().unwrap_or(0))),
+            "pseudonym" => json!(masking::pseudonym(&s("key"), &s("prefix"), &s("value")).ok()),
+            "provisioning_uri" => json!(totp::provisioning_uri(&s("secret"), &s("badge"), "ClaimGuard")),
+            _ => Value::Null,
+        };
+        println!("{out}");
     }
 }

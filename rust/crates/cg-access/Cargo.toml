@@ -1,0 +1,27 @@
+[package]
+name = "cg-access"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+cg-core = { path = "../cg-core" }
+cg-audit = { path = "../cg-audit" }
+serde.workspace = true
+serde_json.workspace = true
+sha2.workspace = true
+hex.workspace = true
+hmac = "0.12"
+sha1 = "0.10"
+thiserror.workspace = true
+bcrypt = "0.15"
+fernet = { version = "0.2", default-features = false, features = ["rustcrypto"] }
+jsonwebtoken = "9"
+rand = "0.8"
+base32 = "0.5"
+base64 = "0.22"
+regex = "1"
+percent-encoding.workspace = true
+subtle = "2"
+
+[dev-dependencies]
+tempfile = "3"

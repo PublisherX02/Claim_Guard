@@ -1,6 +1,6 @@
 [workspace]
 resolver = "2"
-members = ["crates/cg-core", "crates/cg-engine", "crates/cg-audit", "crates/cg-cli"]
+members = ["crates/cg-core", "crates/cg-engine", "crates/cg-audit", "crates/cg-access", "crates/cg-cli"]
 
 [workspace.package]
 version = "0.1.0"

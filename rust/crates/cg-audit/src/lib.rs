@@ -44,6 +44,12 @@ fn invalid<T>(msg: impl Into<String>) -> Result<T, AuditError> {
 pub const SYSTEM_DECISIONS: [&str; 3] = ["route_to_human_review", "no_findings_for_review", "quarantine_claim"];
 const REVIEW_ACTIONS: [&str; 4] = ["confirm_issue", "dismiss_with_reason", "request_information", "mark_corrected_for_recheck"];
 
+pub const SECURITY_EVENT_TYPES: [&str; 23] = [
+    "login_success", "login_failure", "lockout", "logout", "token_rejected", "forbidden", "unmask", "user_created", "user_updated", "user_unlocked", "totp_reset",
+    "password_changed", "audit_read", "audit_verify", "decision", "routing_config_changed", "lease_expired", "lease_reclaimed", "claim_dealt", "claim_decided_green",
+    "queue_admin", "claim_signoff", "triage_receipt",
+];
+
 fn required() -> &'static BTreeMap<&'static str, BTreeSet<&'static str>> {
     static T: OnceLock<BTreeMap<&'static str, BTreeSet<&'static str>>> = OnceLock::new();
     T.get_or_init(|| {
