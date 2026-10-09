@@ -125,6 +125,9 @@ Priority follows MoSCoW (M must, S should, C could, W will not). Status: **Done*
 | FR-20 | Provide a web screen for reviewers | S | Built (2026-10-08) | Reviewer console served by the API and shown in a desktop window; see docs/35. Checked with an automated browser, not a manual accessibility audit |
 | FR-21 | Accept claim submission over HTTP | C | Not built | Command-line tool only |
 | FR-22 | Route by model confidence | W | Not built | Choice: the engine is deterministic and the AI only explains |
+| FR-23 | Show administrators what is broken (system health panel: databases, broker, scheduled jobs, audit chains, disk, AI helper, request traffic) | S | Built (2026-10-09) | docs/37; `GET /api/v1/ops/health`; per-process traffic numbers, no alerts are sent |
+| FR-24 | Let administrators search and chart the audit log (filters by event, badge, claim and period; per-hour counts; CSV; on-demand chain verification) | S | Built (2026-10-09) | docs/37 |
+| FR-25 | Trace one claim from intake to decision (versions, state history, decisions, hashes, security-log entries, no claim values) | S | Built (2026-10-09) | docs/37; `GET /api/v1/ops/trace/{claim_id}` |
 
 ### 4.2 Non-functional requirements
 
