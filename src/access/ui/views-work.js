@@ -228,7 +228,12 @@
         var rows = d.claims;
         if (!rows.length) { out.appendChild(h('p', { class: 'muted', text: 'No claims match.' })); }
         else {
-          var cols = Object.keys(rows[0]).map(function (k) { return { label: k.replace(/_/g, ' '), get: function (r) { return CG.fmtValue(r[k]); } }; });
+          var cols = [
+            { label: 'Claim', get: function (r) { return h('span', { class: 'mono', text: r.claim_id }); } },
+            { label: 'Results', get: function (r) { return Object.keys(r.counts || {}).sort().map(function (k) { return r.counts[k] + ' ' + k.replace(/_/g, ' ').toLowerCase(); }).join(', '); } },
+            { label: 'Highest severity', get: function (r) { return r.max_severity ? CG.chip(r.max_severity) : null; } },
+            { label: 'Flagged', get: function (r) { return r.flagged ? CG.chip('flagged', 'high') : 'no'; } }
+          ];
           out.appendChild(CG.table(cols, rows, { onRow: function (r) { location.hash = '#/claim/' + encodeURIComponent(r.claim_id); } }));
         }
         pager.appendChild(h('button', { class: 'btn small', type: 'button', text: 'Previous', disabled: offset === 0, onclick: function () { offset = Math.max(0, offset - limit); load(); } }));

@@ -54,7 +54,7 @@ a { color: var(--accent); }
 .card.flag-high { border-left: 4px solid var(--high); }
 .card.flag-medium { border-left: 4px solid var(--med); }
 .card.flag-pass { border-left: 4px solid var(--ok); }
-.tiles { display: grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); gap: .75rem; }
+.tiles { display: grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); gap: .75rem; margin-top: .75rem; }
 .tile { background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius); padding: .8rem 1rem; }
 .tile .n { font-size: 1.7rem; font-weight: 700; line-height: 1.1; }
 .tile .l { color: var(--muted); font-size: .85rem; }

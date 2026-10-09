@@ -21,9 +21,15 @@
           tile(d.waiting.decide, 'waiting for a reviewer'), tile(d.waiting.decide_high, 'waiting for a senior'), tile(d.awaiting_countersign, 'awaiting countersign'),
           tile(CG.fmtDuration(d.oldest_waiting_seconds.decide), 'oldest standard wait'), tile(CG.fmtDuration(d.oldest_waiting_seconds.decide_high), 'oldest senior wait'),
           tile(d.on_shift, 'on shift'), tile(d.on_shift_senior, 'seniors on shift')));
+        var LANES = { A: 'lane A', B: 'lane B', green: 'green' }, STAGES = { decide: 'standard review', decide_high: 'senior review', countersign: 'countersign' };
+        function stateLabel(key) {
+          var p = key.split('|');
+          if (p.length !== 3) return key.replace(/_/g, ' ');
+          return p[0].charAt(0).toUpperCase() + p[0].slice(1).replace(/_/g, ' ') + ' - ' + (LANES[p[1]] || p[1]) + ' - ' + (STAGES[p[2]] || p[2].replace(/_/g, ' '));
+        }
         var states = Object.keys(d.counts || {}).sort();
         out.appendChild(h('div', { class: 'card' }, h('h2', { text: 'Claims by state' }),
-          states.length ? CG.table([{ label: 'State', get: function (s) { return s.replace(/_/g, ' '); } }, { label: 'Claims', num: true, get: function (s) { return d.counts[s]; } }], states) : h('p', { class: 'muted', text: 'No claims yet. Use "Submit claims" to add some.' })));
+          states.length ? CG.table([{ label: 'State', get: function (s) { return stateLabel(s); } }, { label: 'Claims', num: true, get: function (s) { return d.counts[s]; } }], states) : h('p', { class: 'muted', text: 'No claims yet. Use "Submit claims" to add some.' })));
         var badges = Object.keys(d.inbox_sizes || {}).sort();
         out.appendChild(h('div', { class: 'card' }, h('h2', { text: 'Personal inboxes (target ' + d.slice_size + ' each)' }),
           badges.length ? CG.table([{ label: 'Reviewer', get: function (b) { return h('span', { class: 'mono', text: b }); } }, { label: 'In inbox', num: true, get: function (b) { return d.inbox_sizes[b]; } },
