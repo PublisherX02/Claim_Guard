@@ -95,6 +95,15 @@ mod tests {
     }
 
     #[test]
+    fn every_level_has_exactly_these_permissions_and_no_others() {
+        let p = |l| effective_permissions(l, &[], &[]).unwrap().into_iter().collect::<Vec<_>>();
+        assert_eq!(p(1), vec!["claims.view"], "a viewer can look and nothing else (no unmask, no notes)");
+        assert_eq!(p(2), vec!["claims.decide", "claims.recheck", "claims.view", "claims.view_notes", "pii.unmask"]);
+        assert_eq!(p(3), vec!["claims.decide", "claims.decide_high", "claims.recheck", "claims.view", "claims.view_notes", "pii.unmask"]);
+        assert_eq!(p(4), vec!["audit.verify", "audit.view", "queue.view", "routing.manage", "users.manage"]);
+    }
+
+    #[test]
     fn levels_are_nested_and_admin_cannot_decide() {
         let p = |l| effective_permissions(l, &[], &[]).unwrap();
         assert!(p(1).is_subset(&p(2)) && p(2).is_subset(&p(3)));

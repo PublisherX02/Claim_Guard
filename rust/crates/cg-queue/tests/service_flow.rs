@@ -168,7 +168,7 @@ fn a_green_claim_is_verified_clear_or_escalated() {
     let id = q.ready("green");
     q.lease_to(&id, "CG-2002");
     let who = q.p("CG-2002");
-    assert!(matches!(q.queue.decide_finding(&who, &id, "R001", "confirm_issue", "x"), Err(QueueError::NotFound(_)) | Err(QueueError::Invalid(_))));
+    assert!(matches!(q.queue.decide_finding(&who, &id, "R001", "confirm_issue", "x"), Err(QueueError::Invalid(m)) if m.contains("only a flagged")), "a finding that passed cannot be decided");
     assert_eq!(q.queue.decide_green(&who, &id, "verify_clear").unwrap()["claim_state"], "decided");
     assert!(matches!(q.queue.decide_green(&who, &id, "verify_clear"), Err(QueueError::NotFound(_)) | Err(QueueError::Conflict(_))), "not leased any more");
     let id2 = q.ready("green");

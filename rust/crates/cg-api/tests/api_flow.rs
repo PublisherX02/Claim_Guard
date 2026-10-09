@@ -272,3 +272,76 @@ fn user_management_and_console_files() {
     assert!(h["content-security-policy"].contains("script-src 'self'"));
     assert_eq!(t.api.handle(req("GET", "/ui/../secrets", None, None, None)).status, 404);
 }
+
+fn find_failing(t: &T, s: &(String, String), severity: &str) -> (String, String) {
+    let list = j(&t.get("/api/v1/claims?limit=200&status=FAIL", s));
+    for c in list["claims"].as_array().unwrap() {
+        let id = c["claim_id"].as_str().unwrap();
+        let v = j(&t.get(&format!("/api/v1/claims/{id}"), s));
+        if let Some(f) = v["findings"].as_array().unwrap().iter().find(|f| f["status"] == "FAIL" && f["severity"] == severity && f.get("allowed_actions").is_some()) {
+            return (id.to_string(), f["rule_id"].as_str().unwrap().to_string());
+        }
+    }
+    panic!("no failing {severity} finding in the sample");
+}
+
+#[test]
+fn a_reviewer_may_not_decide_a_high_severity_finding_but_may_decide_a_medium_one() {
+    let t = t();
+    let (mid, high) = (t.login("CG-2002"), t.login("CG-3003"));
+    let (id, rule) = find_failing(&t, &high, "high");
+    let path = format!("/api/v1/claims/{id}/findings/{rule}/decision");
+    let body = json!({"action": "confirm_issue", "reason": "checked"});
+    assert_eq!(t.post(&path, body.clone(), &mid).status, 403, "level 2 on high severity");
+    assert_eq!(t.post(&path, body, &high).status, 200, "level 3 on high severity");
+    let (id, rule) = find_failing(&t, &mid, "medium");
+    let ok = t.post(&format!("/api/v1/claims/{id}/findings/{rule}/decision"), json!({"action": "dismiss_with_reason", "reason": "not an issue"}), &mid);
+    assert_eq!(ok.status, 200, "{:?}", j(&ok));
+}
+
+#[test]
+fn findings_offer_actions_only_to_people_who_may_decide() {
+    let t = t();
+    let (viewer, reviewer) = (t.login("CG-1001"), t.login("CG-2002"));
+    let id = j(&t.get("/api/v1/claims?limit=1&status=FAIL", &viewer))["claims"][0]["claim_id"].as_str().unwrap().to_string();
+    let seen_by = |s: &(String, String)| j(&t.get(&format!("/api/v1/claims/{id}"), s))["findings"].as_array().unwrap().iter().filter(|f| f.get("allowed_actions").is_some()).count();
+    assert_eq!(seen_by(&viewer), 0, "hide, not disable: no finding of a viewer carries actions");
+    assert!(seen_by(&reviewer) > 0);
+}
+
+#[test]
+fn a_user_who_must_change_the_password_can_do_nothing_else() {
+    let t = t();
+    t.w.provision_with("CG-6006", 2, PW, true);
+    let s = t.login("CG-6006");
+    assert_eq!(t.get("/api/v1/auth/me", &s).status, 200);
+    let r = t.get("/api/v1/claims", &s);
+    assert_eq!((r.status, j(&r)["error"].as_str().unwrap().to_string()), (403, "password_change_required".to_string()));
+    assert_eq!(t.post("/api/v1/auth/change-password", json!({"old_password": PW, "new_password": "Another-Good-9x"}), &s).status, 200);
+}
+
+#[test]
+fn bodies_with_unknown_fields_are_refused_on_login_and_on_decisions() {
+    let t = t();
+    let code = t.w.code("CG-3003");
+    let r = t.api.handle(req("POST", "/api/v1/auth/login", Some(json!({"badge_id": "CG-3003", "password": PW, "totp": code, "level": 4})), None, None));
+    assert_eq!(r.status, 422, "a login with an extra field is refused even though the credentials are right");
+    let s = t.login("CG-3003");
+    let (id, rule) = find_failing(&t, &s, "high");
+    let bad = t.post(&format!("/api/v1/claims/{id}/findings/{rule}/decision"), json!({"action": "confirm_issue", "reason": "x", "original_status": "PASS"}), &s);
+    assert_eq!(bad.status, 422);
+}
+
+#[test]
+fn every_response_carries_the_framing_and_sniffing_headers_and_a_refusal_is_audited() {
+    let t = t();
+    let r = t.api.handle(req("GET", "/healthz", None, None, None));
+    let h: HashMap<_, _> = r.headers.iter().cloned().collect();
+    assert_eq!(h.get("x-frame-options").map(String::as_str), Some("DENY"));
+    assert_eq!(h.get("referrer-policy").map(String::as_str), Some("no-referrer"));
+    let (viewer, admin) = (t.login("CG-1001"), t.login("CG-4004"));
+    assert_eq!(t.get("/api/v1/users", &viewer).status, 403);
+    let ev = j(&t.get("/api/v1/audit/events?event_type=forbidden", &admin));
+    assert_eq!(ev["events"].as_array().unwrap().len(), 1, "the refused attempt is on the security log");
+    assert!(ev["events"][0].to_string().contains("CG-1001"), "{}", ev["events"][0]);
+}

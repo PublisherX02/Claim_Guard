@@ -3,6 +3,9 @@
 {$CG_SITE} {
 	tls internal
 	encode zstd gzip
-	header -Server
+	header {
+		-Server
+		Strict-Transport-Security "max-age=31536000"
+	}
 	reverse_proxy api:8443
 }

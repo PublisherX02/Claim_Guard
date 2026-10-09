@@ -436,7 +436,11 @@ pub mod testkit {
         }
 
         pub fn provision(&self, badge: &str, level: i64, password: &str) -> User {
-            let (user, uri) = self.svc.provision_user(badge, "Test User", password, level, "test", &[], &[], false).unwrap();
+            self.provision_with(badge, level, password, false)
+        }
+
+        pub fn provision_with(&self, badge: &str, level: i64, password: &str, must_change_password: bool) -> User {
+            let (user, uri) = self.svc.provision_user(badge, "Test User", password, level, "test", &[], &[], must_change_password).unwrap();
             let secret = uri.split("secret=").nth(1).unwrap().split('&').next().unwrap().to_string();
             self.seeds.lock().unwrap().insert(badge.to_string(), secret);
             user
