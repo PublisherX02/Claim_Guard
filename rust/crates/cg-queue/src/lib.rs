@@ -9,6 +9,7 @@ pub mod explain;
 pub mod flow;
 pub mod guard;
 pub mod model;
+pub mod replay;
 pub mod shadow;
 pub mod routing_config;
 pub mod service;
