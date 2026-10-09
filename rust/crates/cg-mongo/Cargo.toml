@@ -1,0 +1,14 @@
+[package]
+name = "cg-mongo"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+cg-access = { path = "../cg-access" }
+mongodb = { version = "3", default-features = false, features = ["sync", "rustls-tls", "compat-3-0-0"] }
+serde_json.workspace = true
+thiserror.workspace = true
+tokio = { version = "1", features = ["rt-multi-thread"] }
+
+[dev-dependencies]
+rand = "0.8"

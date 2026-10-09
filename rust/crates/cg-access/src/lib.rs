@@ -4,6 +4,7 @@
 //! session token, four clearance levels with per-user grants and revokes, masked identifiers, and a signed security log. No HTTP in here:
 //! the API crate only translates requests into calls on `AccessService`.
 
+pub mod contract;
 pub mod masking;
 pub mod passwords;
 pub mod permissions;

@@ -1,0 +1,19 @@
+[package]
+name = "cg-queue"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+cg-core = { path = "../cg-core" }
+cg-audit = { path = "../cg-audit" }
+cg-access = { path = "../cg-access" }
+cg-engine = { path = "../cg-engine" }
+serde.workspace = true
+serde_json.workspace = true
+sha2.workspace = true
+hex.workspace = true
+thiserror.workspace = true
+rand = "0.8"
+
+[dev-dependencies]
+tempfile = "3"

@@ -225,6 +225,11 @@ mod tests {
     use super::*;
 
     #[test]
+    fn the_memory_store_meets_the_contract() {
+        crate::contract::run(&|| Box::new(MemoryStore::new()));
+    }
+
+    #[test]
     fn create_get_update_list() {
         let s = MemoryStore::new();
         s.create_user(&sample_user("CG-1001", 1)).unwrap();
