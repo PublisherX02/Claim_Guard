@@ -6,6 +6,7 @@
 //! replacement are detected, which a chain alone cannot do. This is tamper-EVIDENT, not immutable.
 
 pub mod canonical;
+pub mod mirror;
 
 use hmac::{Hmac, Mac};
 use serde_json::{json, Value};

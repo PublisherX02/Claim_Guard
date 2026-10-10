@@ -5,7 +5,7 @@
 //! * `cg worker` runs only the queue workers (relay, deal, expire, reconcile) against the database: the production counterpart of the
 //!   Celery worker and its scheduler. Run exactly one.
 
-use crate::boot::{boot, shutdown_signal, start_workers, Boot, Options};
+use crate::boot::{boot, shutdown_signal, start_audit_guard, start_workers, Boot, Options};
 use cg_access::passwords;
 use cg_access::service::AccessService;
 use cg_access::settings::random_token;
@@ -151,7 +151,7 @@ fn start(a: Args, dev: bool) -> Result<(), String> {
     let claims_path = a.claims.clone().or_else(|| b.env.get("CLAIMS_PATH").map(PathBuf::from)).unwrap_or_else(|| b.root.join("data/development/claims.jsonl"));
     let claims = Arc::new(FileClaimStore::from_jsonl(&claims_path, &b.engine)?);
     let stop = Arc::new(AtomicBool::new(false));
-    let (mut queue_service, mut probes, mut worker) = (None, vec![], None);
+    let (mut queue_service, mut probes, mut worker, mut guard) = (None, vec![], None, None);
     if let Some(q) = &b.queue {
         probes = queue_probes(q.service.clone(), q.breaker.clone(), q.runtime.explain.model_name(), b.env.get("REDIS_URL").cloned().filter(|s| !s.is_empty()), a.demo, b.clock.clone());
         if a.demo {
@@ -160,6 +160,7 @@ fn start(a: Args, dev: bool) -> Result<(), String> {
         // In a real deployment the worker is its own process (`cg worker`); only the demo runs it here.
         if a.demo {
             worker = Some(start_workers(q, stop.clone()));
+            guard = Some(start_audit_guard(&b, q, stop.clone()));
         }
         queue_service = Some(q.service.clone());
     }
@@ -183,8 +184,8 @@ fn start(a: Args, dev: bool) -> Result<(), String> {
     let rt = tokio::runtime::Builder::new_multi_thread().enable_all().build().map_err(|e| e.to_string())?;
     let result = rt.block_on(server::serve(api, addr, a.behind_proxy, shutdown_signal()));
     stop.store(true, Ordering::SeqCst);
-    if let Some(w) = worker {
-        let _ = w.join();
+    for h in worker.into_iter().chain(guard) {
+        let _ = h.join();
     }
     result.map_err(|e| format!("server: {e}"))
 }
@@ -202,13 +203,15 @@ pub fn worker(args: &[String]) -> i32 {
     let Some(q) = &b.queue else { return 2 };
     let stop = Arc::new(AtomicBool::new(false));
     let handle = start_workers(q, stop.clone());
-    println!("worker running (relay, deal, expire, reconcile)");
+    let guard = start_audit_guard(&b, q, stop.clone());
+    println!("worker running (relay, deal, expire, reconcile, audit protection)");
     match tokio::runtime::Builder::new_current_thread().enable_all().build() {
         Ok(rt) => rt.block_on(shutdown_signal()),
         Err(_) => return 2,
     }
     stop.store(true, Ordering::SeqCst);
     let _ = handle.join();
+    let _ = guard.join();
     0
 }
 

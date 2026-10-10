@@ -325,6 +325,55 @@ pub fn run_job<T>(store: &dyn cg_queue::store::QueueStore, clock: &Clock, name: 
     result
 }
 
+/// The audit-protection jobs that are switched on in this environment, with how often each should run (seconds):
+/// `audit_verify` always (the chains and anchors of both logs), `audit_mirror` when AUDIT_MIRROR_DIR is set (a second copy on another
+/// volume), `audit_witness` when TSA_URL is set (an RFC 3161 timestamp of each anchor).
+pub fn audit_guard_jobs(env: &std::collections::HashMap<String, String>) -> Vec<(&'static str, f64)> {
+    let secs = |name: &str, default: f64| env.get(name).and_then(|v| v.trim().parse::<f64>().ok()).filter(|v| *v >= 5.0).unwrap_or(default);
+    let on = |name: &str| env.get(name).is_some_and(|v| !v.trim().is_empty());
+    let mut jobs = vec![("audit_verify", secs("AUDIT_VERIFY_SECONDS", 3600.0))];
+    if on("AUDIT_MIRROR_DIR") {
+        jobs.push(("audit_mirror", secs("AUDIT_MIRROR_SECONDS", 300.0)));
+    }
+    if on("TSA_URL") {
+        jobs.push(("audit_witness", secs("AUDIT_WITNESS_SECONDS", 3600.0)));
+    }
+    jobs
+}
+
+/// Like `run_job`, for a job that can fail: an Err is recorded as a failed run (with its text) and returned.
+pub fn run_job_checked<T>(store: &dyn cg_queue::store::QueueStore, clock: &Clock, name: &str, f: impl FnOnce() -> Result<T, String>, describe: impl Fn(&T) -> String) -> Result<T, String> {
+    let result = f();
+    let (ok, detail) = match &result {
+        Ok(v) => (true, describe(v)),
+        Err(e) => (false, e.clone()),
+    };
+    let _ = store.record_job(name, clock(), ok, &detail.chars().take(200).collect::<String>());
+    result
+}
+
+/// Judges the audit-protection jobs. A job that FAILED is DOWN, not merely degraded: it means a chain does not verify, a log no longer
+/// matches its mirror, or the timestamp authority cannot be reached, and the first two are what tampering looks like.
+pub fn audit_guard_status(jobs: &[Value], expected: &[(&'static str, f64)], now: f64) -> Vec<Value> {
+    expected
+        .iter()
+        .map(|(name, every)| match jobs.iter().find(|j| j["name"] == *name) {
+            None => json!({"name": name, "status": UNKNOWN, "detail": "has not run yet", "every_seconds": every}),
+            Some(j) => {
+                let age = now - j["at"].as_f64().unwrap_or(0.0);
+                let (status, detail) = if j["ok"] != true {
+                    (DOWN, format!("FAILED {} s ago: {}", age as i64, j["detail"].as_str().filter(|s| !s.is_empty()).unwrap_or("no detail")))
+                } else if age > every * 3.0 {
+                    (DOWN, format!("last ran {} s ago, expected every {} s", age as i64, *every as i64))
+                } else {
+                    (OK, format!("ran {} s ago: {}", age as i64, j["detail"].as_str().unwrap_or("")))
+                };
+                json!({"name": name, "status": status, "detail": detail, "every_seconds": every, "last_run": j["at"]})
+            }
+        })
+        .collect()
+}
+
 /// Judges each expected job: ok when it succeeded within `grace` times its interval; unknown when it never ran.
 pub fn job_status(jobs: &[Value], now: f64, grace: f64) -> Vec<Value> {
     EXPECTED_EVERY
@@ -481,8 +530,8 @@ const OLD_WAIT_SECONDS: f64 = 1800.0;
 /// The queue's share of the health report: store, broker, scheduled jobs, outbox, claim flow and the AI helper's circuit breaker.
 pub fn queue_probes(queue: Arc<QueueService>, breaker: Arc<CircuitBreaker>, model_name: String, redis_url: Option<String>, demo: bool, clock: Clock) -> Vec<Probe> {
     let store = queue.store.clone();
-    let (s1, s2, s3, s4) = (store.clone(), store.clone(), store.clone(), store);
-    let (c1, c2, c3) = (clock.clone(), clock.clone(), clock);
+    let (s1, s2, s3, s4, s5) = (store.clone(), store.clone(), store.clone(), store.clone(), store);
+    let (c1, c2, c3, c4) = (clock.clone(), clock.clone(), clock.clone(), clock);
     let q = queue;
     vec![
         probe("queue_store", "Queue database", "core", move || if s1.ping() { res(OK, "answers a ping", json!({})) } else { res(DOWN, "the queue database does not answer", json!({})) }),
@@ -503,6 +552,18 @@ pub fn queue_probes(queue: Arc<QueueService>, breaker: Arc<CircuitBreaker>, mode
             let w = worst(statuses.iter().map(|s| s["status"].as_str().unwrap_or(UNKNOWN))).to_string();
             let detail = if w == OK { "all four scheduled jobs are running on time".to_string() } else { statuses.iter().filter(|s| s["status"] != OK).map(|s| format!("{}: {}", s["name"].as_str().unwrap_or(""), s["detail"].as_str().unwrap_or(""))).collect::<Vec<_>>().join("; ") };
             res(&w, detail, json!({"jobs": statuses}))
+        }),
+        probe("audit_guard", "Audit log protection (verification, mirror, timestamps)", "core", move || {
+            let env: std::collections::HashMap<String, String> = std::env::vars().collect();
+            let expected = audit_guard_jobs(&env);
+            let statuses = audit_guard_status(&s5.jobs().unwrap_or_default(), &expected, c4());
+            let w = worst(statuses.iter().map(|s| s["status"].as_str().unwrap_or(UNKNOWN))).to_string();
+            let protected = expected.len() > 1;
+            let mut detail = statuses.iter().filter(|s| s["status"] != OK).map(|s| format!("{}: {}", s["name"].as_str().unwrap_or(""), s["detail"].as_str().unwrap_or(""))).collect::<Vec<_>>().join("; ");
+            if detail.is_empty() {
+                detail = if protected { "the logs verify and every configured copy and timestamp is current".to_string() } else { "the logs verify; no mirror and no external timestamp are configured, so tampering is detectable but not provable".to_string() };
+            }
+            res(&w, detail, json!({"jobs": statuses, "mirror": expected.iter().any(|(n, _)| *n == "audit_mirror"), "witness": expected.iter().any(|(n, _)| *n == "audit_witness")}))
         }),
         probe("outbox", "Publishing of new claims", "core", move || {
             let pending = s3.pending_outbox(500).unwrap_or_default();
@@ -634,6 +695,27 @@ mod tests {
         let by: BTreeMap<String, String> = job_status(&[row("relay", 5.0, true), row("deal", 100.0, true), row("expire", 30.0, true), row("reconcile", 100.0, true)], now, 3.0).iter().map(|j| (j["name"].as_str().unwrap().into(), j["status"].as_str().unwrap().into())).collect();
         assert_eq!((by["relay"].as_str(), by["deal"].as_str(), by["expire"].as_str(), by["reconcile"].as_str()), ("ok", "down", "ok", "ok"));
         assert_eq!(job_status(&[row("relay", 5.0, false)], now, 3.0)[0]["status"], DEGRADED);
+    }
+
+    #[test]
+    fn audit_guard_jobs_follow_the_environment_and_a_failure_is_down_not_degraded() {
+        let env = |pairs: &[(&str, &str)]| pairs.iter().map(|(k, v)| (k.to_string(), v.to_string())).collect::<std::collections::HashMap<_, _>>();
+        let names = |e: &std::collections::HashMap<String, String>| audit_guard_jobs(e).iter().map(|(n, _)| *n).collect::<Vec<_>>();
+        assert_eq!(names(&env(&[])), ["audit_verify"]);
+        assert_eq!(names(&env(&[("AUDIT_MIRROR_DIR", "/m"), ("TSA_URL", "http://t")])), ["audit_verify", "audit_mirror", "audit_witness"]);
+        assert_eq!(names(&env(&[("AUDIT_MIRROR_DIR", "  ")])), ["audit_verify"], "a blank value is off");
+        assert_eq!(audit_guard_jobs(&env(&[("AUDIT_VERIFY_SECONDS", "2")]))[0].1, 3600.0, "an absurdly short interval is ignored");
+        let now = 10_000.0;
+        let row = |n: &str, age: f64, ok: bool| json!({"name": n, "at": now - age, "ok": ok, "detail": if ok { "fine" } else { "the first 12 bytes of the source differ from the mirror" }});
+        let exp = [("audit_verify", 3600.0), ("audit_mirror", 300.0)];
+        let s = audit_guard_status(&[row("audit_verify", 100.0, true), row("audit_mirror", 100.0, true)], &exp, now);
+        assert!(s.iter().all(|j| j["status"] == OK));
+        let s = audit_guard_status(&[row("audit_verify", 100.0, true), row("audit_mirror", 100.0, false)], &exp, now);
+        assert_eq!(s[1]["status"], DOWN);
+        assert!(s[1]["detail"].as_str().unwrap().contains("differ from the mirror"), "the reason is shown");
+        let s = audit_guard_status(&[row("audit_verify", 100.0, true), row("audit_mirror", 1000.0, true)], &exp, now);
+        assert_eq!(s[1]["status"], DOWN, "a mirror that has stopped running is down too");
+        assert_eq!(audit_guard_status(&[], &exp, now)[0]["status"], UNKNOWN);
     }
 
     fn rows() -> Vec<Value> {

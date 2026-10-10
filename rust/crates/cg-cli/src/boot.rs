@@ -211,6 +211,80 @@ pub fn start_workers(q: &QueueStack, stop: Arc<AtomicBool>) -> std::thread::Join
         .expect("the worker thread starts")
 }
 
+/// Protects the audit logs from a quiet rewrite, on its own thread so a slow check never delays the queue:
+/// * `audit_verify`: both hash chains and their anchors, every AUDIT_VERIFY_SECONDS (default one hour);
+/// * `audit_mirror`: when AUDIT_MIRROR_DIR is set, an append-only copy on another volume that refuses to follow a log that was edited,
+///   every AUDIT_MIRROR_SECONDS (default five minutes);
+/// * `audit_witness`: when TSA_URL is set, an RFC 3161 timestamp of each anchor, every AUDIT_WITNESS_SECONDS (default one hour).
+/// Each run is recorded as a job, so the health panel shows a failure (a chain that no longer verifies, a log that no longer matches its
+/// mirror, an unreachable authority) instead of leaving it in a log nobody reads.
+pub fn start_audit_guard(b: &Boot, q: &QueueStack, stop: Arc<AtomicBool>) -> std::thread::JoinHandle<()> {
+    use cg_api::ops::{audit_guard_jobs, run_job_checked};
+    let store = q.store.clone();
+    let clock = b.clock.clone();
+    let env = b.env.clone();
+    let logs: Vec<(String, std::path::PathBuf)> = vec![("security".into(), b.securitylog.path().to_path_buf()), ("review".into(), b.review_log.path().to_path_buf())];
+    let security = b.securitylog.clone();
+    std::thread::Builder::new()
+        .name("claimguard-audit-guard".into())
+        .spawn(move || {
+            let jobs = audit_guard_jobs(&env);
+            let mut last: Vec<f64> = vec![f64::MIN; jobs.len()];
+            let mono = std::time::Instant::now();
+            while !stop.load(Ordering::SeqCst) {
+                let now = mono.elapsed().as_secs_f64();
+                for (i, (name, every)) in jobs.iter().enumerate() {
+                    if now - last[i] < *every {
+                        continue;
+                    }
+                    last[i] = now;
+                    let _ = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| match *name {
+                        "audit_verify" => {
+                            let _ = run_job_checked(&*store, &clock, name, || {
+                                let s = security.verify();
+                                if s["ok"] != true {
+                                    return Err(format!("security log: {}", s["error"].as_str().unwrap_or("does not verify")));
+                                }
+                                let review = &logs[1].1;
+                                if review.exists() {
+                                    cg_audit::verify_with_anchor(review, None, false).map_err(|e| format!("review log: {e}"))?;
+                                }
+                                Ok(format!("{} security events verified", s["events"]))
+                            }, |d| d.clone());
+                        }
+                        "audit_mirror" => {
+                            let dir = std::path::PathBuf::from(env.get("AUDIT_MIRROR_DIR").cloned().unwrap_or_default());
+                            let _ = run_job_checked(&*store, &clock, name, || {
+                                let mut copied = 0;
+                                for (label, path) in &logs {
+                                    let target = dir.join(path.file_name().unwrap_or_default());
+                                    copied += cg_audit::mirror::sync_mirror(path, &target).map_err(|e| format!("{label} log: {e}"))?;
+                                }
+                                Ok(format!("{copied} bytes copied"))
+                            }, |d| d.clone());
+                        }
+                        _ => {
+                            let url = env.get("TSA_URL").cloned().unwrap_or_default();
+                            let _ = run_job_checked(&*store, &clock, name, || {
+                                let mut stamped = 0;
+                                for (label, path) in &logs {
+                                    if !path.exists() {
+                                        continue;
+                                    }
+                                    cg_timestamp::stamp_log(path, &cg_audit::anchor_path_of(path), &url, 20.0).map_err(|e| format!("{label} log: {e}"))?;
+                                    stamped += 1;
+                                }
+                                Ok(format!("{stamped} anchors stamped"))
+                            }, |d| d.clone());
+                        }
+                    }));
+                }
+                std::thread::sleep(Duration::from_millis(500));
+            }
+        })
+        .expect("the audit guard thread starts")
+}
+
 /// Resolves when the process is asked to stop (Ctrl-C, or SIGTERM from a container runtime).
 pub async fn shutdown_signal() {
     #[cfg(unix)]

@@ -23,6 +23,11 @@ x-app: &app
     OLLAMA_MODEL: ${OLLAMA_MODEL:-}
     FEATHERLESS_API_KEY: ${FEATHERLESS_API_KEY:-}
     TRUSTED_PROXY_IPS: ${TRUSTED_PROXY_IPS:-*}
+    # audit protection (docs/39): a second, append-only copy of both logs on its own volume (only the worker mounts it), and an optional
+    # RFC 3161 timestamp authority; the API reads these two only to know which checks the health panel should expect
+    AUDIT_MIRROR_DIR: ${AUDIT_MIRROR_DIR:-/mirror}
+    TSA_URL: ${TSA_URL:-}
+    TSA_CA_FILE: ${TSA_CA_FILE:-}
   volumes:
     - claimguard_data:/data
   depends_on:
@@ -55,6 +60,9 @@ services:
     <<: *app
     # The relay, deal, expire and reconcile loops. Exactly one instance: the loops must not be duplicated.
     command: ["cg", "worker"]
+    volumes:
+      - claimguard_data:/data
+      - audit_mirror:/mirror
     healthcheck:
       test: ["CMD", "cg", "health", "--file", "/tmp/cg_worker_alive", "--max-age", "30"]
       interval: 30s
@@ -95,6 +103,7 @@ services:
     # deploy: { resources: { reservations: { devices: [{ driver: nvidia, count: all, capabilities: [gpu] }] } } }
 
 volumes:
+  audit_mirror:
   claimguard_data:
   mongo_data:
   caddy_data:
