@@ -9,7 +9,7 @@ DEPLOY = ROOT / 'deploy' / 'rust'
 
 
 def services(text):
-    body = text.split('\nservices:\n', 1)[1].split('\nvolumes:\n', 1)[0]
+    body = text.split('\nservices:\n', 1)[1].split('\nnetworks:\n', 1)[0].split('\nvolumes:\n', 1)[0]
     parts = re.split(r'\n(?=  [a-z]+:[^\n]*\n)', '\n' + body)
     return {re.match(r'\s*([a-z]+):', p).group(1): p for p in parts if re.match(r'\s*[a-z]+:[^\n]*\n', p)}
 
@@ -46,6 +46,27 @@ class RustCompose(unittest.TestCase):
         self.assertNotIn('"--demo"', self.text)
         self.assertNotIn('"--dev"', self.text)
 
+    def test_the_database_and_cache_sit_on_a_network_with_no_route_out_and_the_proxy_cannot_see_them(self):
+        nets = self.text.split('\nnetworks:\n', 1)[1].split('\nvolumes:\n', 1)[0]
+        self.assertRegex(nets, r'data:\s*\n\s+internal: true')
+        self.assertIn('networks: [edge]', self.svc['proxy'])
+        self.assertIn('networks: [edge, data]', self.svc['api'])
+        self.assertIn('networks: [data]', self.svc['mongo'])
+        self.assertIn('networks: [data]', self.svc['redis'])
+        self.assertNotIn('data', self.svc['proxy'].replace('claimguard_data', ''))
+
+    def test_redis_demands_a_password_and_the_app_containers_have_limits(self):
+        self.assertIn('--requirepass', self.svc['redis'])
+        self.assertRegex(self.text, r'REDIS_PASSWORD:\s*\$\{REDIS_PASSWORD:\?')
+        head = self.text.split('\nservices:\n', 1)[0]
+        for needle in ('mem_limit:', 'pids_limit:', 'cpus:'):
+            self.assertIn(needle, head)
+
+    def test_only_the_worker_mounts_the_audit_mirror(self):
+        self.assertIn('audit_mirror:/mirror', self.svc['worker'])
+        for name in ('api', 'proxy', 'mongo', 'redis'):
+            self.assertNotIn('audit_mirror', self.svc[name], name)
+
     def test_paths_resolve_from_the_compose_file_location(self):
         self.assertIn('context: ../..', self.text)
         self.assertIn('dockerfile: deploy/rust/Dockerfile', self.text)
@@ -76,6 +97,14 @@ class RustImage(unittest.TestCase):
 
     def test_the_image_has_a_health_check_that_needs_no_extra_tools(self):
         self.assertIn('"cg", "health"', self.text)
+
+
+class RustProxy(unittest.TestCase):
+    def test_both_proxy_configs_cut_off_slow_and_oversized_requests(self):
+        for name in ('Caddyfile.internal', 'Caddyfile.public'):
+            text = (DEPLOY.parent / name).read_text(encoding='utf-8')
+            for needle in ('read_header 10s', 'read_body 30s', 'max_header_size 16KB', 'max_size 100KB', 'Strict-Transport-Security'):
+                self.assertIn(needle, text, (name, needle))
 
 
 class RustInstall(unittest.TestCase):
