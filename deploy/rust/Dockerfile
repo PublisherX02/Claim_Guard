@@ -12,7 +12,7 @@ RUN cd rust && cargo build --release -p cg-cli --locked && strip target/release/
 
 FROM debian:bookworm-slim
 ENV CLAIMGUARD_ROOT=/app CLAIMGUARD_DATA_DIR=/data CG_WORKER_ALIVE_FILE=/tmp/cg_worker_alive
-RUN useradd --system --uid 10001 --home-dir /app claimguard && mkdir -p /data /app/data/development && chown claimguard /data
+RUN useradd --system --uid 10001 --home-dir /app claimguard && mkdir -p /data /mirror /app/data/development && chown claimguard /data /mirror
 WORKDIR /app
 COPY --from=build /app/rust/target/release/cg /usr/local/bin/cg
 COPY rules ./rules

@@ -13,6 +13,10 @@
 
 {$CG_SITE} {
 	encode zstd gzip
+	# no request the application accepts is larger than this; refuse anything bigger here, with a clean 413, before it is forwarded
+	request_body {
+		max_size 100KB
+	}
 	header {
 		-Server
 		Strict-Transport-Security "max-age=31536000"

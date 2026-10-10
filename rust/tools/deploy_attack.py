@@ -172,24 +172,26 @@ def attack():
             continue
         pubs[row['Service']] = [p for p in row.get('Publishers') or [] if p.get('PublishedPort')]
     check('network', 'only the proxy publishes ports (80 and 443)', {s for s, p in pubs.items() if p} == {'proxy'} and {p['PublishedPort'] for p in pubs['proxy']} == {80, 443}, pubs)
-    for port, what in ((27017, 'MongoDB'), (6379, 'Redis'), (8443, 'the API')):
-        try:
-            socket.create_connection(('127.0.0.1', port), timeout=2).close()
-            ok = False
-        except OSError:
-            ok = True
-        check('network', f'{what} (port {port}) is not reachable from the host', ok)
+    for svc in ('mongo', 'redis', 'api', 'worker'):
+        rc, out = sh('docker', 'port', container(svc))
+        check('network', f'{svc}: Docker publishes no port to the host', out.strip() == '', out)
+    try:
+        socket.create_connection(('127.0.0.1', 8443), timeout=2).close()
+        ok = False
+    except OSError:
+        ok = True
+    check('network', 'the API port (8443) is not reachable from the host', ok)
     # ---------------------------------------------------------------- network segmentation
-    rc, out = exec_in('proxy', 'nc -z -w 3 mongo 27017 && echo reachable || echo blocked')
-    check('network', 'the proxy cannot reach MongoDB', 'blocked' in out and 'reachable' not in out.replace('blocked', ''), out)
-    rc, out = exec_in('proxy', 'nc -z -w 3 redis 6379 && echo reachable || echo blocked')
-    check('network', 'the proxy cannot reach Redis', 'blocked' in out and 'reachable' not in out.replace('blocked', ''), out)
+    rc, out = exec_in('proxy', 'nc -z -w 3 mongo 27017 && echo RESULT:open || echo RESULT:closed')
+    check('network', 'the proxy cannot reach MongoDB', 'RESULT:closed' in out, out)
+    rc, out = exec_in('proxy', 'nc -z -w 3 redis 6379 && echo RESULT:open || echo RESULT:closed')
+    check('network', 'the proxy cannot reach Redis', 'RESULT:closed' in out, out)
     rc, out = exec_in('api', 'cg health --port 8443 && echo ok')
     check('network', 'the API answers its own health check', 'ok' in out, out)
-    rc, out = sh('docker', 'exec', container('mongo'), 'bash', '-c', 'timeout 4 bash -c "echo > /dev/tcp/1.1.1.1/443" && echo reachable || echo blocked')
-    check('network', 'MongoDB has no route to the internet', 'blocked' in out and 'reachable' not in out.replace('blocked', ''), out)
-    rc, out = sh('docker', 'exec', container('redis'), 'bash', '-c', 'timeout 4 bash -c "echo > /dev/tcp/1.1.1.1/443" && echo reachable || echo blocked')
-    check('network', 'Redis has no route to the internet', 'blocked' in out and 'reachable' not in out.replace('blocked', ''), out)
+    rc, out = sh('docker', 'exec', container('mongo'), 'bash', '-c', 'timeout 4 bash -c "echo > /dev/tcp/1.1.1.1/443" && echo RESULT:open || echo RESULT:closed')
+    check('network', 'MongoDB has no route to the internet', 'RESULT:closed' in out, out)
+    rc, out = sh('docker', 'exec', container('redis'), 'bash', '-c', 'timeout 4 bash -c "echo > /dev/tcp/1.1.1.1/443" && echo RESULT:open || echo RESULT:closed')
+    check('network', 'Redis has no route to the internet', 'RESULT:closed' in out, out)
     # ---------------------------------------------------------------- database authentication
     rc, out = sh('docker', 'exec', container('mongo'), 'mongosh', '--quiet', '--eval', 'JSON.stringify(db.adminCommand({listDatabases:1}))')
     check('database', 'MongoDB refuses an unauthenticated listing of databases', 'requires authentication' in out or 'Unauthorized' in out or '"ok":0' in out, out[:200])
@@ -220,8 +222,8 @@ def attack():
         check('isolation', f'{svc}: no effective capabilities and NoNewPrivs is set', 'CapEff:\t0000000000000000' in out and 'NoNewPrivs:\t1' in out, out[-200:])
     rc, out = exec_in('worker', 'touch /mirror/ok && echo mirror-writable; ls /mirror >/dev/null 2>&1 && echo mirror-present')
     check('isolation', 'worker: the audit mirror volume is mounted and writable', 'mirror-writable' in out, out)
-    rc, out = exec_in('api', 'ls /mirror 2>&1')
-    check('isolation', 'api: the audit mirror volume is NOT mounted (a compromised API cannot rewrite the copy)', 'No such file' in out, out)
+    rc, out = exec_in('api', 'grep -c " /mirror " /proc/mounts; touch /mirror/x 2>&1')
+    check('isolation', 'api: the audit mirror volume is NOT mounted and /mirror cannot be written (a compromised API cannot rewrite the copy)', out.splitlines()[0].strip() == '0' and 'Read-only' in out, out)
     # ---------------------------------------------------------------- the image
     rc, out = sh('docker', 'run', '--rm', '--entrypoint', 'sh', 'claimguard-rs:latest', '-c',
                  'find / -xdev \\( -name ".env*" -o -name "*.pem" -o -name "*.key" -o -name "dev_secrets.json" -o -name "demo_accounts.json" -o -name "id_rsa*" \\) 2>/dev/null | grep -v "^/etc/ssl\\|^/usr/share\\|^/usr/lib\\|^/etc/ca-cert" | head')
