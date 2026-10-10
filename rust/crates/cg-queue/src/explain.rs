@@ -113,11 +113,33 @@ pub fn template_key(rule_id: &str, shape: &str, prompt_version: &str, model_name
     hex::encode(Sha256::digest([rule_id, shape, prompt_version, model_name].join("|").as_bytes()))
 }
 
+/// A claim's value made safe to show inside a sentence: control characters, zero-width and direction-changing characters are removed
+/// (they can hide text or reverse it on screen), white space is collapsed, quotation marks are dropped so the value cannot close its own
+/// quote, the length is capped, and anything that is not a plain code, number or date is put in quotation marks so that it reads as data
+/// the submitter wrote and never as part of the explanation.
+pub fn display_value(raw: &str) -> String {
+    use unicode_general_category::{get_general_category, GeneralCategory};
+    let kept: String = raw
+        .chars()
+        .filter(|c| !matches!(get_general_category(*c), GeneralCategory::Format | GeneralCategory::Control | GeneralCategory::PrivateUse | GeneralCategory::Surrogate | GeneralCategory::Unassigned) || c.is_whitespace())
+        .filter(|c| !matches!(*c, '\u{201c}' | '\u{201d}' | '"' | '`'))
+        .map(|c| match c {
+            '<' => '\u{2039}', // markup brackets become look-alike angle quotes: harmless as text, never a tag
+            '>' => '\u{203a}',
+            other => other,
+        })
+        .collect();
+    let collapsed: String = kept.split_whitespace().collect::<Vec<_>>().join(" ");
+    let capped: String = collapsed.chars().take(MAX_VALUE_CHARS).collect();
+    let plain = !capped.is_empty() && capped.chars().count() <= 64 && capped.chars().all(|c| c.is_ascii_alphanumeric() || matches!(c, '.' | '_' | '-' | ':' | '/'));
+    if capped.is_empty() || plain { capped } else { format!("\u{201c}{capped}\u{201d}") }
+}
+
 /// Puts this finding's own values into a template. One pass, plain replacement: a value is never searched for placeholders.
 pub fn fill(template: &str, result: &Value) -> String {
     let value = result["evidence"].as_array().and_then(|e| e.first()).filter(|e| e.is_object()).map(|e| py_str(&e["value"])).unwrap_or_default();
-    let value: String = value.chars().take(MAX_VALUE_CHARS).collect();
-    let line = result["affected_line_ids"].as_array().and_then(|l| l.first()).map(py_str).unwrap_or_default();
+    let value = display_value(&value);
+    let line = display_value(&result["affected_line_ids"].as_array().and_then(|l| l.first()).map(py_str).unwrap_or_default());
     let re = Regex::new(r"\{value\}|\{line\}").expect("static pattern");
     let mut out = String::new();
     let mut last = 0;
@@ -358,9 +380,23 @@ mod tests {
     }
 
     #[test]
+    fn a_claims_value_is_made_safe_before_it_is_shown_inside_a_sentence() {
+        assert_eq!(display_value("SVC-EDU-01"), "SVC-EDU-01");
+        assert_eq!(display_value("2026-03-02"), "2026-03-02");
+        assert_eq!(display_value("12.50"), "12.50");
+        assert_eq!(display_value("two words"), "\u{201c}two words\u{201d}", "anything that could read as a sentence is quoted");
+        assert_eq!(display_value("a\u{202e}b\u{200b}c\u{0}d\u{2060}"), "abcd", "direction, zero-width and control characters are removed");
+        assert_eq!(display_value("say \"hi\"\n\n  there"), "\u{201c}say hi there\u{201d}", "white space collapses and the value cannot close its own quote");
+        assert_eq!(display_value(&"A".repeat(5000)).chars().count(), MAX_VALUE_CHARS + 2, "capped, then quoted");
+        assert_eq!(display_value("<img src=x onerror=alert(1)>"), "\u{201c}\u{2039}img src=x onerror=alert(1)\u{203a}\u{201d}", "angle brackets cannot form a tag");
+        assert_eq!(display_value(""), "");
+        assert_eq!(display_value("\u{200b}\u{202e}"), "", "only invisible characters leave nothing");
+    }
+
+    #[test]
     fn fill_replaces_once_and_never_re_scans_a_value() {
         let r = json!({"affected_line_ids": ["L2"], "evidence": [{"path": "/x", "value": "{line} and {value}"}]});
-        assert_eq!(fill("see {value} / {line} / {line}", &r), "see {line} and {value} / L2 / L2");
+        assert_eq!(fill("see {value} / {line} / {line}", &r), "see \u{201c}{line} and {value}\u{201d} / L2 / L2", "a value that is not a plain code is quoted, and its braces are not expanded");
         assert_eq!(fill("no placeholders {braces}", &r), "no placeholders {braces}");
         assert_eq!(py_str(&json!({"a": [1, "x"], "b": null})), "{'a': [1, 'x'], 'b': None}");
         assert_eq!(py_str(&json!(2.0)), "2.0");

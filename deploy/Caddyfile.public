@@ -1,4 +1,16 @@
 # For a real domain name that points at this machine (ports 80 and 443 reachable): Caddy gets and renews a Let's Encrypt certificate.
+# Slow or oversized requests are cut off at the proxy, before they reach the application (slowloris, giant headers).
+{
+	servers {
+		timeouts {
+			read_header 10s
+			read_body 30s
+			idle 2m
+		}
+		max_header_size 16KB
+	}
+}
+
 {$CG_SITE} {
 	encode zstd gzip
 	header {

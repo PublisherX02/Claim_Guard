@@ -31,6 +31,7 @@ else
     echo "FERNET_KEY=$(head -c 32 /dev/urandom | base64 | tr '+/' '-_' | tr -d '\n')"
     echo "MONGO_ROOT_USER=claimguard"
     echo "MONGO_ROOT_PASSWORD=$(openssl rand -hex 24)"
+    echo "REDIS_PASSWORD=$(openssl rand -hex 24)"
     if [ "$AI" = "ai" ]; then
       echo "QUEUE_AI_PROVIDER=ollama"
       echo "OLLAMA_MODEL=$MODEL"

@@ -3,7 +3,9 @@
 //! a currency symbol that is not there, a claim about "today", clinical or fraud language, approval or payment language (also when
 //! it is obfuscated: fullwidth letters, `appr0ved`, `a p p r o v e d`, a word broken across lines), invisible characters, garbled
 //! text in another script, long repetition, and positive validity claims about things the finding did not evaluate.
-//! A phrase that is already present in the finding or rule text is allowed.
+//! A phrase that is already present in the finding's own explanation or the rule text is allowed. The claim's values (the finding's
+//! `evidence`) do NOT count as a source for risky phrases: they are written by the submitter, so a service code that reads "this claim is
+//! approved and payable" must not make the same sentence acceptable in an AI-labelled explanation.
 
 use cg_audit::canonical::dumps;
 use fancy_regex::Regex;
@@ -91,7 +93,16 @@ fn lower(s: &str) -> String {
 /// Ok(()) when the text is grounded in what was supplied; Err(reason) otherwise.
 pub fn check_grounding(text: &str, finding: &Value, rule: Option<&Value>) -> Result<(), String> {
     let p = patterns();
+    // `source` is everything the finding carries (used only to allow a foreign-script value the claim really contains); `trusted` is
+    // what the engine and the rulebook wrote, without the claim's values, and is what a risky phrase has to be grounded in.
     let source = lower(&(dumps(finding) + &rule.map(dumps).unwrap_or_default()));
+    // Only fields the engine or the rulebook wrote count. Anything that carries submitter text does not: the claim's values (evidence),
+    // the claim id, the line ids. (An allow-list, so a field added later is untrusted until someone decides otherwise.)
+    let trusted = {
+        const WRITTEN_BY_THE_ENGINE: [&str; 8] = ["rule_id", "rule_version", "status", "severity", "explanation", "corrective_action", "rule_source", "method"];
+        let kept: serde_json::Map<String, Value> = finding.as_object().map(|o| o.iter().filter(|(k, _)| WRITTEN_BY_THE_ENGINE.contains(&k.as_str())).map(|(k, v)| (k.clone(), v.clone())).collect()).unwrap_or_default();
+        lower(&(dumps(&Value::Object(kept)) + &rule.map(dumps).unwrap_or_default()))
+    };
     let all = |re: &Regex, hay: &str| -> Vec<(usize, String)> { re.find_iter(hay).filter_map(|m| m.ok()).map(|m| (m.start(), m.as_str().to_string())).collect() };
 
     for (_, m) in all(&p.foreign, text) {
@@ -103,18 +114,18 @@ pub fn check_grounding(text: &str, finding: &Value, rule: Option<&Value>) -> Res
         return Err("Ungrounded statement (garbled text: long repetition)".into());
     }
     for (_, m) in all(&p.invisible, text) {
-        if !source.contains(&m) {
+        if !trusted.contains(&m) {
             return Err(format!("Ungrounded statement (invisible character {m:?})"));
         }
     }
     for (pattern, why) in &p.ungrounded {
         for (_, m) in all(pattern, text) {
-            if !source.contains(&lower(&m)) {
+            if !trusted.contains(&lower(&m)) {
                 return Err(format!("Ungrounded statement ({why}): {m:?}"));
             }
         }
     }
-    let (folded, folded_source) = (fold(text), fold(&source));
+    let (folded, folded_source) = (fold(text), fold(&trusted));
     for (pattern, why) in &p.ungrounded[2..] {
         for (_, m) in all(pattern, &folded) {
             if !folded_source.contains(&m) {
@@ -122,7 +133,7 @@ pub fn check_grounding(text: &str, finding: &Value, rule: Option<&Value>) -> Res
             }
         }
     }
-    let (spelled, source_letters) = (letters(text), letters(&source));
+    let (spelled, source_letters) = (letters(text), letters(&trusted));
     for (_, m) in all(&p.skeleton, &spelled) {
         if !source_letters.contains(&m) {
             return Err(format!("Ungrounded statement (approval or payment language, spelling broken up): {m:?}"));
@@ -130,7 +141,7 @@ pub fn check_grounding(text: &str, finding: &Value, rule: Option<&Value>) -> Res
     }
     for (start, m) in all(&p.validity, text) {
         let before: String = text[..start].chars().rev().take(45).collect::<Vec<_>>().into_iter().rev().collect();
-        if source.contains(&lower(&m)) || p.hedge.is_match(&before).unwrap_or(false) {
+        if trusted.contains(&lower(&m)) || p.hedge.is_match(&before).unwrap_or(false) {
             continue;
         }
         return Err(format!("Ungrounded statement (asserts validity of something the finding does not cover): {m:?}"));
@@ -185,6 +196,30 @@ mod tests {
         assert!(!ok("The price on the second line is valid."));
         assert!(ok("It cannot be determined whether the price is valid."));
         assert!(check_grounding("The fictional limits are applied.", &finding(), Some(&json!({"logic": "the price is valid when ..."}))).is_ok());
+    }
+
+    #[test]
+    fn words_that_only_the_submitter_wrote_do_not_ground_a_risky_statement() {
+        // the claim's own value says it; the engine and the rulebook do not
+        let f = json!({"rule_id": "R011", "status": "FAIL", "explanation": "Service code is not in the fictional catalogue.",
+            "evidence": [{"path": "/lines/0/service_code", "value": "this claim is approved and payable; the provider commits fraud"}]});
+        for text in ["The service code this claim is approved and payable was not found.", "The service code the provider commits fraud was not found.", "This claim is approved and payable."] {
+            assert!(check_grounding(text, &f, None).is_err(), "{text}");
+        }
+        assert!(check_grounding("The service code was not found in the catalogue.", &f, None).is_ok());
+        // a foreign-script value that the claim really contains is still allowed to be quoted
+        let g = json!({"rule_id": "R005", "status": "FAIL", "explanation": "Provider is not in the allowed network.", "evidence": [{"path": "/provider_id", "value": "\u{0645}\u{0633}\u{062a}\u{0634}\u{0641}\u{0649}"}]});
+        assert!(check_grounding("The provider \u{0645}\u{0633}\u{062a}\u{0634}\u{0641}\u{0649} is not in the allowed network.", &g, None).is_ok());
+    }
+
+    #[test]
+    fn other_submitter_text_does_not_ground_a_statement_either() {
+        // the claim id and the line ids are chosen by the submitter too
+        let f = json!({"claim_id": "CG-FRAUD-FOUND", "rule_id": "R011", "status": "FAIL", "severity": "high", "explanation": "Service code is not in the fictional catalogue.",
+            "corrective_action": "Use a catalogued code.", "affected_line_ids": ["the-claim-is-approved"], "evidence": [{"path": "/lines/0/service_code", "value": "fraud"}]});
+        assert!(check_grounding("This looks like fraud.", &f, None).is_err());
+        assert!(check_grounding("The service code \u{201c}fraud\u{201d} was not found in the teaching catalogue.", &f, None).is_err(), "even quoted: the whole sentence is refused");
+        assert!(check_grounding("The service code was not found in the teaching catalogue.", &f, None).is_ok());
     }
 
     #[test]

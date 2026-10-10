@@ -16,7 +16,7 @@ x-app: &app
     AUDIT_ANCHOR_KEY: ${AUDIT_ANCHOR_KEY:?set AUDIT_ANCHOR_KEY in .env}
     PII_KEY: ${PII_KEY:?set PII_KEY in .env}
     MONGO_URI: mongodb://${MONGO_ROOT_USER:?set MONGO_ROOT_USER in .env}:${MONGO_ROOT_PASSWORD:?set MONGO_ROOT_PASSWORD in .env}@mongo:27017/?authSource=admin
-    REDIS_URL: redis://redis:6379/0
+    REDIS_URL: redis://:${REDIS_PASSWORD:?set REDIS_PASSWORD in .env}@redis:6379/0
     QUEUE_AI_PROVIDER: ${QUEUE_AI_PROVIDER:-}
     QUEUE_AI_TWO_PASS: ${QUEUE_AI_TWO_PASS:-}
     OLLAMA_BASE_URL: ${OLLAMA_BASE_URL:-http://ollama:11434}
@@ -37,11 +37,15 @@ x-app: &app
   cap_drop: [ALL]
   read_only: true
   tmpfs: [/tmp]
+  mem_limit: 768m         # measured at about 70 MB; a runaway cannot take the machine with it
+  pids_limit: 256
+  cpus: 2.0
 
 services:
   proxy:
     image: caddy:2
     restart: unless-stopped
+    networks: [edge]
     ports: ["80:80", "443:443"]
     environment:
       CG_SITE: ${CG_SITE:?set CG_SITE in .env (a domain name, or an address for an internal certificate)}
@@ -53,11 +57,13 @@ services:
 
   api:
     <<: *app
+    networks: [edge, data]
     command: ["cg", "serve", "--host", "0.0.0.0", "--port", "8443", "--queue", "--behind-proxy"]
     expose: ["8443"]
 
   worker:
     <<: *app
+    networks: [data, egress]       # egress only for the optional external timestamp authority (TSA_URL)
     # The relay, deal, expire and reconcile loops. Exactly one instance: the loops must not be duplicated.
     command: ["cg", "worker"]
     volumes:
@@ -77,6 +83,7 @@ services:
       MONGO_INITDB_ROOT_USERNAME: ${MONGO_ROOT_USER}
       MONGO_INITDB_ROOT_PASSWORD: ${MONGO_ROOT_PASSWORD}
     command: ["mongod", "--auth", "--bind_ip_all"]
+    networks: [data]
     volumes: [mongo_data:/data/db]
     healthcheck:
       test: ["CMD", "mongosh", "--quiet", "--eval", "db.runCommand({ping:1}).ok"]
@@ -87,9 +94,12 @@ services:
   redis:
     image: redis:7
     restart: unless-stopped
-    command: ["redis-server", "--save", "", "--appendonly", "no"]     # not needed by the Rust worker (the outbox in MongoDB is the queue); kept for the health panel and future caching
+    environment:
+      REDIS_PASSWORD: ${REDIS_PASSWORD:?set REDIS_PASSWORD in .env}
+    command: ["sh", "-c", "exec redis-server --save \"\" --appendonly no --requirepass \"$$REDIS_PASSWORD\""]
+    networks: [data]     # not needed by the Rust worker (the outbox in MongoDB is the queue); kept for the health panel and future caching
     healthcheck:
-      test: ["CMD", "redis-cli", "ping"]
+      test: ["CMD-SHELL", "redis-cli -a \"$$REDIS_PASSWORD\" --no-auth-warning ping"]
       interval: 10s
       timeout: 5s
       retries: 6
@@ -98,9 +108,18 @@ services:
     profiles: ["ai"]
     image: ollama/ollama:latest
     restart: unless-stopped
+    networks: [data]
     volumes: [ollama_data:/root/.ollama]
     # GPU: uncomment on a host with the NVIDIA container toolkit
     # deploy: { resources: { reservations: { devices: [{ driver: nvidia, count: all, capabilities: [gpu] }] } } }
+
+# The proxy is the only thing on the edge with the outside world; the database, the cache and the model are on a network with no route out
+# (internal), so a compromised proxy cannot reach MongoDB and a compromised database cannot call out.
+networks:
+  edge: {}
+  data:
+    internal: true
+  egress: {}
 
 volumes:
   audit_mirror:
