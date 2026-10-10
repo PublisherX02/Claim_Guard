@@ -71,7 +71,7 @@ A test suite that passes proves little if it would also pass with the rule remov
 | High-severity decision check removed | **missed at first**, now caught |
 | Unmask, audit-events, user-list routes requiring only the viewing right | caught (3 mutants) |
 | `X-Frame-Options` header dropped | **missed at first**, now caught |
-| Logout does not revoke the session | LOGOUT_RESULT |
+| Logout does not revoke the session | caught (the first version of this mutant did not compile, so it proved nothing; it was corrected and re-run) |
 | Decision recorded under a client-chosen reviewer / decision body not strict | caught (2 mutants) |
 | Login body not strict (extra fields accepted) | **missed at first**, now caught |
 | Findings offering actions to people who may not decide | **missed at first**, now caught |
