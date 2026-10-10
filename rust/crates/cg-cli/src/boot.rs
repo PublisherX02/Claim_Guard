@@ -90,7 +90,13 @@ fn build_stores(settings: &Settings, env: &HashMap<String, String>, dev: bool, q
         users.ensure_indexes().map_err(|e| format!("{} (users: {e})", down()))?;
         let q: Option<Arc<dyn QueueStore>> = if queue {
             let db = env.get("QUEUE_DB").map(|s| s.trim().to_string()).filter(|s| !s.is_empty()).unwrap_or_else(|| format!("{}_queue", settings.mongo_db));
-            let qs = cg_mongo::MongoQueueStore::new(client, &db);
+            let mut qs = cg_mongo::MongoQueueStore::new(client, &db);
+            // Claim data is encrypted before it reaches the database unless this is switched off on purpose (CG_ENCRYPT_AT_REST=false).
+            // The key is DATA_KEY if given, otherwise derived from FERNET_KEY, so no deployment is left unprotected by a missing setting.
+            if env.get("CG_ENCRYPT_AT_REST").map(|v| v.trim().to_lowercase()).as_deref() != Some("false") {
+                let crypt = cg_mongo::crypt::FieldCrypt::new(&settings.fernet_key, env.get("DATA_KEY").map(String::as_str)).map_err(|e| format!("configuration error: {}", e.0))?;
+                qs = qs.with_encryption(crypt);
+            }
             qs.ensure_indexes().map_err(|e| format!("{} (queue: {e})", down()))?;
             Some(Arc::new(qs))
         } else {

@@ -560,13 +560,17 @@ dependencies = [
 name = "cg-mongo"
 version = "0.1.0"
 dependencies = [
+ "base64 0.22.1",
  "cg-access",
  "cg-core",
  "cg-queue",
+ "fernet",
+ "hmac 0.12.1",
  "mongodb",
  "num-traits",
  "rand 0.8.8",
  "serde_json",
+ "sha2 0.10.9",
  "thiserror 1.0.69",
  "tokio",
 ]

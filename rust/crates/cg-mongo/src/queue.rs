@@ -10,6 +10,7 @@
 //! Any driver failure except a duplicate key becomes `StoreError::Unavailable`, which callers treat as "refuse".
 
 use crate::bsonconv::{from_doc, to_bson, to_doc};
+use crate::crypt::FieldCrypt;
 use cg_access::store::StoreError;
 use cg_queue::states;
 use cg_queue::store::{check_config_doc, check_decision, check_id_doc, check_job, check_number, check_set_fields, check_version, lane_key, prepare_new_doc, project_history, QueueStore, Result, DEALABLE};
@@ -43,13 +44,6 @@ fn after_now(secs: i64) -> DateTime {
     DateTime::from_millis(DateTime::now().timestamp_millis() + secs * 1000)
 }
 
-fn opt(d: Option<Document>) -> Option<Value> {
-    d.map(|d| from_doc(&d))
-}
-
-fn many(c: mongodb::sync::Cursor<Document>) -> Result<Vec<Value>> {
-    c.map(|r| r.map(|d| from_doc(&d)).map_err(unavailable)).collect()
-}
 
 pub struct MongoQueueStore {
     client: Client,
@@ -61,9 +55,32 @@ pub struct MongoQueueStore {
     cache: Collection<Document>,
     jobs: Collection<Document>,
     counters: Collection<Document>,
+    crypt: Option<FieldCrypt>,
 }
 
 impl MongoQueueStore {
+    /// Encrypts claim data (see `crypt`) on every write and decrypts it on every read. Documents already stored in plain form stay readable.
+    pub fn with_encryption(mut self, crypt: FieldCrypt) -> MongoQueueStore {
+        self.crypt = Some(crypt);
+        self
+    }
+
+    fn open(&self, v: Value) -> Result<Value> {
+        match &self.crypt {
+            None => Ok(v),
+            Some(c) => c.open(v).map_err(|e| StoreError::Invalid(e.0)),
+        }
+    }
+
+    fn opt(&self, d: Option<Document>) -> Result<Option<Value>> {
+        d.map(|d| self.open(from_doc(&d))).transpose()
+    }
+
+    fn many(&self, c: mongodb::sync::Cursor<Document>) -> Result<Vec<Value>> {
+        let docs = c.map(|r| r.map(|d| from_doc(&d)).map_err(unavailable)).collect::<Result<Vec<Value>>>()?;
+        docs.into_iter().map(|d| self.open(d)).collect()
+    }
+
     pub fn new(client: Client, db_name: &str) -> MongoQueueStore {
         let db = client.database(db_name);
         MongoQueueStore {
@@ -74,6 +91,7 @@ impl MongoQueueStore {
             cache: db.collection("cache"),
             jobs: db.collection("jobs"),
             counters: db.collection("counters"),
+            crypt: None,
             client,
             db_name: db_name.to_string(),
         }
@@ -91,6 +109,7 @@ impl MongoQueueStore {
         go(&self.claims, plain(doc! {"lease.badge_id": 1}))?;
         go(&self.claims, plain(doc! {"enqueue_pending": 1}))?;
         go(&self.claims, plain(doc! {"claim.patient_id": 1}))?;
+        go(&self.claims, plain(doc! {"patient_key": 1}))?;
         go(&self.configs, with(doc! {"version": 1}, unique()))?;
         go(&self.dead, with(doc! {"dead_id": 1}, unique()))?;
         go(&self.cache, with(doc! {"key": 1}, unique()))?;
@@ -108,7 +127,10 @@ impl MongoQueueStore {
 
 impl QueueStore for MongoQueueStore {
     fn put_triaged(&self, doc: &Value) -> Result<bool> {
-        let full = prepare_new_doc(doc)?;
+        let mut full = prepare_new_doc(doc)?;
+        if let Some(c) = &self.crypt {
+            c.seal_new_doc(&mut full);
+        }
         match self.claims.insert_one(to_doc(&full)).run() {
             Ok(_) => Ok(true),
             Err(e) if duplicate(&e) => Ok(false),
@@ -118,10 +140,10 @@ impl QueueStore for MongoQueueStore {
 
     fn get(&self, claim_id: &str, version: Option<i64>) -> Result<Option<Value>> {
         match version {
-            None => Ok(opt(self.claims.find_one(doc! {"claim_id": claim_id}).sort(doc! {"version": -1}).run().map_err(unavailable)?)),
+            None => self.opt(self.claims.find_one(doc! {"claim_id": claim_id}).sort(doc! {"version": -1}).run().map_err(unavailable)?),
             Some(v) => {
                 check_version(v)?;
-                Ok(opt(self.claims.find_one(doc! {"claim_id": claim_id, "version": v}).run().map_err(unavailable)?))
+                self.opt(self.claims.find_one(doc! {"claim_id": claim_id, "version": v}).run().map_err(unavailable)?)
             }
         }
     }
@@ -131,7 +153,10 @@ impl QueueStore for MongoQueueStore {
         check_version(version)?;
         check_number(now, "now")?;
         let event = states::make_event(from, to, actor, now, detail).map_err(StoreError::Invalid)?;
-        let fields = check_set_fields(&set_fields)?;
+        let mut fields = check_set_fields(&set_fields)?;
+        if let Some(c) = &self.crypt {
+            c.seal_set(claim_id, version, &mut fields);
+        }
         let mut filter = doc! {"claim_id": claim_id, "version": version, "state": from};
         if let Some(h) = holder {
             filter.insert("lease.badge_id", h);
@@ -140,7 +165,7 @@ impl QueueStore for MongoQueueStore {
         set.insert("state", to);
         set.insert("state_at", now);
         let found = self.claims.find_one_and_update(filter, doc! {"$set": set, "$push": {"events": to_bson(&event)}}).return_document(ReturnDocument::After).run().map_err(unavailable)?;
-        Ok(opt(found))
+        self.opt(found)
     }
 
     fn add_decision(&self, claim_id: &str, version: i64, badge_id: &str, now: f64, decision: &Value) -> Result<Option<Value>> {
@@ -151,12 +176,15 @@ impl QueueStore for MongoQueueStore {
             .claims
             .find_one_and_update(
                 doc! {"claim_id": claim_id, "version": version, "state": "leased", "lease.badge_id": badge_id, "lease.expires_at": {"$gt": now}},
-                doc! {"$push": {"decisions": to_bson(decision)}},
+                doc! {"$push": {"decisions": to_bson(&match &self.crypt {
+                    Some(c) => c.seal(claim_id, version, "decisions", decision),
+                    None => decision.clone(),
+                })}},
             )
             .return_document(ReturnDocument::After)
             .run()
             .map_err(unavailable)?;
-        Ok(opt(found))
+        self.opt(found)
     }
 
     fn set_shadow(&self, claim_id: &str, version: i64, shadow: &Value) -> Result<bool> {
@@ -193,7 +221,7 @@ impl QueueStore for MongoQueueStore {
             .projection(doc! {"_id": 0, "claim_id": 1, "version": 1, "lease.badge_id": 1, "receipt.eligibility": 1, "escalated": 1, "signoff": 1})
             .run()
             .map_err(unavailable)?;
-        many(rows).map(|v| {
+        self.many(rows).map(|v| {
             v.into_iter()
                 .map(|r| json!({"claim_id": r["claim_id"], "version": r["version"], "badge_id": r["lease"]["badge_id"], "eligibility": r["receipt"]["eligibility"],
                                 "escalated": r["escalated"].as_bool().unwrap_or(false), "signoff": !r["signoff"].is_null()}))
@@ -224,7 +252,7 @@ impl QueueStore for MongoQueueStore {
         if limit == 0 {
             return Ok(vec![]);
         }
-        many(self.claims.find(doc! {"enqueue_pending": true}).sort(doc! {"receipt.created_at": 1, "claim_id": 1}).limit(limit as i64).run().map_err(unavailable)?)
+        self.many(self.claims.find(doc! {"enqueue_pending": true}).sort(doc! {"receipt.created_at": 1, "claim_id": 1}).limit(limit as i64).run().map_err(unavailable)?)
     }
 
     fn clear_outbox(&self, claim_id: &str, version: i64) -> Result<bool> {
@@ -237,7 +265,7 @@ impl QueueStore for MongoQueueStore {
         if limit == 0 {
             return Ok(vec![]);
         }
-        many(self.claims.find(doc! {"state": state}).sort(doc! {"state_at": 1, "claim_id": 1}).limit(limit as i64).run().map_err(unavailable)?)
+        self.many(self.claims.find(doc! {"state": state}).sort(doc! {"state_at": 1, "claim_id": 1}).limit(limit as i64).run().map_err(unavailable)?)
     }
 
     fn counts(&self) -> Result<BTreeMap<String, i64>> {
@@ -273,14 +301,14 @@ impl QueueStore for MongoQueueStore {
                 .run()
                 .map_err(unavailable)?;
             if found.is_some() {
-                return Ok(opt(found));
+                return self.opt(found);
             }
         }
         Ok(None)
     }
 
     fn inbox(&self, badge_id: &str) -> Result<Vec<Value>> {
-        many(self.claims.find(doc! {"state": "leased", "lease.badge_id": badge_id}).sort(doc! {"lease.leased_at": 1, "claim_id": 1}).run().map_err(unavailable)?)
+        self.many(self.claims.find(doc! {"state": "leased", "lease.badge_id": badge_id}).sort(doc! {"lease.leased_at": 1, "claim_id": 1}).run().map_err(unavailable)?)
     }
 
     fn heartbeat(&self, badge_id: &str, now: f64, expires_at: f64) -> Result<i64> {
@@ -296,15 +324,20 @@ impl QueueStore for MongoQueueStore {
 
     fn expired(&self, now: f64) -> Result<Vec<Value>> {
         check_number(now, "now")?;
-        many(self.claims.find(doc! {"state": "leased", "lease.expires_at": {"$lte": now}}).sort(doc! {"lease.expires_at": 1, "claim_id": 1}).run().map_err(unavailable)?)
+        self.many(self.claims.find(doc! {"state": "leased", "lease.expires_at": {"$lte": now}}).sort(doc! {"lease.expires_at": 1, "claim_id": 1}).run().map_err(unavailable)?)
     }
 
     fn claims_for_patient(&self, patient_id: &str) -> Result<Vec<Value>> {
-        let ids = self.claims.distinct("claim_id", doc! {"claim.patient_id": patient_id}).run().map_err(unavailable)?;
+        // documents written with encryption carry only a keyed hash of the patient id; older ones carry the id itself
+        let filter = match &self.crypt {
+            Some(c) => doc! {"$or": [{"patient_key": c.patient_key(patient_id)}, {"claim.patient_id": patient_id}]},
+            None => doc! {"claim.patient_id": patient_id},
+        };
+        let ids = self.claims.distinct("claim_id", filter).run().map_err(unavailable)?;
         if ids.is_empty() {
             return Ok(vec![]);
         }
-        let rows = many(self.claims.find(doc! {"claim_id": {"$in": ids}}).projection(doc! {"_id": 0, "claim_id": 1, "version": 1, "claim": 1}).run().map_err(unavailable)?)?;
+        let rows = self.many(self.claims.find(doc! {"claim_id": {"$in": ids}}).projection(doc! {"_id": 0, "claim_id": 1, "version": 1, "claim": 1}).run().map_err(unavailable)?)?;
         let mut latest: BTreeMap<String, Value> = BTreeMap::new();
         for d in rows {
             let id = d["claim_id"].as_str().unwrap_or("").to_string();
@@ -330,11 +363,11 @@ impl QueueStore for MongoQueueStore {
     }
 
     fn latest_config(&self) -> Result<Option<Value>> {
-        Ok(opt(self.configs.find_one(doc! {}).sort(doc! {"version": -1}).run().map_err(unavailable)?))
+        self.opt(self.configs.find_one(doc! {}).sort(doc! {"version": -1}).run().map_err(unavailable)?)
     }
 
     fn config_history(&self) -> Result<Vec<Value>> {
-        many(self.configs.find(doc! {}).sort(doc! {"version": 1}).run().map_err(unavailable)?)
+        self.many(self.configs.find(doc! {}).sort(doc! {"version": 1}).run().map_err(unavailable)?)
     }
 
     fn append_deal(&self, d: &Value) -> Result<()> {
@@ -343,14 +376,14 @@ impl QueueStore for MongoQueueStore {
     }
 
     fn get_deal(&self, deal_id: &str) -> Result<Option<Value>> {
-        Ok(opt(self.deals.find_one(doc! {"deal_id": deal_id}).run().map_err(unavailable)?))
+        self.opt(self.deals.find_one(doc! {"deal_id": deal_id}).run().map_err(unavailable)?)
     }
 
     fn deals(&self, limit: usize) -> Result<Vec<Value>> {
         if limit == 0 {
             return Ok(vec![]);
         }
-        many(self.deals.find(doc! {}).sort(doc! {"_id": -1}).limit(limit as i64).run().map_err(unavailable)?)
+        self.many(self.deals.find(doc! {}).sort(doc! {"_id": -1}).limit(limit as i64).run().map_err(unavailable)?)
     }
 
     fn add_dead_letter(&self, d: &Value) -> Result<()> {
@@ -363,11 +396,11 @@ impl QueueStore for MongoQueueStore {
         if limit == 0 {
             return Ok(vec![]);
         }
-        many(self.dead.find(doc! {}).sort(doc! {"_id": 1}).limit(limit as i64).run().map_err(unavailable)?)
+        self.many(self.dead.find(doc! {}).sort(doc! {"_id": 1}).limit(limit as i64).run().map_err(unavailable)?)
     }
 
     fn pop_dead_letter(&self, dead_id: &str) -> Result<Option<Value>> {
-        Ok(opt(self.dead.find_one_and_delete(doc! {"dead_id": dead_id}).run().map_err(unavailable)?))
+        self.opt(self.dead.find_one_and_delete(doc! {"dead_id": dead_id}).run().map_err(unavailable)?)
     }
 
     fn cache_get(&self, key: &str) -> Result<Option<String>> {
@@ -414,7 +447,7 @@ impl QueueStore for MongoQueueStore {
     }
 
     fn jobs(&self) -> Result<Vec<Value>> {
-        let mut rows = many(self.jobs.find(doc! {}).sort(doc! {"name": 1}).run().map_err(unavailable)?)?;
+        let mut rows = self.many(self.jobs.find(doc! {}).sort(doc! {"name": 1}).run().map_err(unavailable)?)?;
         for r in rows.iter_mut() {
             if r.get("last_ok_at").is_none() {
                 r["last_ok_at"] = Value::Null;
@@ -432,16 +465,24 @@ impl QueueStore for MongoQueueStore {
 mod tests {
     use super::*;
 
-    #[test]
-    fn the_mongo_queue_store_meets_the_same_contract_as_the_memory_twin() {
-        let Ok(uri) = std::env::var("MONGO_URI") else {
+    fn uri() -> Option<String> {
+        let uri = std::env::var("MONGO_URI").ok();
+        if uri.is_none() {
             assert!(std::env::var("REQUIRE_MONGO").is_err(), "REQUIRE_MONGO is set but MONGO_URI is not");
-            return;
-        };
+        }
+        uri
+    }
+
+    fn contract(encrypted: bool) {
+        let Some(uri) = uri() else { return };
         let names = std::sync::Mutex::new(vec![]);
+        let key = fernet::Fernet::generate_key();
         let make = || -> Box<dyn QueueStore> {
             let name = format!("claimguard_rs_qtest_{}", rand::random::<u64>());
-            let store = MongoQueueStore::new(crate::connect(&uri, 3000).expect("connect"), &name);
+            let mut store = MongoQueueStore::new(crate::connect(&uri, 3000).expect("connect"), &name);
+            if encrypted {
+                store = store.with_encryption(FieldCrypt::new(&key, None).unwrap());
+            }
             store.ensure_indexes().expect("indexes");
             names.lock().unwrap().push(name);
             Box::new(store)
@@ -451,5 +492,68 @@ mod tests {
         for n in names.lock().unwrap().iter() {
             let _ = client.database(n).drop().run();
         }
+    }
+
+    #[test]
+    fn the_mongo_queue_store_meets_the_same_contract_as_the_memory_twin() {
+        contract(false);
+    }
+
+    #[test]
+    fn and_so_does_the_encrypting_store_because_encryption_is_invisible_to_its_callers() {
+        contract(true);
+    }
+
+    #[test]
+    fn what_reaches_the_database_is_ciphertext_and_tampering_with_it_is_caught() {
+        let Some(uri) = uri() else { return };
+        let name = format!("claimguard_rs_enc_{}", rand::random::<u64>());
+        let client = crate::connect(&uri, 3000).unwrap();
+        let key = fernet::Fernet::generate_key();
+        let store = MongoQueueStore::new(client.clone(), &name).with_encryption(FieldCrypt::new(&key, None).unwrap());
+        store.ensure_indexes().unwrap();
+        let new = |id: &str, patient: &str| {
+            json!({"claim_id": id, "version": 1, "input_hash": format!("h-{id}"), "claim": {"claim_id": id, "patient_id": patient, "notes": "SECRET-NOTE knee surgery"},
+                "results": [{"rule_id": "R001", "status": "FAIL", "evidence": [{"path": "/notes", "value": "SECRET-NOTE"}]}],
+                "receipt": {"created_at": 1.0, "lane": "A", "eligibility": "any", "score": 3, "rule_pack_hash": "p"}, "advisory": []})
+        };
+        assert!(store.put_triaged(&new("C1", "PAT-777")).unwrap() && store.put_triaged(&new("C2", "PAT-888")).unwrap());
+        // 1. through the store everything reads normally, including the lookup of a patient's claims
+        assert_eq!(store.get("C1", None).unwrap().unwrap()["claim"]["patient_id"], "PAT-777");
+        assert_eq!(store.claims_for_patient("PAT-777").unwrap().len(), 1);
+        assert_eq!(store.claims_for_patient("PAT-000").unwrap().len(), 0);
+        // 2. what is actually stored holds none of it
+        let raw: Vec<Document> = client.database(&name).collection::<Document>("claims").find(doc! {}).run().unwrap().map(|d| d.unwrap()).collect();
+        let text = format!("{raw:?}");
+        for secret in ["PAT-777", "PAT-888", "SECRET-NOTE", "knee surgery", "R001"] {
+            assert!(!text.contains(secret), "{secret} is readable in the database");
+        }
+        assert!(text.contains("$enc") && text.contains("patient_key"));
+        // 3. a reader without the key cannot use the data, and swapping one claim's data under another is refused
+        let other = MongoQueueStore::new(client.clone(), &name).with_encryption(FieldCrypt::new(&fernet::Fernet::generate_key(), None).unwrap());
+        assert!(other.get("C1", None).is_err());
+        let coll = client.database(&name).collection::<Document>("claims");
+        let c1 = coll.find_one(doc! {"claim_id": "C1"}).run().unwrap().unwrap();
+        coll.update_one(doc! {"claim_id": "C2"}, doc! {"$set": {"claim": c1.get("claim").unwrap().clone()}}).run().unwrap();
+        assert!(store.get("C2", None).is_err(), "claim C1's data placed under C2 must be refused");
+        assert!(store.get("C1", None).is_ok());
+        // 4. a reviewer's decision and an AI explanation are sealed as well
+        let mut set = Map::new();
+        set.insert("explanation".into(), json!({"findings": {"R001": {"text": "Quantity SECRET-TEXT is too high"}}}));
+        store.transition("C1", 1, "triaged", "ready", "system", 0.5, None, None, None).unwrap().unwrap();
+        store.lease("C1", 1, "CG-2002", 1.0, 1e12).unwrap().unwrap();
+        store.add_decision("C1", 1, "CG-2002", 2.0, &json!({"rule_id": "R001", "action": "confirm_issue", "reason": "SECRET-REASON", "badge_id": "CG-2002"})).unwrap().unwrap();
+        store.transition("C1", 1, "leased", "decided", "CG-2002", 3.0, None, Some(set), Some("CG-2002")).unwrap().unwrap();
+        let raw = format!("{:?}", coll.find_one(doc! {"claim_id": "C1"}).run().unwrap().unwrap());
+        assert!(!raw.contains("SECRET-REASON") && !raw.contains("SECRET-TEXT"));
+        let doc = store.get("C1", None).unwrap().unwrap();
+        assert_eq!(doc["decisions"][0]["reason"], "SECRET-REASON");
+        assert_eq!(doc["explanation"]["findings"]["R001"]["text"], "Quantity SECRET-TEXT is too high");
+        // 5. data written before encryption was switched on is still read
+        let plain = MongoQueueStore::new(client.clone(), &name);
+        assert!(plain.put_triaged(&new("C3", "PAT-999")).unwrap());
+        assert_eq!(store.get("C3", None).unwrap().unwrap()["claim"]["patient_id"], "PAT-999");
+        assert_eq!(store.claims_for_patient("PAT-999").unwrap().len(), 1, "older documents are found by the plain id");
+        let _ = client.database(&name).drop().run();
     }
 }

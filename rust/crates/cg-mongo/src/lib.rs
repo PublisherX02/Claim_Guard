@@ -8,6 +8,7 @@
 //! Any driver failure except a duplicate key becomes `StoreError::Unavailable`, which callers treat as "refuse".
 
 pub mod bsonconv;
+pub mod crypt;
 pub mod queue;
 pub mod users;
 
