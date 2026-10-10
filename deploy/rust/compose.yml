@@ -13,6 +13,7 @@ x-app: &app
   environment: &appenv
     JWT_SECRET: ${JWT_SECRET:?set JWT_SECRET in .env}
     FERNET_KEY: ${FERNET_KEY:?set FERNET_KEY in .env}
+    DATA_KEY: ${DATA_KEY:-}          # empty: the data key is derived from FERNET_KEY (then FERNET_KEY can never change); set it to keep the two apart
     AUDIT_ANCHOR_KEY: ${AUDIT_ANCHOR_KEY:?set AUDIT_ANCHOR_KEY in .env}
     PII_KEY: ${PII_KEY:?set PII_KEY in .env}
     MONGO_URI: mongodb://${MONGO_ROOT_USER:?set MONGO_ROOT_USER in .env}:${MONGO_ROOT_PASSWORD:?set MONGO_ROOT_PASSWORD in .env}@mongo:27017/?authSource=admin
@@ -43,7 +44,7 @@ x-app: &app
 
 services:
   proxy:
-    image: caddy:2
+    image: caddy:2@sha256:f2a1290d0463aad60660d4ec134943f183ee2a5f6c3eb7bf32dd984f2f020772
     restart: unless-stopped
     networks: [edge]
     ports: ["80:80", "443:443"]
@@ -77,7 +78,7 @@ services:
       start_period: 40s
 
   mongo:
-    image: mongo:7
+    image: mongo:7@sha256:1f995ad6fdb93244a1addab1b58f934a0bc2f5643c38e02f5e9d7f0c7d227a7b
     restart: unless-stopped
     environment:
       MONGO_INITDB_ROOT_USERNAME: ${MONGO_ROOT_USER}
@@ -92,7 +93,7 @@ services:
       retries: 6
 
   redis:
-    image: redis:7
+    image: redis:7@sha256:4fa24486b8bcca8eec45ee0eb166edc674795e53a2b53d1a9ef263eecebaac85
     restart: unless-stopped
     environment:
       REDIS_PASSWORD: ${REDIS_PASSWORD:?set REDIS_PASSWORD in .env}
@@ -106,7 +107,7 @@ services:
 
   ollama:                       # optional, on-premises model for the explanation drafts; start with --profile ai
     profiles: ["ai"]
-    image: ollama/ollama:latest
+    image: ollama/ollama:latest@sha256:b86366bb528bbf7f1424435d165028497a5b69bf6ddb4fa5a87102e2b79f44fb
     restart: unless-stopped
     networks: [data]
     volumes: [ollama_data:/root/.ollama]

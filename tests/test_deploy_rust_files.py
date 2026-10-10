@@ -101,6 +101,32 @@ class RustImage(unittest.TestCase):
         self.assertIn('"cg", "health"', self.text)
 
 
+class RustSupplyChain(unittest.TestCase):
+    PIN = r'@sha256:[0-9a-f]{64}'
+
+    def test_every_third_party_image_is_pinned_by_digest(self):
+        compose = (DEPLOY / 'compose.yml').read_text(encoding='utf-8')
+        for line in re.findall(r'(?m)^\s+image: (\S+)', compose):
+            if line.startswith('claimguard-rs'):
+                continue                                   # our own image, built from the Dockerfile
+            self.assertRegex(line, self.PIN, line)
+        dockerfile = (DEPLOY / 'Dockerfile').read_text(encoding='utf-8')
+        for line in re.findall(r'(?m)^FROM (\S+)', dockerfile):
+            self.assertRegex(line, self.PIN, line)
+        for name in ('backup.sh', 'restore.sh'):
+            for image in re.findall(r'docker run [^\n]*? (alpine\S*) sh -c', (DEPLOY / name).read_text(encoding='utf-8')):
+                self.assertRegex(image, self.PIN, (name, image))
+
+    def test_backups_are_encrypted_checksummed_and_never_overwrite(self):
+        backup = (DEPLOY / 'backup.sh').read_text(encoding='utf-8')
+        for needle in ('set -euo pipefail', 'openssl enc -aes-256-cbc -pbkdf2 -iter 600000', 'umask 077', 'sha256sum', 'not overwriting', 'BACKUP_KEY_FILE'):
+            self.assertIn(needle, backup, needle)
+        self.assertNotIn('--password', backup.replace('"$MONGO_INITDB_ROOT_PASSWORD"', ''))
+        restore = (DEPLOY / 'restore.sh').read_text(encoding='utf-8')
+        for needle in ('set -euo pipefail', 'sha256sum -c', 'wrong key', '--drop', '--nsInclude', 'did not restore'):
+            self.assertIn(needle, restore, needle)
+
+
 class RustProxy(unittest.TestCase):
     def test_both_proxy_configs_cut_off_slow_and_oversized_requests(self):
         for name in ('Caddyfile.internal', 'Caddyfile.public'):

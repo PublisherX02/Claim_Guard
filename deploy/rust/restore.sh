@@ -23,6 +23,6 @@ for archive in "$TMP"/mongo-*.archive.gz; do
   echo "$out" | grep -q " 0 document(s) failed to restore" || { echo "$out" | tail -5; echo "some documents of $name did not restore"; exit 1; }
   echo "$name: $(echo "$out" | grep -o '[0-9]* document(s) restored successfully')"
 done
-MSYS_NO_PATHCONV=1 docker run --rm -v "${PROJECT}_claimguard_data:/data" -v "${PROJECT}_audit_mirror:/mirror" -v "$HOSTTMP":/in:ro alpine sh -c 'rm -rf /data/* /data/.[!.]* /mirror/* 2>/dev/null; tar xzf /in/logs.tgz -C / && chown -R 65532:65532 /data /mirror'
+MSYS_NO_PATHCONV=1 docker run --rm -v "${PROJECT}_claimguard_data:/data" -v "${PROJECT}_audit_mirror:/mirror" -v "$HOSTTMP":/in:ro alpine@sha256:294b683cb724975bec92580e1e685676bd4b50bda910ddb8c51d4cabeaec77e6 sh -c 'rm -rf /data/* /data/.[!.]* /mirror/* 2>/dev/null; tar xzf /in/logs.tgz -C / && chown -R 65532:65532 /data /mirror'
 $COMPOSE start api worker
 echo "restored from $IN; check the health panel and the audit verification before using the system"

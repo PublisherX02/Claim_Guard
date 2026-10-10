@@ -25,7 +25,7 @@ for name in "$DB" "$QDB"; do
   $COMPOSE exec -T mongo sh -c "mongodump --archive --gzip --db '$name' -u \"\$MONGO_INITDB_ROOT_USERNAME\" -p \"\$MONGO_INITDB_ROOT_PASSWORD\" --authenticationDatabase admin" > "$TMP/mongo-$name.archive.gz" 2>/dev/null
   [ -s "$TMP/mongo-$name.archive.gz" ] || { echo "the dump of $name is empty"; exit 1; }
 done
-MSYS_NO_PATHCONV=1 docker run --rm -v "${PROJECT}_claimguard_data:/data:ro" -v "${PROJECT}_audit_mirror:/mirror:ro" -v "$HOSTTMP":/out alpine sh -c 'tar czf /out/logs.tgz -C / data mirror'
+MSYS_NO_PATHCONV=1 docker run --rm -v "${PROJECT}_claimguard_data:/data:ro" -v "${PROJECT}_audit_mirror:/mirror:ro" -v "$HOSTTMP":/out alpine@sha256:294b683cb724975bec92580e1e685676bd4b50bda910ddb8c51d4cabeaec77e6 sh -c 'tar czf /out/logs.tgz -C / data mirror'
 ( cd "$TMP" && sha256sum mongo-*.archive.gz logs.tgz > SHA256SUMS && tar cf payload.tar mongo-*.archive.gz logs.tgz SHA256SUMS )
 openssl enc -aes-256-cbc -pbkdf2 -iter 600000 -salt -pass "file:$KEY" -in "$TMP/payload.tar" -out "$OUT"
 ( cd "$(dirname "$OUT")" && sha256sum "$(basename "$OUT")" > "$(basename "$OUT").sha256" )

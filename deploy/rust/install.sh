@@ -29,6 +29,7 @@ else
     echo "AUDIT_ANCHOR_KEY=$(secret)"
     echo "PII_KEY=$(secret)"
     echo "FERNET_KEY=$(head -c 32 /dev/urandom | base64 | tr '+/' '-_' | tr -d '\n')"
+    echo "DATA_KEY=$(head -c 32 /dev/urandom | base64 | tr '+/' '-_' | tr -d '\n')"      # encrypts the claim data in the database; rotate it with `cg rotate-key`
     echo "MONGO_ROOT_USER=claimguard"
     echo "MONGO_ROOT_PASSWORD=$(openssl rand -hex 24)"
     echo "REDIS_PASSWORD=$(openssl rand -hex 24)"

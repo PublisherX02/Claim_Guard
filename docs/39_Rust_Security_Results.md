@@ -5,12 +5,13 @@ Tested 2026-10-09 and 2026-10-10 (a second round on 2026-10-10 closed the limits
 **Scope and authority.** The user's own application, run locally on 127.0.0.1 with generated demo accounts. No real data, no third-party system. The test of a deployment (TLS, firewall, container limits, database authentication) is separate and still to be done on the target server (section 7).
 
 **Short answer.**
-1. **Black-box penetration test: 83 checks, 83 pass** (after two fixes in the first round: connections held open forever, and a 70 KB header accepted).
+1. **Black-box penetration test: 91 checks, 91 pass** (83 in the first rounds, after two fixes: connections held open forever, and a 70 KB header accepted; 8 more in the third round for cross-site refusal, headers and unmask reasons).
 2. **Fuzzing at the API boundary: 400,000 random requests, 0 server errors, 0 leaks.**
-3. **Mutation test: 51 deliberate breakages of security rules, all caught** (36 in the first round, of which 8 were missed until tests were added; 15 more for the second round, all caught).
+3. **Mutation test: 61 deliberate breakages of security rules, all caught** (36 in the first round, of which 8 were missed until tests were added; 15 more in the second round; 10 in the third, of which 1 was missed until a test was tightened).
 4. **The five limits listed after the first round were worked on (section 6):** lockout no longer lets a stranger keep the owner out of their usual device; throttles live in the database; the audit log has a second append-only copy, a scheduled verification and an optional outside timestamp; claim data is encrypted at rest in MongoDB; `cargo audit` was installed and run (five advisories, all via `yara-x`, none reachable).
 5. **The five things the first round did not test were tested (section 7):** the deployed Docker stack (50 checks, which found four problems), the real gemma3:4b model (15 of 15 rules; a red team that **found and fixed a real weakness in the AI guard**), a single-machine flood (16 checks), the console in real Chrome (19 checks, no payload ran), and refusal timing (all eight kinds within 3 %).
-6. **No critical weakness is open.** What is still true after the fixes is stated under each item.
+6. **A third round (section 11)** added cross-site refusal, identifier-free reasons, unmask rationing, key rotation, an encrypted backup with a restore proven end to end (which found two real bugs in its own first version), pinned image digests and an operations runbook (`docs/40`).
+7. **No critical weakness is open.** What is still true after the fixes is stated under each item and in section 11.8.
 
 ---
 
@@ -219,3 +220,41 @@ Fifteen more mutants were written for the new logic: the lock applied to the own
 | Deployment attack | Oversized body through the proxy ended as 502 | Low | Fixed (cap at the proxy) |
 | Timing test | (no path stood out once samples were interleaved) | none | n/a |
 | `cargo audit` | Five advisories via `yara-x` (`wasmtime`, `rsa`), one unmaintained crate | Not reachable in this program | Reviewed and recorded in `rust/.cargo/audit.toml` |
+
+## 11. Third round (2026-10-10, evening): closing the gaps that remained
+
+The second round left a list of things that were still true. This round took the ones that can be fixed in software and checked on this machine. Every item below has a test, and the logic has mutants (section 11.6).
+
+### 11.1 A browser-declared cross-site request is refused outright
+The anti-forgery token and the `SameSite` cookie already stop a forged request. A third, independent check was added: a state-changing request (any method except GET, HEAD, OPTIONS) is refused with 403 `cross_site` **before anything else looks at it**, including the sign-in, if the browser says it comes from another site (`Sec-Fetch-Site: cross-site`), or carries an `Origin` that is `null`, empty, or not exactly the host it was sent to (`http://host:8443.evil.example` is caught). Requests from programs, which send neither header, are unaffected; so is the console itself and the desktop window. Also added to every response: `Permissions-Policy` (camera, microphone, geolocation, payment, USB and others off), `Cross-Origin-Opener-Policy: same-origin`, `Cross-Origin-Resource-Policy: same-origin`. Pen test: 8 new checks (now **91, all pass**).
+
+### 11.2 Personal data leaves the system only through a rationed, audited door
+- **Reasons may not repeat the identifier.** A free-text reason (for an unmask, or for a decision, in the direct route and in the queue) is refused with 422 if it contains the claim's real patient or member identifier, case-insensitively. Reasons end up in the security log and the review log, which auditors read and which are not field-encrypted; the pseudonym is what belongs there. Checked on all three routes.
+- **Unmasking is rationed.** One person may unmask at most 60 claims an hour (`UNMASK_PER_HOUR`); the sixty-first gets 429 and a refused-request entry on the security log. The count lives in the database (shared by every server process). A reviewer who unmasks hundreds of claims an hour is copying, not reviewing, and a stolen session cannot empty the system quickly.
+
+### 11.3 The data key can be rotated: `cg rotate-key`
+`NEW_DATA_KEY=<new Fernet key> cg rotate-key [--dry-run]` re-encrypts every stored claim (claim, results, advisory, explanation, every decision) from the current key to the new one and recomputes the patient index. It stops with an error rather than damaging a document that opens with neither key, skips and reports any document someone changed meanwhile, and can be repeated after an interruption (documents already on the new key are counted and left alone). Tested against real MongoDB (decisions and the patient index included, old key refused afterwards, raw storage still free of readable data) **and with the real command inside the Compose stack** (section 11.4). Procedure in `docs/40`.
+
+### 11.4 Backup and restore, proven end to end (`rust/tools/backup_restore_test.py`, 23 checks)
+`deploy/rust/backup.sh` writes **one encrypted file** (AES-256, PBKDF2 600,000 rounds, key from a file) holding both databases, both audit logs and the audit mirror, plus a checksum; it never overwrites. `restore.sh` refuses a wrong key, a damaged file and contents that do not match their checksums, replaces the databases and log volumes, and fails loudly if any document does not restore. The test: put an administrator, two users and 12 claims in through the real API; back up; confirm the file shows no readable claim id, badge number or JSON; **destroy every volume**; start an empty stack and confirm nobody can sign in; confirm a wrong key and a damaged file are refused; restore; confirm the same administrator signs in with the same password and the same authenticator seed, the same users and claim states are back, claim data is readable, the audit chains verify and the history is intact; then rotate the data key with the real command (dry run, real run, repeat run), restart on the new key, and confirm everything again.
+
+**Testing found two real problems, both fixed:**
+1. A whole-server database dump also carries the database's own user accounts, and restoring it replaced them in the middle of the restore itself: `mongorestore` then failed with *"createIndexes requires authentication"* and left the system half restored. The backup now dumps only the two application databases, one archive each, and the restore is limited to them.
+2. The first restore script reported success even when `mongorestore` failed. It now checks every archive's result and stops.
+
+### 11.5 Supply chain and installation
+- **Every third-party image is pinned by digest** (proxy, MongoDB, Redis, the optional model server, both build stages, the helper image of the backup scripts), so a rebuild gives the same bytes; the price is that security updates are taken deliberately (procedure in `docs/40`). A test fails if any image reference is not pinned.
+- The installer now generates a separate **`DATA_KEY`**, so the key for claim data and the key for authenticator seeds are independent and the data key can be rotated.
+- `cg admin create-admin --password-stdin` creates the first administrator without a terminal (installers, tests); the password is read from standard input, never an argument.
+
+### 11.6 Mutation test, third round
+Ten more mutants: cross-site check off, origin never compared to host, fetch-metadata ignored, unmask not rationed, the identifier allowed in an unmask reason, in a direct decision reason and in a queue decision reason, the opener policy header dropped, a rotation that leaves decisions readable, a rotation that keeps the old patient index. **Nine were caught at once; one survived** (the direct decision's identifier check: the test used a rule that could not be decided at all, so it was refused for another reason). The test was tightened to a finding that can really be decided and to read the refusal's cause; the mutant is now caught. **Total: 61 mutants, all caught.**
+
+### 11.7 Operations
+A runbook for the person who runs the server is in `docs/40_Rust_Operations_Runbook.md`: install, every setting, what each secret protects and what happens if it is lost or changed, backup and restore, key rotation, updates, the health panel component by component, incident playbooks (audit alarm, locked user, stolen session, data seen by someone who should not have), and the exact order of checks to run on the target machine.
+
+### 11.8 What is still open
+- Everything under section 6 that was marked "still true" remains true except as stated above; in particular nothing here was run on the target virtual machine, and a distributed denial of service, the VM's firewall, a public certificate authority and the host's own hardening are untested.
+- User records are not field-encrypted; the audit logs on disk are not encrypted (they hold badge numbers, claim ids and reasons, which can no longer contain the identifier); `FERNET_KEY` has no rotation tool (authenticators must be re-enrolled).
+- There is no automatic scheduling of backups or of the image-update routine; both are manual procedures with scripts.
+- Two-person approval for the most dangerous administrator actions (resetting an authenticator, deactivating the last reviewer) is not built.

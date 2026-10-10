@@ -1,7 +1,9 @@
 # The Rust build of ClaimGuard: one small image for the API and the queue worker (they differ only by command).
 # Build from the repository root:
 #   docker build -f deploy/rust/Dockerfile -t claimguard-rs:latest .
-FROM rust:1-bookworm AS build
+FROM rust:1-bookworm@sha256:114c7a4425406451c2866b6aafe69fe29b1b298832db1277d411ac73c82d04d6 AS build
+# Both base images are pinned by digest: the build is the same tomorrow as today. To take security updates, pull the new tags, copy the
+# digests (docker buildx imagetools inspect <tag>) here and in compose.yml, rebuild, and run rust/tools/deploy_attack.py.
 # the repository pins the Windows toolchain for developers; the container builds for Linux
 ENV RUSTUP_TOOLCHAIN=stable CARGO_TERM_COLOR=never
 WORKDIR /app
@@ -14,7 +16,7 @@ RUN mkdir -p /out/data /out/mirror
 # A distroless base: the C library, the compiler runtime and certificates, and nothing else. No shell, no package manager, no mount or
 # archive tools, no perl: an intruder who gets code running in the container finds almost nothing to use, and a vulnerability scan has
 # almost nothing to report.
-FROM gcr.io/distroless/cc-debian12:nonroot
+FROM gcr.io/distroless/cc-debian12:nonroot@sha256:9dac0a79194e45a7da0158a9c6da57b217585af0786db3845d1f0ec1a0dd182f
 ENV CLAIMGUARD_ROOT=/app CLAIMGUARD_DATA_DIR=/data CG_WORKER_ALIVE_FILE=/tmp/cg_worker_alive
 WORKDIR /app
 COPY --from=build /app/rust/target/release/cg /usr/local/bin/cg

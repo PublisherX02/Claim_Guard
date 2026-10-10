@@ -392,7 +392,14 @@ fn a_reason_that_contains_the_patients_identifier_is_refused_and_unmasking_is_ra
     let patient = t.api.claims.get(&id).unwrap().0["patient_id"].as_str().unwrap().to_string();
     let r = t.post(&format!("/api/v1/claims/{id}/unmask"), json!({"reason": format!("checking {} against the card", patient.to_lowercase())}), &senior);
     assert_eq!((r.status, j(&r)["error"].as_str().unwrap_or("").to_string()), (422, "invalid_request".to_string()));
-    assert_eq!(t.post(&format!("/api/v1/claims/{id}/findings/R001/decision"), json!({"action": "dismiss_with_reason", "reason": format!("{patient} is fine")}), &senior).status, 422);
+    // the same rule for a decision: on a finding that really can be decided, the refusal is about the identifier and nothing else
+    let (fid, frule) = find_failing(&t, &senior, "high");
+    let fpatient = t.api.claims.get(&fid).unwrap().0["patient_id"].as_str().unwrap().to_string();
+    let path = format!("/api/v1/claims/{fid}/findings/{frule}/decision");
+    let refused = t.post(&path, json!({"action": "confirm_issue", "reason": format!("{fpatient} is fine")}), &senior);
+    assert_eq!(refused.status, 422);
+    assert!(j(&refused)["detail"].as_str().unwrap_or("").contains("identifier"), "{:?}", j(&refused));
+    assert_eq!(t.post(&path, json!({"action": "confirm_issue", "reason": "checked the invoice"}), &senior).status, 200, "the same decision without the identifier goes through");
     assert!(t.get("/api/v1/audit/events?event_type=unmask", &t.login("CG-4004")).body.len() > 0);
     t.api.unmask_per_hour = 3;
     let statuses: Vec<u16> = (0..5).map(|_| t.post(&format!("/api/v1/claims/{id}/unmask"), json!({"reason": "routine check"}), &senior).status).collect();

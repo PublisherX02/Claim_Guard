@@ -142,7 +142,21 @@ def main():
         check('the same claims are in the same states', after['counts'] == before['counts'], (before['counts'], after['counts']))
         check('claim data is readable again (the data key still opens it) and the audit chains verify', after['trace_status'] == 200 and after['verify_ok'], after)
         check('the audit history came back (at least as many events as before)', (after['events'] or 0) >= (before['events'] or 0), (before['events'], after['events']))
-        s3 = Session('CG-2003', password, 'x') if False else None
+        # ---- rotating the data key on the restored system, with the real command
+        new_key = Fernet.generate_key().decode()
+        dc(envfile, 'stop', 'api', 'worker')
+        rc, out = dc(envfile, 'run', '--rm', '-T', '-e', f'NEW_DATA_KEY={new_key}', 'api', 'cg', 'rotate-key', '--dry-run')
+        check('cg rotate-key --dry-run counts the 12 claims and changes nothing', rc == 0 and '12 documents re-encrypted' in out and out.startswith('dry run'), out[-300:])
+        rc, out = dc(envfile, 'run', '--rm', '-T', '-e', f'NEW_DATA_KEY={new_key}', 'api', 'cg', 'rotate-key')
+        check('cg rotate-key re-encrypts the 12 claims', rc == 0 and '12 documents re-encrypted' in out and 'DATA_KEY' in out, out[-300:])
+        rc, out = dc(envfile, 'run', '--rm', '-T', '-e', f'NEW_DATA_KEY={new_key}', 'api', 'cg', 'rotate-key')
+        check('run again (as after an interruption) it finds everything already rotated', rc == 0 and '0 documents re-encrypted, 12 already on the new key' in out, out[-300:])
+        envfile.write_text(envfile.read_text() + f'DATA_KEY={new_key}\n')
+        dc(envfile, 'up', '-d', 'api', 'worker')
+        check('the stack is healthy on the new key', wait_healthy(envfile))
+        s4 = Session('CG-4001', password, secret)
+        later = snapshot(s4)
+        check('after the rotation the claims are in the same states, readable, and the chains verify', later['counts'] == before['counts'] and later['trace_status'] == 200 and later['verify_ok'], later)
     finally:
         dc(envfile, 'down', '-v')
     print(f'\n{len(RESULTS)} checks, {RESULTS.count(False)} FAILED')
