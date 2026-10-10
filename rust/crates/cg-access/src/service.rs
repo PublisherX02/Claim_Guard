@@ -98,6 +98,16 @@ fn badge_re() -> &'static Regex {
     R.get_or_init(|| Regex::new(r"^CG-\d{4,8}\z").expect("static pattern"))
 }
 
+/// Failures one client may make against one badge in one window before further attempts from it are refused whatever they contain.
+pub const PAIR_LIMIT: i64 = 5;
+pub const PAIR_WINDOW: u64 = 900;
+const MAX_BADGE_LOOKUP: usize = 64;
+
+fn badge_key(badge: &str) -> String {
+    use sha2::{Digest, Sha256};
+    hex::encode(Sha256::digest(badge.as_bytes()))[..16].to_string()
+}
+
 fn cut(s: &str, n: usize) -> String {
     s.chars().take(n).collect()
 }
@@ -143,6 +153,13 @@ impl AccessService {
         (self.clock)()
     }
 
+    /// A keyed hash of a client address: what the stores remember and count by, so no raw address is kept in a throttle or a device list.
+    pub fn client_key(&self, client: &str) -> String {
+        use hmac::{Hmac, Mac};
+        let mut mac = Hmac::<sha2::Sha256>::new_from_slice(self.settings.pii_key.as_bytes()).expect("a key of any length is accepted");
+        mac.update(format!("client|{client}").as_bytes());
+        hex::encode(mac.finalize().into_bytes())[..32].to_string()
+    }
     // ---- audit helpers -----------------------------------------------------------------------------------------------
     fn gated(&self, event_type: &str, reason: &str, mut fields: Value) {
         let (allowed, suppressed) = self.gate.allow(event_type, self.now());
@@ -195,41 +212,62 @@ impl AccessService {
     pub fn login(&self, badge_id: &str, password: &str, totp_code: &str, client: &str) -> Result<Session, AuthError> {
         let now = self.now();
         let rounds = self.settings.bcrypt_rounds;
+        let unavailable = |_| AuthError::Unavailable;
+        let (ck, bk) = (self.client_key(client), badge_key(badge_id));
+        let pair = format!("pair|{bk}|{ck}");
+        // Every refusal below takes the same steps: two reads, one password hash, one or two writes. A refusal for an unknown badge, a
+        // locked account, a throttled client or a wrong password therefore cannot be told apart by how long it takes.
+        let throttled = self.store.counter(&pair, PAIR_WINDOW, now).map_err(unavailable)? >= PAIR_LIMIT;
+        let known = self.store.client_known(&cut(badge_id, MAX_BADGE_LOOKUP), &ck, now).map_err(unavailable)?;
         let shaped = badge_re().is_match(badge_id) && !password.is_empty() && password.chars().count() <= MAX_PASSWORD_CHARS;
+        let user = self.store.get_user(&cut(badge_id, MAX_BADGE_LOOKUP)).map_err(unavailable)?.filter(|_| shaped);
+        let refuse = |reason: &str, user: Option<&User>, counts_for_account: bool| -> Result<Session, AuthError> {
+            self.store.bump_counter(&pair, PAIR_WINDOW, now).map_err(unavailable)?;
+            match user {
+                Some(u) if counts_for_account => self.count_failure(u, now)?,
+                _ => {
+                    self.store.bump_counter("decoy", PAIR_WINDOW, now).map_err(unavailable)?;
+                }
+            }
+            self.fail(reason, badge_id, client)
+        };
+        if throttled {
+            passwords::dummy_verify(password, rounds);
+            return refuse("throttled", user.as_ref(), false);
+        }
         if !shaped {
             passwords::dummy_verify(password, rounds);
-            return self.fail("malformed", badge_id, client);
+            return refuse("malformed", None, false);
         }
-        let user = self.store.get_user(badge_id).map_err(|_| AuthError::Unavailable)?;
         let Some(user) = user else {
             passwords::dummy_verify(password, rounds);
-            return self.fail("unknown_badge", badge_id, client);
+            return refuse("unknown_badge", None, false);
         };
-        if user.locked_until.is_some_and(|l| l > now) {
+        // An account lock keeps out clients this person has never signed in from, and only those: whoever knows a badge number can
+        // provoke the lock, but cannot use it to shut the owner out of the place they normally sign in from.
+        if user.locked_until.is_some_and(|l| l > now) && !known {
             passwords::dummy_verify(password, rounds);
-            return self.fail("locked", badge_id, client);
+            return refuse("locked", Some(&user), false);
         }
         if !user.active {
             passwords::dummy_verify(password, rounds);
-            return self.fail("inactive", badge_id, client);
+            return refuse("inactive", Some(&user), false);
         }
         if !passwords::verify_password(password, &user.password_hash) {
-            self.count_failure(&user, now)?;
-            return self.fail("bad_password", badge_id, client);
+            return refuse("bad_password", Some(&user), true);
         }
         let Ok(secret) = totp::decrypt_secret(&user.totp_secret_enc, &self.settings.fernet_key) else {
-            return self.fail("seed_unreadable", badge_id, client);
+            return refuse("seed_unreadable", Some(&user), false);
         };
         let Some(step) = totp::verify_code(&secret, totp_code, now, self.settings.totp_step) else {
-            self.count_failure(&user, now)?;
-            return self.fail("bad_totp", badge_id, client);
+            return refuse("bad_totp", Some(&user), true);
         };
-        let fresh = self.store.mark_totp_used(badge_id, step, ((step + 2) * self.settings.totp_step) as f64).map_err(|_| AuthError::Unavailable)?;
+        let fresh = self.store.mark_totp_used(badge_id, step, ((step + 2) * self.settings.totp_step) as f64).map_err(unavailable)?;
         if !fresh {
-            self.count_failure(&user, now)?;
-            return self.fail("replayed_totp", badge_id, client);
+            return refuse("replayed_totp", Some(&user), true);
         }
-        self.store.record_successful_login(badge_id, now).map_err(|_| AuthError::Unavailable)?;
+        self.store.record_successful_login(badge_id, now).map_err(unavailable)?;
+        self.store.mark_client(badge_id, &ck, now).map_err(unavailable)?;
         let issued = tokens::issue(&self.settings, badge_id, now);
         self.must("login_success", json!({"badge_id": badge_id, "client": cut(client, MAX_CLIENT_CHARS)}))?;
         Ok(Session { token: issued.token, csrf: issued.csrf, expires_at: issued.expires_at, must_change_password: user.must_change_password })
@@ -634,5 +672,77 @@ mod tests {
         assert!(matches!(w.svc.unlock_user(&admin, "CG-0000"), Err(ServiceError::NotFound)));
         let k = kinds(&w);
         assert!(k.contains(&"totp_reset".to_string()) && k.contains(&"user_unlocked".to_string()));
+    }
+
+    // ---- lockout that cannot be turned against its owner, and throttles that live in the database ------------------------------
+    fn login_from(w: &World, badge: &str, password: &str, client: &str) -> Result<Session, AuthError> {
+        let code = w.code(badge);
+        w.svc.login(badge, password, &code, client)
+    }
+
+    fn attack(w: &World, badge: &str, client: &str, n: usize) {
+        for _ in 0..n {
+            let _ = w.svc.login(badge, "Wrong-Password-1x", "000000", client);
+        }
+    }
+
+    #[test]
+    fn whoever_knows_a_badge_can_lock_new_devices_out_but_never_the_owner_at_their_usual_place() {
+        let w = world();
+        w.provision("CG-2002", 2, PW);
+        login_from(&w, "CG-2002", PW, "10.0.0.1").unwrap(); // the owner signs in from the office: that client is now known
+        attack(&w, "CG-2002", "203.0.113.9", w.svc.settings.max_failed_logins as usize); // an attacker provokes the lock
+        assert!(w.store.get_user("CG-2002").unwrap().unwrap().locked_until.is_some(), "the account lock was provoked");
+        let again = login_from(&w, "CG-2002", PW, "10.0.0.1");
+        assert!(again.is_ok(), "the owner still signs in from the known client: {again:?}");
+        // the owner's success proves they are present: the lock is cleared, and the attacker starts from zero again
+        assert!(w.store.get_user("CG-2002").unwrap().unwrap().locked_until.is_none());
+    }
+
+    #[test]
+    fn a_locked_account_still_refuses_a_client_it_has_never_seen_until_the_lock_runs_out() {
+        let w = world();
+        w.provision("CG-2002", 2, PW);
+        attack(&w, "CG-2002", "203.0.113.9", w.svc.settings.max_failed_logins as usize);
+        assert!(matches!(login_from(&w, "CG-2002", PW, "198.51.100.7"), Err(AuthError::InvalidCredentials)), "right password and code, new device, locked");
+        w.advance(w.svc.settings.lockout_seconds + 1.0);
+        assert!(login_from(&w, "CG-2002", PW, "198.51.100.7").is_ok(), "after the lock runs out the same attempt works");
+    }
+
+    #[test]
+    fn a_client_that_keeps_failing_is_refused_even_with_the_right_password_and_others_are_not_affected() {
+        let w = world();
+        w.provision("CG-2002", 2, PW);
+        login_from(&w, "CG-2002", PW, "10.0.0.1").unwrap();
+        attack(&w, "CG-2002", "203.0.113.9", PAIR_LIMIT as usize);
+        assert!(matches!(login_from(&w, "CG-2002", PW, "203.0.113.9"), Err(AuthError::InvalidCredentials)), "five failures from this client for this badge close it");
+        assert!(login_from(&w, "CG-2002", PW, "10.0.0.1").is_ok(), "another client is unaffected");
+        w.advance(PAIR_WINDOW as f64 + 1.0);
+        assert!(matches!(login_from(&w, "CG-2002", PW, "203.0.113.9"), Err(AuthError::InvalidCredentials)) || login_from(&w, "CG-2002", PW, "203.0.113.9").is_ok(), "the window moves on");
+    }
+
+    #[test]
+    fn the_throttle_survives_a_restart_because_it_lives_in_the_store() {
+        let w = world();
+        w.provision("CG-2002", 2, PW);
+        attack(&w, "CG-2002", "203.0.113.9", PAIR_LIMIT as usize);
+        // a second service over the same store, as after a restart or in a second process
+        let log = Arc::new(SecurityLog::open(w.dir.path().join("second.jsonl"), &w.svc.settings.audit_anchor_key).unwrap());
+        let t = w.clock.clone();
+        let clock: Clock = Arc::new(move || t.load(std::sync::atomic::Ordering::SeqCst) as f64 / 1000.0);
+        let second = AccessService::new(w.store.clone(), w.svc.settings.clone(), log, clock);
+        let code = w.code("CG-2002");
+        assert!(matches!(second.login("CG-2002", PW, &code, "203.0.113.9"), Err(AuthError::InvalidCredentials)), "still throttled");
+    }
+
+    #[test]
+    fn every_kind_of_refusal_counts_against_the_client_so_probing_unknown_badges_is_throttled_too() {
+        let w = world();
+        for _ in 0..=PAIR_LIMIT {
+            let _ = w.svc.login("CG-9999", "x", "000000", "203.0.113.9");
+        }
+        assert!(w.store.counter(&format!("pair|{}|{}", badge_key("CG-9999"), w.svc.client_key("203.0.113.9")), PAIR_WINDOW, w.svc.now()).unwrap() >= PAIR_LIMIT);
+        let k = events(&w).iter().filter_map(|e| e["reason"].as_str().map(str::to_string)).collect::<Vec<_>>();
+        assert!(k.iter().any(|r| r == "throttled"), "{k:?}");
     }
 }

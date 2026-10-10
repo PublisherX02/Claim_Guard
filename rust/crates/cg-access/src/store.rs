@@ -121,13 +121,26 @@ pub trait UserStore: Send + Sync {
     fn revoke_token(&self, jti: &str, expires_at: f64) -> Result<(), StoreError>;
     fn is_revoked(&self, jti: &str, now: f64) -> Result<bool, StoreError>;
     fn count_active_admins(&self) -> Result<i64, StoreError>;
+    /// A counter that restarts every `window_seconds` (fixed windows): how often has `key` been bumped in the window containing `now`?
+    /// Shared by every server process that uses the database, so a restart or a second process does not reset a throttle.
+    fn counter(&self, key: &str, window_seconds: u64, now: f64) -> Result<i64, StoreError>;
+    /// Adds one to the counter and returns the new value. Atomic: parallel bumps never lose a count.
+    fn bump_counter(&self, key: &str, window_seconds: u64, now: f64) -> Result<i64, StoreError>;
+    /// Has this person signed in successfully from this client (a keyed hash of its address) within `KNOWN_CLIENT_SECONDS`?
+    fn client_known(&self, badge_id: &str, client: &str, now: f64) -> Result<bool, StoreError>;
+    fn mark_client(&self, badge_id: &str, client: &str, now: f64) -> Result<(), StoreError>;
 }
+
+/// How long a client counts as known after the last successful sign-in from it (30 days).
+pub const KNOWN_CLIENT_SECONDS: f64 = 30.0 * 86_400.0;
 
 #[derive(Default)]
 struct Inner {
     users: BTreeMap<String, User>,
     totp: BTreeSet<(String, i64)>,
     revoked: HashMap<String, f64>,
+    counters: HashMap<String, (i64, i64)>,
+    clients: HashMap<(String, String), f64>,
 }
 
 #[derive(Default)]
@@ -209,6 +222,34 @@ impl UserStore for MemoryStore {
 
     fn count_active_admins(&self) -> Result<i64, StoreError> {
         Ok(self.lock().users.values().filter(|u| u.level == 4 && u.active).count() as i64)
+    }
+
+    fn counter(&self, key: &str, window_seconds: u64, now: f64) -> Result<i64, StoreError> {
+        let idx = (now / window_seconds.max(1) as f64).floor() as i64;
+        Ok(self.lock().counters.get(key).filter(|(w, _)| *w == idx).map_or(0, |(_, n)| *n))
+    }
+
+    fn bump_counter(&self, key: &str, window_seconds: u64, now: f64) -> Result<i64, StoreError> {
+        let idx = (now / window_seconds.max(1) as f64).floor() as i64;
+        let mut g = self.lock();
+        if g.counters.len() > 200_000 {
+            g.counters.retain(|_, (w, _)| *w >= idx); // old windows are worthless; never let the table grow without bound
+        }
+        let e = g.counters.entry(key.to_string()).or_insert((idx, 0));
+        if e.0 != idx {
+            *e = (idx, 0);
+        }
+        e.1 += 1;
+        Ok(e.1)
+    }
+
+    fn client_known(&self, badge_id: &str, client: &str, now: f64) -> Result<bool, StoreError> {
+        Ok(self.lock().clients.get(&(badge_id.to_string(), client.to_string())).is_some_and(|seen| now - *seen < KNOWN_CLIENT_SECONDS))
+    }
+
+    fn mark_client(&self, badge_id: &str, client: &str, now: f64) -> Result<(), StoreError> {
+        self.lock().clients.insert((badge_id.to_string(), client.to_string()), now);
+        Ok(())
     }
 }
 

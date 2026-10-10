@@ -77,12 +77,14 @@ pub struct MongoUserStore {
     users: Collection<Document>,
     totp: Collection<Document>,
     revoked: Collection<Document>,
+    counters: Collection<Document>,
+    clients: Collection<Document>,
 }
 
 impl MongoUserStore {
     pub fn new(client: Client, db_name: &str) -> MongoUserStore {
         let db = client.database(db_name);
-        MongoUserStore { users: db.collection("users"), totp: db.collection("used_totp"), revoked: db.collection("revoked_tokens"), client, db_name: db_name.to_string() }
+        MongoUserStore { users: db.collection("users"), totp: db.collection("used_totp"), revoked: db.collection("revoked_tokens"), counters: db.collection("counters"), clients: db.collection("known_clients"), client, db_name: db_name.to_string() }
     }
 
     pub fn ensure_indexes(&self) -> Result<(), StoreError> {
@@ -93,6 +95,9 @@ impl MongoUserStore {
         self.totp.create_index(IndexModel::builder().keys(doc! {"expires_at": 1}).options(ttl()).build()).run().map_err(unavailable)?;
         self.revoked.create_index(IndexModel::builder().keys(doc! {"jti": 1}).options(unique()).build()).run().map_err(unavailable)?;
         self.revoked.create_index(IndexModel::builder().keys(doc! {"expires_at": 1}).options(ttl()).build()).run().map_err(unavailable)?;
+        self.counters.create_index(IndexModel::builder().keys(doc! {"expires_at": 1}).options(ttl()).build()).run().map_err(unavailable)?;
+        self.clients.create_index(IndexModel::builder().keys(doc! {"badge_id": 1, "client": 1}).options(unique()).build()).run().map_err(unavailable)?;
+        self.clients.create_index(IndexModel::builder().keys(doc! {"expires_at": 1}).options(ttl()).build()).run().map_err(unavailable)?;
         Ok(())
     }
 
@@ -232,6 +237,54 @@ impl UserStore for MongoUserStore {
     fn count_active_admins(&self) -> Result<i64, StoreError> {
         Ok(self.users.count_documents(doc! {"level": 4, "active": true}).run().map_err(unavailable)? as i64)
     }
+
+    fn counter(&self, key: &str, window_seconds: u64, now: f64) -> Result<i64, StoreError> {
+        let id = counter_id(key, window_seconds, now);
+        Ok(self.counters.find_one(doc! {"_id": id}).run().map_err(unavailable)?.map_or(0, |d| i64_of(&d, "n").unwrap_or(0)))
+    }
+
+    fn bump_counter(&self, key: &str, window_seconds: u64, now: f64) -> Result<i64, StoreError> {
+        let id = counter_id(key, window_seconds, now);
+        let w = window_seconds.max(1) as f64;
+        let expires = dt(((now / w).floor() + 2.0) * w);
+        for attempt in 0..2 {
+            // two simultaneous first bumps race on the unique _id; the loser retries once and then increments
+            let r = self
+                .counters
+                .find_one_and_update(doc! {"_id": &id}, doc! {"$inc": {"n": 1_i64}, "$setOnInsert": {"expires_at": expires}})
+                .upsert(true)
+                .return_document(ReturnDocument::After)
+                .run();
+            match r {
+                Ok(Some(d)) => return i64_of(&d, "n"),
+                Ok(None) => return Err(StoreError::Unavailable),
+                Err(e) if duplicate(&e) && attempt == 0 => continue,
+                Err(e) => return Err(unavailable(e)),
+            }
+        }
+        Err(StoreError::Unavailable)
+    }
+
+    fn client_known(&self, badge_id: &str, client: &str, now: f64) -> Result<bool, StoreError> {
+        let cutoff = now - cg_access::store::KNOWN_CLIENT_SECONDS;
+        Ok(self.clients.find_one(doc! {"badge_id": badge_id, "client": client, "seen_ts": {"$gt": cutoff}}).run().map_err(unavailable)?.is_some())
+    }
+
+    fn mark_client(&self, badge_id: &str, client: &str, now: f64) -> Result<(), StoreError> {
+        let update = doc! {"$set": {"seen_ts": now, "expires_at": dt(now + cg_access::store::KNOWN_CLIENT_SECONDS)}};
+        for attempt in 0..2 {
+            match self.clients.update_one(doc! {"badge_id": badge_id, "client": client}, update.clone()).upsert(true).run() {
+                Ok(_) => return Ok(()),
+                Err(e) if duplicate(&e) && attempt == 0 => continue,
+                Err(e) => return Err(unavailable(e)),
+            }
+        }
+        Ok(())
+    }
+}
+
+fn counter_id(key: &str, window_seconds: u64, now: f64) -> String {
+    format!("{key}|{window_seconds}|{}", (now / window_seconds.max(1) as f64).floor() as i64)
 }
 
 #[cfg(test)]

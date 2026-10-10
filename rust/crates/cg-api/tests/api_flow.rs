@@ -135,12 +135,14 @@ fn login_sets_httponly_session_and_csrf_is_required_on_unsafe_methods() {
 fn bad_credentials_look_the_same_and_the_throttle_blocks_a_client() {
     let t = t();
     let mut statuses = vec![];
-    for _ in 0..22 {
-        let r = t.api.handle(req("POST", "/api/v1/auth/login", Some(json!({"badge_id": "CG-9999", "password": "x", "totp": "000000"})), None, None));
+    for i in 0..105 {
+        // a different badge each time: the address as a whole is counted, whoever it tries to sign in as
+        let r = t.api.handle(req("POST", "/api/v1/auth/login", Some(json!({"badge_id": format!("CG-9{i:03}"), "password": "x", "totp": "000000"})), None, None));
         statuses.push((r.status, j(&r)["error"].as_str().unwrap_or("").to_string()));
     }
     assert_eq!(statuses[0], (401, "invalid_credentials".to_string()));
-    assert_eq!(statuses[21].0, 429);
+    assert_eq!(statuses[99].0, 401, "the hundredth failure is still an ordinary refusal");
+    assert_eq!(statuses[104].0, 429, "after a hundred failures from one address it is told to stop");
     let mut other = req("POST", "/api/v1/auth/login", Some(json!({"badge_id": "CG-9999", "password": "x", "totp": "000000"})), None, None);
     other.client = "10.0.0.2".into();
     assert_eq!(t.api.handle(other).status, 401, "a different client is unaffected");

@@ -28,15 +28,15 @@ use serde::Deserialize;
 use serde_json::{json, Map, Value};
 use std::collections::{BTreeMap, HashMap};
 use std::path::PathBuf;
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
 
 pub const API: &str = "/api/v1";
 pub const SESSION_COOKIE: &str = "cg_session";
 pub const CSRF_COOKIE: &str = "cg_csrf";
 pub const MAX_BODY_BYTES: usize = 65_536;
-pub const LOGIN_FAILURE_LIMIT: usize = 20;
+/// Failed sign-ins one client address may make, over all badges, in one window. (Per badge the service allows far fewer: PAIR_LIMIT.)
+pub const LOGIN_FAILURE_LIMIT: i64 = 100;
 pub const LOGIN_FAILURE_WINDOW: f64 = 900.0;
-const THROTTLE_MAX_CLIENTS: usize = 10_000;
 const ACTIONS: [&str; 4] = ["confirm_issue", "dismiss_with_reason", "request_information", "mark_corrected_for_recheck"];
 const SAFE_METHODS: [&str; 3] = ["GET", "HEAD", "OPTIONS"];
 const PASSWORD_CHANGE_PATHS: [&str; 3] = ["/api/v1/auth/me", "/api/v1/auth/logout", "/api/v1/auth/change-password"];
@@ -97,43 +97,6 @@ impl ApiError {
 
 type R = Result<ApiResponse, ApiError>;
 
-/// Failed logins per client address; in-process, so it protects a single server process (documented limit).
-struct LoginThrottle {
-    failures: Mutex<HashMap<String, Vec<f64>>>,
-}
-
-impl LoginThrottle {
-    fn recent(map: &mut HashMap<String, Vec<f64>>, client: &str, now: f64) -> usize {
-        let cutoff = now - LOGIN_FAILURE_WINDOW;
-        let n = map.get_mut(client).map(|v| {
-            v.retain(|t| *t > cutoff);
-            v.len()
-        });
-        if n == Some(0) {
-            map.remove(client);
-        }
-        n.unwrap_or(0)
-    }
-
-    fn blocked(&self, client: &str, now: f64) -> bool {
-        let mut g = self.failures.lock().unwrap_or_else(|e| e.into_inner());
-        Self::recent(&mut g, client, now) >= LOGIN_FAILURE_LIMIT
-    }
-
-    fn record(&self, client: &str, now: f64) {
-        let mut g = self.failures.lock().unwrap_or_else(|e| e.into_inner());
-        Self::recent(&mut g, client, now);
-        g.entry(client.to_string()).or_default().push(now);
-        if g.len() > THROTTLE_MAX_CLIENTS {
-            // never let the table itself become the memory problem
-            let stale: Vec<String> = g.keys().take(g.len() - THROTTLE_MAX_CLIENTS).cloned().collect();
-            stale.iter().for_each(|k| {
-                g.remove(k);
-            });
-        }
-    }
-}
-
 pub struct Api {
     pub access: Arc<AccessService>,
     pub claims: Arc<FileClaimStore>,
@@ -146,7 +109,6 @@ pub struct Api {
     pub metrics: Arc<Metrics>,
     probes: Vec<Probe>,
     audit_status: Arc<AuditStatus>,
-    throttle: LoginThrottle,
     ui_files: BTreeMap<&'static str, (&'static [u8], &'static str)>,
 }
 
@@ -327,7 +289,6 @@ impl Api {
             metrics,
             probes,
             audit_status,
-            throttle: LoginThrottle { failures: Mutex::new(HashMap::new()) },
             ui_files: claimstore::ui_files(),
         }
     }
@@ -485,17 +446,28 @@ impl Api {
     }
 
     // ---- authentication -------------------------------------------------------------------------------------------------
+    /// The per-address failure counter lives in the shared database, so a restart or a second server process does not clear it.
+    fn ip_key(&self, client: &str) -> String {
+        format!("ip|{}", self.access.client_key(client))
+    }
+
+    fn note_failed_sign_in(&self, client: &str, now: f64) {
+        // best effort: if the counter cannot be written the sign-in itself is refused anyway
+        let _ = self.access.store.bump_counter(&self.ip_key(client), LOGIN_FAILURE_WINDOW as u64, now);
+    }
+
     fn login(&self, req: &ApiRequest) -> R {
         let now = self.now();
         let client = req.client.as_str();
+        let unavailable = |_| ApiError::new(503, "unavailable");
         let body: LoginBody = match body_of::<LoginBody>(req) {
             Ok(b) if !(too_long(&b.badge_id, 64) || too_long(&b.password, 128) || too_long(&b.totp, 12)) => b,
             _ => {
-                self.throttle.record(client, now); // never echo the input: it may hold a password
+                self.note_failed_sign_in(client, now); // never echo the input: it may hold a password
                 return Err(invalid());
             }
         };
-        if self.throttle.blocked(client, now) {
+        if self.access.store.counter(&self.ip_key(client), LOGIN_FAILURE_WINDOW as u64, now).map_err(unavailable)? >= LOGIN_FAILURE_LIMIT {
             let mut e = ApiError::new(429, "too_many_attempts");
             e.headers.push(("retry-after".into(), (LOGIN_FAILURE_WINDOW as i64).to_string()));
             return Err(e);
@@ -506,7 +478,7 @@ impl Api {
                 .with_cookie(fmt_cookie(CSRF_COOKIE, &s.csrf, self.settings.token_ttl_seconds, false, self.settings.cookie_secure))),
             Err(AuthError::Unavailable) => Err(ApiError::new(503, "unavailable")),
             Err(_) => {
-                self.throttle.record(client, now);
+                self.note_failed_sign_in(client, now);
                 Err(ApiError::new(401, "invalid_credentials"))
             }
         }

@@ -98,6 +98,29 @@ pub fn run(fresh: &dyn Fn() -> Box<dyn UserStore>) {
     });
     assert!(s.is_revoked("same", 1.0).unwrap());
 
+    // counters: fixed windows, per key, atomic under parallel bumps
+    let s = fresh();
+    assert_eq!(s.counter("k", 60, 1000.0).unwrap(), 0);
+    assert_eq!((s.bump_counter("k", 60, 1000.0).unwrap(), s.bump_counter("k", 60, 1010.0).unwrap()), (1, 2), "the same window counts up");
+    assert_eq!(s.counter("k", 60, 1019.0).unwrap(), 2);
+    assert_eq!(s.counter("other", 60, 1019.0).unwrap(), 0, "keys are independent");
+    assert_eq!(s.bump_counter("k", 60, 1060.0).unwrap(), 1, "the next window starts again at one");
+    std::thread::scope(|t| {
+        for _ in 0..50 {
+            t.spawn(|| s.bump_counter("race", 600, 5000.0).unwrap());
+        }
+    });
+    assert_eq!(s.counter("race", 600, 5000.0).unwrap(), 50, "50 parallel bumps lose none");
+
+    // known clients: remembered per person and per client, forgotten after thirty days
+    let s = fresh();
+    assert!(!s.client_known("CG-1001", "c1", 100.0).unwrap());
+    s.mark_client("CG-1001", "c1", 100.0).unwrap();
+    s.mark_client("CG-1001", "c1", 200.0).unwrap();
+    assert!(s.client_known("CG-1001", "c1", 300.0).unwrap());
+    assert!(!s.client_known("CG-1001", "c2", 300.0).unwrap() && !s.client_known("CG-2002", "c1", 300.0).unwrap());
+    assert!(!s.client_known("CG-1001", "c1", 200.0 + crate::store::KNOWN_CLIENT_SECONDS + 1.0).unwrap(), "a client unused for thirty days is no longer known");
+
     // administrators are counted only while active
     let s = fresh();
     for b in ["CG-4001", "CG-4002"] {
