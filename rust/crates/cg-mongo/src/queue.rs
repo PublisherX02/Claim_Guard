@@ -65,6 +65,41 @@ impl MongoQueueStore {
         self
     }
 
+    /// Re-encrypts every claim document from this store's key to `new`. Stop the API and the worker first: a document changed by someone
+    /// else in the middle is skipped and reported, not overwritten. Safe to run again after an interruption: a document that already opens
+    /// with the new key is counted and left alone. Returns (rewritten, already on the new key, skipped because it changed meanwhile).
+    pub fn reencrypt_all(&self, new: &FieldCrypt, dry_run: bool) -> Result<(usize, usize, usize)> {
+        let old = self.crypt.as_ref().ok_or_else(|| StoreError::Invalid("this store has no encryption key to rotate from".into()))?;
+        let (mut rewritten, mut current, mut skipped) = (0, 0, 0);
+        let all: Vec<Document> = self.claims.find(doc! {}).run().map_err(unavailable)?.collect::<std::result::Result<_, _>>().map_err(unavailable)?;
+        for raw in all {
+            let Some(id) = raw.get("_id").cloned() else { continue };
+            let stored = from_doc(&raw);
+            let plain = match old.open(stored.clone()) {
+                Ok(p) => p,
+                Err(_) => match new.open(stored.clone()) {
+                    Ok(_) => {
+                        current += 1;
+                        continue;
+                    }
+                    Err(e) => return Err(StoreError::Invalid(format!("claim {} opens with neither key: {}", stored["claim_id"].as_str().unwrap_or("?"), e.0))),
+                },
+            };
+            if dry_run {
+                rewritten += 1;
+                continue;
+            }
+            let replacement = to_doc(&new.seal_stored(&plain));
+            let r = self.claims.replace_one(doc! {"_id": id, "state": raw.get("state").cloned().unwrap_or(Bson::Null), "state_at": raw.get("state_at").cloned().unwrap_or(Bson::Null)}, replacement).run().map_err(unavailable)?;
+            if r.modified_count == 1 {
+                rewritten += 1;
+            } else {
+                skipped += 1;
+            }
+        }
+        Ok((rewritten, current, skipped))
+    }
+
     fn open(&self, v: Value) -> Result<Value> {
         match &self.crypt {
             None => Ok(v),
@@ -554,6 +589,49 @@ mod tests {
         assert!(plain.put_triaged(&new("C3", "PAT-999")).unwrap());
         assert_eq!(store.get("C3", None).unwrap().unwrap()["claim"]["patient_id"], "PAT-999");
         assert_eq!(store.claims_for_patient("PAT-999").unwrap().len(), 1, "older documents are found by the plain id");
+        let _ = client.database(&name).drop().run();
+    }
+}
+
+#[cfg(test)]
+mod rotation_tests {
+    use super::*;
+
+    #[test]
+    fn rotating_the_key_re_encrypts_every_claim_and_can_be_repeated() {
+        let Ok(uri) = std::env::var("MONGO_URI") else {
+            assert!(std::env::var("REQUIRE_MONGO").is_err(), "REQUIRE_MONGO is set but MONGO_URI is not");
+            return;
+        };
+        let name = format!("claimguard_rs_rot_{}", rand::random::<u64>());
+        let client = crate::connect(&uri, 3000).unwrap();
+        let (ka, kb) = (fernet::Fernet::generate_key(), fernet::Fernet::generate_key());
+        let a = MongoQueueStore::new(client.clone(), &name).with_encryption(FieldCrypt::new(&ka, None).unwrap());
+        a.ensure_indexes().unwrap();
+        for (id, patient) in [("C1", "PAT-111"), ("C2", "PAT-111"), ("C3", "PAT-222")] {
+            let doc = json!({"claim_id": id, "version": 1, "input_hash": format!("h{id}"), "claim": {"claim_id": id, "patient_id": patient, "notes": "ROTATE-ME"}, "results": [],
+                "receipt": {"created_at": 1.0, "lane": "A", "eligibility": "any", "score": 1, "rule_pack_hash": "p"}, "advisory": []});
+            assert!(a.put_triaged(&doc).unwrap());
+        }
+        a.transition("C1", 1, "triaged", "ready", "system", 0.5, None, None, None).unwrap().unwrap();
+        a.lease("C1", 1, "CG-2002", 1.0, 1e12).unwrap().unwrap();
+        a.add_decision("C1", 1, "CG-2002", 2.0, &json!({"rule_id": "R001", "action": "confirm_issue", "reason": "ROTATE-REASON", "badge_id": "CG-2002"})).unwrap().unwrap();
+        let new = FieldCrypt::new(&kb, None).unwrap();
+        assert_eq!(a.reencrypt_all(&new, true).unwrap(), (3, 0, 0), "a dry run counts and changes nothing");
+        assert!(a.get("C1", None).is_ok());
+        assert_eq!(a.reencrypt_all(&new, false).unwrap(), (3, 0, 0));
+        let b = MongoQueueStore::new(client.clone(), &name).with_encryption(FieldCrypt::new(&kb, None).unwrap());
+        let doc = b.get("C1", None).unwrap().unwrap();
+        assert_eq!((doc["claim"]["notes"].as_str(), doc["decisions"][0]["reason"].as_str()), (Some("ROTATE-ME"), Some("ROTATE-REASON")));
+        assert_eq!(b.claims_for_patient("PAT-111").unwrap().len(), 2, "the patient index was recomputed under the new key");
+        assert!(a.get("C1", None).is_err(), "the old key no longer opens anything");
+        let raw = format!("{:?}", client.database(&name).collection::<Document>("claims").find(doc! {}).run().unwrap().map(|d| d.unwrap()).collect::<Vec<_>>());
+        assert!(!raw.contains("ROTATE-ME") && !raw.contains("ROTATE-REASON") && !raw.contains("PAT-111"));
+        let again = MongoQueueStore::new(client.clone(), &name).with_encryption(FieldCrypt::new(&ka, None).unwrap());
+        assert_eq!(again.reencrypt_all(&new, false).unwrap(), (0, 3, 0), "run again after an interruption: everything is already on the new key");
+        let wrong = MongoQueueStore::new(client.clone(), &name).with_encryption(FieldCrypt::new(&fernet::Fernet::generate_key(), None).unwrap());
+        let unrelated = FieldCrypt::new(&fernet::Fernet::generate_key(), None).unwrap();
+        assert!(wrong.reencrypt_all(&unrelated, false).unwrap_err().to_string().contains("neither key"), "a document that opens with neither key stops the rotation instead of being damaged");
         let _ = client.database(&name).drop().run();
     }
 }

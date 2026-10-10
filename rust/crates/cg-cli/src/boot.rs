@@ -82,6 +82,11 @@ fn with_dev_secrets(env: &mut HashMap<String, String>, dir: &Path) -> Result<(),
     Ok(())
 }
 
+/// The queue database's name: QUEUE_DB, or the main database's name plus `_queue`.
+pub fn queue_db_name(settings: &Settings, env: &HashMap<String, String>) -> String {
+    env.get("QUEUE_DB").map(|s| s.trim().to_string()).filter(|s| !s.is_empty()).unwrap_or_else(|| format!("{}_queue", settings.mongo_db))
+}
+
 fn build_stores(settings: &Settings, env: &HashMap<String, String>, dev: bool, queue: bool) -> Result<(Arc<dyn UserStore>, Option<Arc<dyn QueueStore>>), String> {
     let down = || "the database cannot be reached".to_string();
     if let Some(uri) = &settings.mongo_uri {
@@ -89,7 +94,7 @@ fn build_stores(settings: &Settings, env: &HashMap<String, String>, dev: bool, q
         let users = cg_mongo::MongoUserStore::new(client.clone(), &settings.mongo_db);
         users.ensure_indexes().map_err(|e| format!("{} (users: {e})", down()))?;
         let q: Option<Arc<dyn QueueStore>> = if queue {
-            let db = env.get("QUEUE_DB").map(|s| s.trim().to_string()).filter(|s| !s.is_empty()).unwrap_or_else(|| format!("{}_queue", settings.mongo_db));
+            let db = queue_db_name(settings, env);
             let mut qs = cg_mongo::MongoQueueStore::new(client, &db);
             // Claim data is encrypted before it reaches the database unless this is switched off on purpose (CG_ENCRYPT_AT_REST=false).
             // The key is DATA_KEY if given, otherwise derived from FERNET_KEY, so no deployment is left unprotected by a missing setting.

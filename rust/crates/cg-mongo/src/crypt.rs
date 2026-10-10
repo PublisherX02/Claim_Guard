@@ -77,6 +77,17 @@ impl FieldCrypt {
         }
     }
 
+    /// The stored form of a plain document: every sensitive field sealed, each decision sealed on its own, the patient index added.
+    pub fn seal_stored(&self, plain: &Value) -> Value {
+        let mut doc = plain.clone();
+        let (id, version) = (doc["claim_id"].as_str().unwrap_or("").to_string(), doc["version"].as_i64().unwrap_or(0));
+        self.seal_new_doc(&mut doc);
+        if let Some(list) = doc.get("decisions").and_then(Value::as_array).cloned() {
+            doc["decisions"] = Value::Array(list.iter().map(|d| self.seal(&id, version, "decisions", d)).collect());
+        }
+        doc
+    }
+
     /// Seals the sensitive entries of a `set` map (only `explanation` can occur) for the given claim.
     pub fn seal_set(&self, claim_id: &str, version: i64, set: &mut Map<String, Value>) {
         for field in SEALED_FIELDS {

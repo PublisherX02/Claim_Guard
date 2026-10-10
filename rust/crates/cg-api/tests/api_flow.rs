@@ -347,3 +347,57 @@ fn every_response_carries_the_framing_and_sniffing_headers_and_a_refusal_is_audi
     assert_eq!(ev["events"].as_array().unwrap().len(), 1, "the refused attempt is on the security log");
     assert!(ev["events"][0].to_string().contains("CG-1001"), "{}", ev["events"][0]);
 }
+
+fn with_headers(mut r: ApiRequest, pairs: &[(&str, &str)]) -> ApiRequest {
+    for (k, v) in pairs {
+        r.headers.insert(k.to_string(), v.to_string());
+    }
+    r
+}
+
+#[test]
+fn a_state_changing_request_that_the_browser_says_is_cross_site_is_refused_even_before_signing_in() {
+    let t = t();
+    let code = t.w.code("CG-3003");
+    let login = |extra: &[(&str, &str)]| t.api.handle(with_headers(req("POST", "/api/v1/auth/login", Some(json!({"badge_id": "CG-3003", "password": PW, "totp": code})), None, None), extra));
+    for bad in [&[("sec-fetch-site", "cross-site")][..], &[("origin", "https://evil.example"), ("host", "127.0.0.1:8443")], &[("origin", "null"), ("host", "127.0.0.1:8443")], &[("origin", "http://127.0.0.1:8443.evil.example"), ("host", "127.0.0.1:8443")]] {
+        let r = login(bad);
+        assert_eq!((r.status, j(&r)["error"].as_str().unwrap_or("").to_string()), (403, "cross_site".to_string()), "{bad:?}");
+    }
+    // the same request from the console itself, from a program with no browser headers, or from the same site is fine
+    assert_eq!(login(&[("origin", "http://127.0.0.1:8443"), ("host", "127.0.0.1:8443"), ("sec-fetch-site", "same-origin")]).status, 200);
+    let s = t.login("CG-3003");
+    assert_eq!(t.post("/api/v1/auth/logout", json!({}), &s).status, 200, "no browser headers at all");
+    // reads are not state-changing: a cross-site GET is only subject to the session
+    let r = t.api.handle(with_headers(req("GET", "/healthz", None, None, None), &[("sec-fetch-site", "cross-site"), ("origin", "https://evil.example")]));
+    assert_eq!(r.status, 200);
+}
+
+#[test]
+fn responses_carry_the_extra_browser_hardening_headers() {
+    let t = t();
+    for path in ["/healthz", "/ui/", "/api/v1/claims"] {
+        let h: HashMap<_, _> = t.api.handle(req("GET", path, None, None, None)).headers.into_iter().collect();
+        assert_eq!(h.get("cross-origin-opener-policy").map(String::as_str), Some("same-origin"), "{path}");
+        assert_eq!(h.get("cross-origin-resource-policy").map(String::as_str), Some("same-origin"), "{path}");
+        assert!(h.get("permissions-policy").is_some_and(|v| v.contains("camera=()") && v.contains("geolocation=()")), "{path}");
+    }
+}
+
+#[test]
+fn a_reason_that_contains_the_patients_identifier_is_refused_and_unmasking_is_rationed() {
+    let mut t = t();
+    let senior = t.login("CG-3003");
+    let id = j(&t.get("/api/v1/claims?limit=1", &senior))["claims"][0]["claim_id"].as_str().unwrap().to_string();
+    let patient = t.api.claims.get(&id).unwrap().0["patient_id"].as_str().unwrap().to_string();
+    let r = t.post(&format!("/api/v1/claims/{id}/unmask"), json!({"reason": format!("checking {} against the card", patient.to_lowercase())}), &senior);
+    assert_eq!((r.status, j(&r)["error"].as_str().unwrap_or("").to_string()), (422, "invalid_request".to_string()));
+    assert_eq!(t.post(&format!("/api/v1/claims/{id}/findings/R001/decision"), json!({"action": "dismiss_with_reason", "reason": format!("{patient} is fine")}), &senior).status, 422);
+    assert!(t.get("/api/v1/audit/events?event_type=unmask", &t.login("CG-4004")).body.len() > 0);
+    t.api.unmask_per_hour = 3;
+    let statuses: Vec<u16> = (0..5).map(|_| t.post(&format!("/api/v1/claims/{id}/unmask"), json!({"reason": "routine check"}), &senior).status).collect();
+    assert_eq!(statuses, vec![200, 200, 200, 429, 429], "the fourth unmask in the hour is refused");
+    let admin = t.login("CG-4004");
+    let ev = j(&t.get("/api/v1/audit/events?event_type=forbidden", &admin));
+    assert!(ev["events"].to_string().contains("hourly limit"), "{ev}");
+}

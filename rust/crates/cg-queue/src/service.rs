@@ -275,6 +275,9 @@ impl QueueService {
             return Err(QueueError::Conflict("same_person".into())); // the first signer never countersigns, nor the second the tie-break
         }
         let finding = doc["results"].as_array().into_iter().flatten().find(|r| r["rule_id"] == rule_id).ok_or_else(|| QueueError::NotFound(rule_id.into()))?;
+        if masking::text_leaks_identifier(reason, &doc["claim"], &self.access.settings.pii_key) {
+            return Err(QueueError::Invalid("the reason must not contain the patient or member identifier".into()));
+        }
         if !finding["status"].as_str().is_some_and(|s| REVIEWABLE.contains(&s)) {
             return Err(QueueError::Invalid("only a flagged finding can be decided".into()));
         }

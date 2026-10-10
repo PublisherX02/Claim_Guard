@@ -35,6 +35,7 @@ fn main() {
         Some("health") => std::process::exit(serve::health(&args[2..])),
         Some("worker") => std::process::exit(serve::worker(&args[2..])),
         Some("admin") => std::process::exit(tools::admin(&args[2..])),
+        Some("rotate-key") => std::process::exit(tools::rotate_key(&args[2..])),
         Some("queue") => std::process::exit(tools::queue(&args[2..])),
         Some("serve") =>std::process::exit(serve::run(&args[2..])),
         _ => {

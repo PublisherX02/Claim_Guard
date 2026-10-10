@@ -394,3 +394,17 @@ fn advisory_results_are_stored_with_the_claim_and_see_earlier_claims() {
     let original = q.store.get(first["claim_id"].as_str().unwrap(), None).unwrap().unwrap();
     assert_ne!(original["advisory"].as_array().unwrap().iter().find(|a| a["rule_id"] == "E101").unwrap()["status"], "FAIL", "a claim has no earlier claim of its own");
 }
+
+#[test]
+fn a_decision_reason_that_contains_the_patients_identifier_is_refused() {
+    let q = q();
+    let id = q.ready("medium");
+    let deal = q.dispatcher.deal(None, true);
+    let (_, badge, _) = deal.assigned.iter().find(|a| a.0 == id).cloned().expect("dealt");
+    let who = q.p(&badge);
+    let claim = q.store.get(&id, None).unwrap().unwrap()["claim"].clone();
+    let patient = claim["patient_id"].as_str().unwrap().to_string();
+    let rule = q.flagged_rules(&id)[0].0.clone();
+    assert!(matches!(q.queue.decide_finding(&who, &id, &rule, "confirm_issue", &format!("seen on the card of {patient}")), Err(QueueError::Invalid(m)) if m.contains("identifier")));
+    q.queue.decide_finding(&who, &id, &rule, "confirm_issue", "seen on the card").unwrap();
+}

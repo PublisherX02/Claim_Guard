@@ -72,7 +72,15 @@ pub fn admin(args: &[String]) -> i32 {
         match command.as_str() {
             "create-admin" => {
                 let (Some(badge), Some(name)) = (badge.as_deref(), flag(args, "--name")) else { return Err("create-admin needs --badge and --name".into()) };
-                let (first, again) = (secret_prompt("New password: "), secret_prompt("Repeat password: "));
+                // --password-stdin: one line on standard input, for scripts and installers that have no terminal (never an argument)
+                let (first, again) = if has(args, "--password-stdin") {
+                    let mut line = String::new();
+                    let _ = std::io::stdin().read_line(&mut line);
+                    let p = line.trim_end_matches(['\r', '\n']).to_string();
+                    (p.clone(), p)
+                } else {
+                    (secret_prompt("New password: "), secret_prompt("Repeat password: "))
+                };
                 if first != again {
                     return Err("the passwords do not match".into());
                 }
@@ -122,6 +130,63 @@ pub fn admin(args: &[String]) -> i32 {
         say(&format!("error: {e}"));
         2
     })
+}
+
+/// `cg rotate-key [--dry-run]`: re-encrypts every stored claim from the current data key (DATA_KEY, or the key derived from FERNET_KEY) to
+/// NEW_DATA_KEY (a Fernet key in the environment, never an argument). Stop the API and the worker first. Afterwards set DATA_KEY to the
+/// new key and start them again. Safe to run twice.
+pub fn rotate_key(args: &[String]) -> i32 {
+    use cg_access::settings::load_settings;
+    use cg_mongo::crypt::FieldCrypt;
+    let say = |s: &str| println!("{s}");
+    let env: std::collections::HashMap<String, String> = std::env::vars().collect();
+    let settings = match load_settings(&env, false, "127.0.0.1") {
+        Ok(s) => s,
+        Err(e) => {
+            say(&format!("configuration error: {}", e.0));
+            return 2;
+        }
+    };
+    let Some(uri) = settings.mongo_uri.clone() else {
+        say("error: MONGO_URI is required");
+        return 2;
+    };
+    let Some(new_key) = env.get("NEW_DATA_KEY").map(|k| k.trim().to_string()).filter(|k| !k.is_empty()) else {
+        say("error: set NEW_DATA_KEY to the new Fernet key (python -c \"from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())\")");
+        return 2;
+    };
+    if env.get("DATA_KEY").map(|k| k.trim()) == Some(new_key.as_str()) {
+        say("error: NEW_DATA_KEY is the key already in use");
+        return 2;
+    }
+    let (old, new) = match (FieldCrypt::new(&settings.fernet_key, env.get("DATA_KEY").map(String::as_str)), FieldCrypt::new(&settings.fernet_key, Some(&new_key))) {
+        (Ok(o), Ok(n)) => (o, n),
+        (Err(e), _) | (_, Err(e)) => {
+            say(&format!("error: {}", e.0));
+            return 2;
+        }
+    };
+    let client = match cg_mongo::connect(&uri, 3000) {
+        Ok(c) => c,
+        Err(_) => {
+            say("error: the database cannot be reached");
+            return 2;
+        }
+    };
+    let store = cg_mongo::MongoQueueStore::new(client, &crate::boot::queue_db_name(&settings, &env)).with_encryption(old);
+    match store.reencrypt_all(&new, has(args, "--dry-run")) {
+        Ok((rewritten, current, skipped)) => {
+            say(&format!("{}: {rewritten} documents re-encrypted, {current} already on the new key, {skipped} skipped because they changed meanwhile", if has(args, "--dry-run") { "dry run" } else { "done" }));
+            if !has(args, "--dry-run") && skipped == 0 {
+                say("Now set DATA_KEY to the new key in the environment and start the API and the worker. Keep the old key until you have checked the console.");
+            }
+            if skipped > 0 { 1 } else { 0 }
+        }
+        Err(e) => {
+            say(&format!("error: {e}"));
+            2
+        }
+    }
 }
 
 pub const QUEUE_USAGE: &str = "usage: cg queue --badge CG-4004 [--dev] submit --claims FILE [--process] | reconcile | replay ID [--version N] | rerun --rule-pack HASH [--apply] | deadletters | deadletter-replay ID | verify-deal ID";

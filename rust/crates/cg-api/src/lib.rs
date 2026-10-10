@@ -106,6 +106,8 @@ pub struct Api {
     pub clock: Clock,
     pub queue: Option<Arc<QueueService>>,
     pub ui: bool,
+    /// How many claims one person may unmask per hour (UNMASK_PER_HOUR, default 60).
+    pub unmask_per_hour: i64,
     pub metrics: Arc<Metrics>,
     probes: Vec<Probe>,
     audit_status: Arc<AuditStatus>,
@@ -286,6 +288,7 @@ impl Api {
             clock: p.clock,
             queue: p.queue,
             ui: p.ui,
+            unmask_per_hour: std::env::var("UNMASK_PER_HOUR").ok().and_then(|v| v.trim().parse::<i64>().ok()).filter(|n| *n >= 1).unwrap_or(60),
             metrics,
             probes,
             audit_status,
@@ -301,7 +304,15 @@ impl Api {
     pub fn handle(&self, req: ApiRequest) -> ApiResponse {
         let started = std::time::Instant::now();
         let mut resp = self.guarded(&req);
-        let headers: Vec<(&str, &str)> = vec![("cache-control", "no-store"), ("x-content-type-options", "nosniff"), ("x-frame-options", "DENY"), ("referrer-policy", "no-referrer")];
+        let headers: Vec<(&str, &str)> = vec![
+            ("cache-control", "no-store"),
+            ("x-content-type-options", "nosniff"),
+            ("x-frame-options", "DENY"),
+            ("referrer-policy", "no-referrer"),
+            ("permissions-policy", "camera=(), microphone=(), geolocation=(), payment=(), usb=(), serial=(), interest-cohort=()"),
+            ("cross-origin-opener-policy", "same-origin"),
+            ("cross-origin-resource-policy", "same-origin"),
+        ];
         resp.headers.retain(|(n, _)| !headers.iter().any(|(h, _)| h == n) && n != "content-security-policy");
         for (n, v) in headers {
             resp.headers.push((n.into(), v.into()));
@@ -329,10 +340,29 @@ impl Api {
                 return reply(415, "unsupported_media_type");
             }
         }
+        if !SAFE_METHODS.contains(&req.method.as_str()) && Self::cross_site(req) {
+            return reply(403, "cross_site");
+        }
         match std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| self.route(req))) {
             Ok(Ok(r)) => r,
             Ok(Err(e)) => e.response(),
             Err(_) => reply(500, "server_error"),
+        }
+    }
+
+    /// A state-changing request that the browser itself says comes from another site is refused before anything else looks at it. The
+    /// anti-forgery token and the SameSite cookie already stop it; this is a third, independent check. Requests from programs (no `Origin`,
+    /// no `Sec-Fetch-Site`) are not affected.
+    fn cross_site(req: &ApiRequest) -> bool {
+        if req.headers.get("sec-fetch-site").is_some_and(|v| v.eq_ignore_ascii_case("cross-site")) {
+            return true;
+        }
+        match req.headers.get("origin") {
+            None => false,
+            Some(o) => {
+                let host = o.split_once("://").map(|(_, rest)| rest.split('/').next().unwrap_or("")).unwrap_or("");
+                host.is_empty() || !req.headers.get("host").is_some_and(|h| h.eq_ignore_ascii_case(host))
+            }
         }
     }
 
@@ -558,6 +588,18 @@ impl Api {
         let p = self.need(req, "pii.unmask")?;
         let b: ReasonBody = body_of(req).ok().filter(|b: &ReasonBody| !b.reason.is_empty() && !too_long(&b.reason, 500)).ok_or_else(invalid)?;
         let (c, r) = self.claims.get(id).ok_or_else(|| ApiError::new(404, "not_found"))?;
+        if cg_access::masking::text_leaks_identifier(&b.reason, &c, &self.settings.pii_key) {
+            return Err(invalid().with("detail", json!("the reason must not contain the patient or member identifier")));
+        }
+        // Unmasking is how personal data leaves the system, so it is rationed per person: a reviewer who unmasks hundreds of claims an
+        // hour is copying, not reviewing. The count is shared by every server process.
+        let used = self.access.store.bump_counter(&format!("unmask|{}", p.badge()), 3600, self.now()).map_err(|_| ApiError::new(503, "unavailable"))?;
+        if used > self.unmask_per_hour {
+            self.access.note_forbidden(p.badge(), "POST", "/claims/*/unmask (hourly limit)");
+            let mut e = ApiError::new(429, "too_many_unmasks");
+            e.headers.push(("retry-after".into(), "3600".into()));
+            return Err(e);
+        }
         self.access.record("unmask", json!({"badge_id": p.badge(), "claim_id": id.chars().take(64).collect::<String>(), "reason": b.reason})).map_err(|e| self.serr(e.into(), req, &p))?;
         Ok(ApiResponse::json(200, &self.claim_view(&p, &c, &r, true)?))
     }
@@ -565,7 +607,10 @@ impl Api {
     fn decide_direct(&self, req: &ApiRequest, id: &str, rule: &str) -> R {
         let p = self.need(req, "claims.decide")?;
         let b: DecisionBody = body_of(req).ok().filter(|b: &DecisionBody| ACTIONS.contains(&b.action.as_str()) && !b.reason.is_empty() && !too_long(&b.reason, 1000)).ok_or_else(invalid)?;
-        let (_, results) = self.claims.get(id).ok_or_else(|| ApiError::new(404, "not_found"))?;
+        let (claim, results) = self.claims.get(id).ok_or_else(|| ApiError::new(404, "not_found"))?;
+        if cg_access::masking::text_leaks_identifier(&b.reason, &claim, &self.settings.pii_key) {
+            return Err(invalid().with("detail", json!("the reason must not contain the patient or member identifier")));
+        }
         let finding = results.as_array().into_iter().flatten().find(|r| r["rule_id"] == rule).cloned().ok_or_else(|| ApiError::new(404, "not_found"))?;
         if finding["severity"] == "high" && !p.permissions.contains("claims.decide_high") {
             return Err(self.forbid(req, &p));

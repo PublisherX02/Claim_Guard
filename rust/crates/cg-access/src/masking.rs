@@ -90,6 +90,12 @@ pub fn scrub(obj: &Value, mapping: &BTreeMap<String, String>) -> Value {
     walk(obj, &re, &lookup)
 }
 
+/// Does free text (a reason typed by a person) contain one of this claim's raw patient or member identifiers? Reasons end up in the
+/// audit logs and the review log, which are readable by auditors and are not field-encrypted; the pseudonym is what belongs there.
+pub fn text_leaks_identifier(text: &str, claim: &Value, key: &str) -> bool {
+    identifier_map(claim, key).map(|m| !leaks(&Value::String(text.to_string()), &m).is_empty()).unwrap_or(true)
+}
+
 /// The raw identifiers that appear anywhere in `obj`.
 pub fn leaks(obj: &Value, raw_ids: &BTreeMap<String, String>) -> Vec<String> {
     let text = obj.to_string();
