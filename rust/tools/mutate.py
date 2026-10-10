@@ -30,7 +30,7 @@ M = [
     ('api-audit-events-needs-only-view', 'cg-api', API, 'let p = self.need(req, "audit.view")?;\n        let q = query(req);', 'let p = self.need(req, "claims.view")?;\n        let q = query(req);'),
     ('api-users-list-needs-only-view', 'cg-api', API, 'let p = self.need(req, "users.manage")?;\n        let users = self.access.list_users', 'let p = self.need(req, "claims.view")?;\n        let users = self.access.list_users'),
     ('api-frame-header-dropped', 'cg-api', API, '("x-frame-options", "DENY"), ', ''),
-    ('api-logout-does-not-revoke', 'cg-api', API, 'self.access.logout(&cookie(req, SESSION_COOKIE).unwrap_or_default());', '()'),
+    ('api-logout-does-not-revoke', 'cg-api', API, 'self.access.logout(&cookie(req, SESSION_COOKIE).unwrap_or_default());', 'let _ = ();'),
     ('api-decision-actor-from-nowhere', 'cg-api', API, '"actor": p.badge(), "reason": b.reason,', '"actor": "CG-0000", "reason": b.reason,'),
     ('api-decision-body-not-strict', 'cg-api', API, '#[serde(deny_unknown_fields)]\nstruct DecisionBody', 'struct DecisionBody'),
     ('api-login-body-not-strict', 'cg-api', API, '#[serde(deny_unknown_fields)]\nstruct LoginBody', 'struct LoginBody'),
