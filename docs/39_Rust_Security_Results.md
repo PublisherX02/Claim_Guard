@@ -1,14 +1,16 @@
 # 39 | Security results of the Rust build
 
-Tested 2026-10-09 and 2026-10-10 against the Rust server (`rust/`, branch `rust-rewrite`). This is the security record of the Rust build in the same spirit as `docs/20_Security_Audit.md` (Phase 1) and `docs/32_Privacy_and_Security_Note.md` (Phase 2): what was attacked, how, what was found, what was fixed, and what was **not** tested. Every number below comes from a script in `rust/tools/` or a test in `rust/crates/`, so it can be re-run (section 8).
+Tested 2026-10-09 and 2026-10-10 (a second round on 2026-10-10 closed the limits the first round listed) against the Rust server (`rust/`, branch `rust-rewrite`). This is the security record of the Rust build in the same spirit as `docs/20_Security_Audit.md` (Phase 1) and `docs/32_Privacy_and_Security_Note.md` (Phase 2): what was attacked, how, what was found, what was fixed, and what was **not** tested. Every number below comes from a script in `rust/tools/` or a test in `rust/crates/`, so it can be re-run (section 8).
 
 **Scope and authority.** The user's own application, run locally on 127.0.0.1 with generated demo accounts. No real data, no third-party system. The test of a deployment (TLS, firewall, container limits, database authentication) is separate and still to be done on the target server (section 7).
 
 **Short answer.**
-1. **Black-box penetration test: 83 checks, 83 pass** (after two fixes). It found two real weaknesses in the first run: connections that never completed their request were held open forever (slow-connection exhaustion, "slowloris"), and a 70 KB header line was accepted. Both are fixed and are now checks that pass.
+1. **Black-box penetration test: 83 checks, 83 pass** (after two fixes in the first round: connections held open forever, and a 70 KB header accepted).
 2. **Fuzzing at the API boundary: 400,000 random requests, 0 server errors, 0 leaks.**
-3. **Mutation test: 36 deliberate breakages of security rules, all caught by the tests after 8 gaps in the tests were closed.** Eight of the first 36 were *not* caught, which is the finding: eight security rules had no test that would have noticed them being switched off.
-4. **No critical or high-severity weakness is open.** Five limits that remain are listed in section 6 so nobody is misled.
+3. **Mutation test: 51 deliberate breakages of security rules, all caught** (36 in the first round, of which 8 were missed until tests were added; 15 more for the second round, all caught).
+4. **The five limits listed after the first round were worked on (section 6):** lockout no longer lets a stranger keep the owner out of their usual device; throttles live in the database; the audit log has a second append-only copy, a scheduled verification and an optional outside timestamp; claim data is encrypted at rest in MongoDB; `cargo audit` was installed and run (five advisories, all via `yara-x`, none reachable).
+5. **The five things the first round did not test were tested (section 7):** the deployed Docker stack (50 checks, which found four problems), the real gemma3:4b model (15 of 15 rules; a red team that **found and fixed a real weakness in the AI guard**), a single-machine flood (16 checks), the console in real Chrome (19 checks, no payload ran), and refusal timing (all eight kinds within 3 %).
+6. **No critical weakness is open.** What is still true after the fixes is stated under each item.
 
 ---
 
@@ -20,7 +22,7 @@ Tested 2026-10-09 and 2026-10-10 against the Rust server (`rust/`, branch `rust-
 | Fuzzing | `rust/crates/cg-api/tests/api_fuzz.rs` | Random method, path, query, headers and body (binary, control and bidirectional characters, injection-style JSON keys), with sessions of each role, through the same function the server calls; seeded, so a failure is replayable |
 | Mutation test | `rust/tools/mutate.py` | The security rules broken one line at a time; the tests must fail for each |
 | Behaviour comparison with the Python reference | `rust/tools/conformance.py` and the `compare_*` tools | The same requests as four roles give the same status codes and shapes on both builds (131 of 132; the one difference is a random-dealing artefact), the same rules, logs, tokens and timestamps |
-| Unit and integration tests | `cargo test --workspace` | 176 tests, including the real-database contract suite when `MONGO_URI` and `REQUIRE_MONGO=1` are set |
+| Unit and integration tests | `cargo test --workspace` | 195 tests, including the real-database contract suite when `MONGO_URI` and `REQUIRE_MONGO=1` are set |
 
 ## 2. Penetration test: 83 checks
 
@@ -101,28 +103,119 @@ A limit of this method: 36 hand-picked mutants are not every possible bug. They 
 
 The reviewer recorded on a decision is always the signed-in person, never a field sent by the client; a decision is bound to a lease the person currently holds; the first signer of a high-severity claim can never be the second.
 
-## 6. What remains, honestly
+## 6. The five limits listed on 2026-10-10, and what was done about each
 
-1. **Account lockout can be provoked.** Five wrong passwords lock an account for 15 minutes; anyone who knows a badge number can lock that account. This is the usual trade-off against password guessing; an administrator can unlock, and every lock is logged.
-2. **The login throttle is per process and per address.** It lives in the server's memory (a restart clears it; two server processes would each count) and treats everyone behind one shared address as one client. Behind the proxy the address is the last hop the proxy adds.
-3. **No hardware or write-once storage for the audit log.** The log is tamper-evident (hash chain, signed anchor, external RFC 3161 timestamp if configured), not immutable (see `docs/32`).
-4. **Claim data is not encrypted at rest** in the database (identifiers are masked in what people see). Disk or database encryption is a deployment control.
-5. **Dependency audit not repeated for the Rust crates.** `cargo audit` has not been run on the Rust dependency tree; the lock file pins versions, but known-vulnerability checking of those versions is still to do.
+The first version of this document ended with five honest limits. All five were worked on the same day; this section says what changed, how it was checked, and what is still true afterwards.
 
-## 7. Not tested
+### 6.1 Account lockout could be provoked by a stranger
 
-- The deployed system: TLS configuration and certificates, the proxy's own limits, container isolation (read-only file system, dropped capabilities are set and checked as text by `tests/test_deploy_rust_files.py`, not attacked), the database's authentication and network exposure, the firewall of the target machine.
-- A real language model: only the request/response handling was tested against fake servers; nothing about what a real model might return beyond the template-shape and grounding guards.
-- Denial of service at network scale: the checks show that a few hundred slow connections and a login flood do not stop the server; they do not model a distributed attack.
-- Browser-side attacks on the console (it is the unchanged Phase 2 JavaScript, covered by the Python tests for markup sinks and the content-security-policy that forbids inline script).
-- Side channels beyond the login timing check.
+*Before:* five wrong passwords locked an account for 15 minutes, so anyone who knew a badge number could keep that person out.
+
+*Now:* the lock still exists (it stops a guesser who spreads attempts over many addresses) but it keeps out **only clients the person has never signed in from**. A client becomes "known" after a successful sign-in (a keyed hash of its address is remembered for 30 days). Separately, each (badge, client) pair is allowed **five failures per 15 minutes**; after that, that client is refused for that badge whatever it sends, and nobody else is affected. And each address as a whole is allowed 100 failures per 15 minutes over all badges. A successful sign-in by the owner clears the lock, which proves they are present.
+
+*Checked by:* `cargo test -p cg-access` (5 new tests): an attacker provokes the lock and the owner still signs in from their usual client; the same attacker's correct-looking attempt from a new device is refused until the lock runs out; a client that keeps failing is refused even with the right password while another client is not; every kind of refusal (unknown badge too) counts. Mutation test: six mutants of this logic, all caught (section 9).
+
+*Still true:* an attacker can still keep a person out of a **new device** for 15 minutes. The person's usual place is unaffected. Someone who shares a network address with the victim shares the per-address limit.
+
+### 6.2 The sign-in throttle lived in one process's memory
+
+*Before:* a restart cleared it and two server processes each counted separately.
+
+*Now:* the counters are stored in the database (a counter that restarts each window, updated atomically, expiring on its own), so a restart or a second process sees the same counts. Addresses are stored only as keyed hashes. `cg-access` and `cg-mongo` share one contract suite for the new store functions: the in-memory twin and real MongoDB both pass it, including 50 parallel increments that lose none. A test builds a second service over the same store ("a restart") and finds the client still throttled.
+
+*Still true:* the windows are fixed (up to twice the limit can land across a window boundary) and a burst of parallel requests can pass the check before the counts catch up: a flood of 400 concurrent sign-ins produced 341 ordinary refusals before the first 429 (section 8), bounded by the concurrency and not by time.
+
+### 6.3 The audit log was tamper-evident, not immutable
+
+Software cannot make storage immutable; it can make a quiet rewrite **detectable, reported and provable**. Three worker jobs were added (own thread, so they never delay the queue), each recorded so the health panel shows a failure:
+- **`audit_verify`** (hourly): both hash chains and their anchors.
+- **`audit_mirror`** (every 5 minutes, when `AUDIT_MIRROR_DIR` is set): an append-only copy of both logs on a separate volume. Before copying, it proves that what it already holds is still byte-for-byte the beginning of the live log; if the live log was edited, truncated or replaced, or the mirror was, it refuses to follow and reports it. In the Compose stack only the worker mounts that volume.
+- **`audit_witness`** (hourly, when `TSA_URL` is set): an RFC 3161 timestamp of each anchor from an outside authority.
+
+*Checked by:* `rust/tools/audit_guard_demo.py` edits a past row of the live security log with a running server: within seconds the health panel's "Audit log protection" goes from ok to DOWN with *"the first 30,931 bytes of the source differ from the mirror"* and *"Audit chain invalid at event 3"*, while the mirror still holds the original. Unit tests of the mirror (growth, half-written line, edit, truncation, replacement, a tampered mirror) and of the health judging; two mutants, both caught. The deployment attack found that the mirror volume was root-owned and the worker could not have written to it; fixed (section 7.1).
+
+*Still true:* the mirror is immutable only if its volume is (an append-only or object-lock volume); an intruder who controls both volumes defeats it. The external timestamp needs a configured authority.
+
+### 6.4 Claim data was not encrypted at rest
+
+*Now:* in MongoDB the claim, the rule results (whose evidence quotes the claim), the advisory results, the AI explanations and every reviewer decision (with its free-text reason) are stored as encrypted fields, on by default. The key is `DATA_KEY` if set, otherwise derived from `FERNET_KEY`. Each encrypted field is **bound to its claim, version and field name**, so moving one claim's evidence under another claim is detected and refused. What stays readable is what routing needs and what holds no personal data (ids, state, lane, score, lease holder, hashes, timestamps) plus a keyed hash of the patient id for finding a patient's earlier claims. Documents written before encryption was switched on are still read.
+
+*Checked by:* against real MongoDB, the same queue contract passes with encryption on; a test reads the raw stored documents and finds no patient id, note text, rule id, decision reason or AI text; a reader with another key fails; a swapped field is refused; older plain documents are read; and the whole split-process end-to-end test passes with encryption on. Two mutants (binding removed, patient index in the clear), both caught.
+
+*Still true:* the user records (names, badge numbers, password hashes, encrypted authenticator seeds) are not field-encrypted, the audit logs on disk are not encrypted (they hold badge numbers, claim ids and the free-text reasons given for unmasking), the key is in the environment, and there is no re-encryption tool for key rotation. Disk or volume encryption is still advised underneath. The Python build cannot read the encrypted documents.
+
+### 6.5 Dependencies were not audited
+
+`cargo audit` was installed and run on the 439 crates of the lock file. Findings: **five advisories, all reached only through `yara-x` 1.21.0**, the latest release, which embeds a WebAssembly engine to run compiled rule conditions: `wasmtime` 45.0.3 (four advisories, one rated critical, three in features this program does not use: the WASI file-system sandbox, whose crate is not in the tree, and the component-model async and record-lifting paths, plus type indices mixed between engines) and `rsa` 0.9.10 (Marvin timing attack on **private**-key operations, no fix released; ClaimGuard holds no RSA private key and only verifies public-key signatures). One more warning: `bincode` is unmaintained. Each was looked at and recorded with its reason in `rust/.cargo/audit.toml`; with that list `cargo audit` exits 0, and any new advisory fails it. The list has to be re-read whenever `yara-x` is upgraded. The only rule packs ever compiled are generated from files in the repository, never from a claim or the network.
+
+## 7. What section 7 of the first version said was not tested
+
+### 7.1 The deployed system: `rust/tools/deploy_attack.py`, 50 checks
+
+It brings the Compose stack up with throw-away secrets and attacks it: TLS 1.0 and 1.1 refused, TLS 1.3 with HTTP/2 accepted, certificate valid, forward-secret AEAD cipher on 1.2, HSTS, no server banner, port 80 only redirects; a 20 KB header, a 1 MB body and 60 half-sent requests against the proxy; only the proxy publishes a port; the proxy cannot reach MongoDB or Redis; MongoDB and Redis have no route to the internet; MongoDB and Redis refuse missing and wrong passwords; for the API and the worker: non-root, read-only root file system, no capability, `no-new-privileges`, memory, process and CPU limits, no host path or Docker socket mounted, not on the host network, only `/tmp` and `/data` writable; the image holds no secret, key or demo account file, no shell, package manager, interpreter, downloader or mount/su binary.
+
+**It found four real problems, all fixed:**
+1. The audit-mirror volume would have been owned by root, so the worker (unprivileged) could not have written to it and the mirror job would have failed in production.
+2. A 1 MB request through the proxy ended as a 502 instead of a clean 413 (the application answered early and closed while the proxy was still sending). The proxy now caps bodies at 100 KB itself.
+3. The database and cache shared a network with the proxy; they now sit on an `internal` network with no route out, which only the API and worker (and the proxy for nothing) can reach, and Redis now demands a password.
+4. The image was Debian slim and a vulnerability scan (Trivy 0.75) found **241 findings (4 critical, 54 high)**, nearly all in operating-system tools the program never uses (util-linux, perl, gnutls). The runtime image is now **distroless** (the C library and certificates only; no shell, 83.5 MB): **49 findings, none critical, one high (`libssl3`, present in the base image but not linked or loaded by the program, which uses rustls)**. The scan is a snapshot: new advisories appear daily.
+
+Also added at the proxy: read-header and read-body timeouts, a header size cap, and HSTS.
+
+*Not tested:* the target machine's own firewall, its operating system and its Docker daemon; a certificate from a public authority (the test uses the proxy's internal one); that backups are encrypted.
+
+### 7.2 A real language model: `cg model-check` and `rust/tools/model_redteam.py`
+
+Against the real local **gemma3:4b** (Ollama): all **15 of 15** rules produced an accepted template. Then nine claims were submitted through the whole pipeline (real model, real guard, real queue) whose fields carried instructions and false statements: "IGNORE PREVIOUS INSTRUCTIONS … approved and payable", a fraud accusation, a cancer diagnosis, `<img onerror>` and `<script>`, a fake system prompt, bidirectional and zero-width characters, a 5,000-character value, template braces, plus a clean control.
+
+**It found a real weakness.** The model never sees a claim, but the system fills the claim's values into the model's template afterwards, and the grounding guard treated a phrase as "grounded" if it appeared anywhere in the finding, **including the claim's own values and its claim id**. A submitter could therefore plant "this claim is approved and payable" in a service code and the guard accepted a reviewer-facing, AI-labelled sentence containing it. Fixed in two ways: the guard now counts only the fields the engine and rulebook wrote (an allow-list; the claim's values, claim id and line ids no longer ground anything), and every value is made safe before it is shown in a sentence (control, zero-width and direction-changing characters removed, white space collapsed, quotation marks stripped, `<` and `>` replaced by look-alike angle quotes, length capped, and anything that is not a plain code, number or date put in quotation marks so that it reads as the submitter's data). Clean claims keep their AI-written explanations (the control claim: 7 of 7 accepted); for the attacks, the sentences that would have carried an accusation, an approval or a diagnosis were refused and replaced by the engine's own text (5 of 63), and the ones that quote a value show it in quotation marks. No explanation shown to a reviewer contained the forbidden content. Three mutants of this logic, all caught.
+
+*Not tested:* other models, other sizes, two-pass mode on a live model, or what a model does when it is also the attacker's target in a different deployment.
+
+### 7.3 Load and exhaustion: `rust/tools/flood.py`, 16 checks
+
+One machine, one address, so no distributed attack. Results: 3,000 idle connections, 300 concurrent clients for 20 seconds (29,700 requests, about 1,500 per second from a Python client, all 200), 200 clients hammering a protected route without a session (18,799 requests, all 401), a 400-client sign-in flood (341 refusals then 429s, no 5xx), and 100 clients sending 60 KB bodies. In every phase a polite client was still answered in 1 to 12 ms, memory never passed 87 MB (idle 66), and afterwards the server was healthy. The proxy's own behaviour under slow connections is in 7.1.
+
+*Not tested:* a distributed attack from many addresses; network-level floods below the HTTP layer; exhaustion of the database server.
+
+### 7.4 The console in a real browser: `rust/tools/xss_seed.py` and `xss_browser.py`, 19 checks
+
+Script-injection payloads (img/onerror, script, svg/onload, attribute break-out, `javascript:`, template and prototype strings, iframe srcdoc, style and link) were planted in claim notes, invoice numbers, provider ids, currencies, service codes, line ids, attachment text, user display names, and the badge field of failed sign-ins. A real Chrome (Playwright) signed in as a reviewer and as an administrator and opened every screen that shows other people's text, plus hostile fragments such as `#/work/<script>…`. On every screen: no payload ran, no inline script, event-handler attribute, iframe, foreign stylesheet, `javascript:` address or stray image existed in the page, and the payload text was on screen as plain text. An injected inline handler was refused by the browser itself (`script-src-attr`). The test tooling cannot even use string evaluation on the page, which is the content-security-policy working.
+
+### 7.5 Side channels
+
+The refusal of a sign-in is built so that every reason takes the same steps (two reads, one password hash, one or two writes). `cargo test -p cg-access --test timing -- --ignored` times eight kinds of refusal with the production hash cost, interleaved to cancel machine drift: unknown badge 81.5 ms, malformed badge 81.7, locked account 81.3, inactive account 81.4, wrong password 80.3, wrong code 81.8, replayed code 81.0, throttled client 82.6: all **within 3 %**. Other channels checked by construction and by the 83-check penetration test: identical bodies for known and unknown badges; a claim leased to someone else answers 404 exactly as a missing one does; constant-time comparison of the anti-forgery token and the session signature.
+
+*Not tested:* network-level timing across a real network (the measurement is in-process); cache, power or electromagnetic channels; cross-tenant effects in a shared host.
 
 ## 8. Re-running it
 
 ```
-cd rust && cargo test --release --workspace                              # 176 tests, includes 30,000 fuzzed requests
-CG_FUZZ_N=400000 cargo test --release -p cg-api --test api_fuzz random   # the stress run
-python rust/tools/pentest.py --json report.json                          # 83 checks, starts its own server on port 8491
-python rust/tools/mutate.py                                              # about 90 minutes; edits and restores source files, never run beside a build
-python rust/tools/conformance.py                                         # Python and Rust servers side by side
+cd rust && cargo test --release --workspace                               # unit and integration tests; set MONGO_URI and REQUIRE_MONGO=1 for the real-database contracts
+cargo test --release -p cg-access --test timing -- --ignored --nocapture # refusal timing
+CG_FUZZ_N=400000 cargo test --release -p cg-api --test api_fuzz random    # fuzz stress
+cargo audit                                                               # dependency advisories (uses rust/.cargo/audit.toml)
+python rust/tools/pentest.py                                              # 83 checks against a local server
+python rust/tools/flood.py                                                # load and exhaustion
+python rust/tools/audit_guard_demo.py                                     # rewrite a live log and watch the protection notice
+python rust/tools/model_redteam.py                                        # needs Ollama with gemma3:4b
+python rust/tools/xss_seed.py --port 8498 ; python rust/tools/xss_browser.py --port 8498 --accounts <file> --seed-log <log>   # needs Chrome and Playwright
+python rust/tools/deploy_attack.py                                        # needs Docker; builds nothing, uses claimguard-rs:latest
+python rust/tools/mutate.py                                               # about two hours; edits and restores sources, never run beside a build
 ```
+
+## 9. Mutation test, second round
+
+Fifteen more mutants were written for the new logic: the lock applied to the owner too, the lock ignored, the per-client limit off, refusals not counted, devices never remembered, all clients hashed alike, the address limit enlarged, address failures not counted, the guard trusting claim values, values not quoted, direction characters kept, an encrypted field not bound to its place, the patient index stored in clear, the mirror following an edited log, and an audit-job failure shown as ok. **All 15 are caught.** With the 36 of section 4 that makes **51 mutants, all caught**.
+
+## 10. Summary of what was found by this round
+
+| Found by | Finding | Severity (our judgement) | State |
+|---|---|---|---|
+| Real-model red team | The AI guard accepted attacker-written approval/fraud/diagnosis text because it was "grounded" in the claim's own values and claim id | High: false statements in an AI-labelled explanation shown to a reviewer | Fixed, tested, mutation-checked |
+| Deployment attack | Audit-mirror volume not writable by the unprivileged worker | Medium: the new protection would silently not have worked in production | Fixed, checked |
+| Deployment attack | Debian base image: 241 findings, 4 critical | Medium: tools an intruder could use, none used by the program | Replaced by a distroless image: 49 findings, 0 critical |
+| Deployment attack | Database and cache on the proxy's network; Redis without a password | Medium | Fixed (internal network, password) |
+| Deployment attack | Oversized body through the proxy ended as 502 | Low | Fixed (cap at the proxy) |
+| Timing test | (no path stood out once samples were interleaved) | none | n/a |
+| `cargo audit` | Five advisories via `yara-x` (`wasmtime`, `rsa`), one unmaintained crate | Not reachable in this program | Reviewed and recorded in `rust/.cargo/audit.toml` |

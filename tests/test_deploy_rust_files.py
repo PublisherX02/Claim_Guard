@@ -80,7 +80,9 @@ class RustImage(unittest.TestCase):
         cls.text = (DEPLOY / 'Dockerfile').read_text(encoding='utf-8')
 
     def test_runs_as_a_non_root_user_behind_the_proxy(self):
-        self.assertRegex(self.text, r'(?m)^USER claimguard$')
+        self.assertRegex(self.text, r'(?m)^USER 65532(:65532)?$')
+        self.assertIn('FROM gcr.io/distroless/cc-debian12:nonroot', self.text)
+        self.assertNotIn('apt-get', self.text.split('FROM gcr.io/distroless')[1])
         self.assertIn('--behind-proxy', self.text)
         self.assertNotIn('--dev', self.text)
         self.assertNotIn('--demo', self.text)

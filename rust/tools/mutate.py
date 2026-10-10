@@ -18,10 +18,6 @@ M = [
     ('api-csrf-off', 'cg-api', API, 'if !SAFE_METHODS.contains(&req.method.as_str()) && !constant_time_eq(', 'if false && !constant_time_eq('),
     ('api-password-change-gate-off', 'cg-api', API, 'if p.user.must_change_password && !PASSWORD_CHANGE_PATHS.contains(', 'if false && !PASSWORD_CHANGE_PATHS.contains('),
     ('api-need-always-true', 'cg-api', API, 'if p.permissions.contains(perm) { Ok(p) } else { Err(self.forbid(req, &p)) }', 'if true { Ok(p) } else { Err(self.forbid(req, &p)) }'),
-    ('api-throttle-never-blocks', 'cg-api', API, 'Self::recent(&mut g, client, now) >= LOGIN_FAILURE_LIMIT', 'Self::recent(&mut g, client, now) >= 1_000_000'),
-    ('api-throttle-not-recorded', 'cg-api', API, '                self.throttle.record(client, now);\n                Err(ApiError::new(401, "invalid_credentials"))', '                Err(ApiError::new(401, "invalid_credentials"))'),
-    ('api-throttle-window-wrong', 'cg-api', API, 'let cutoff = now - LOGIN_FAILURE_WINDOW;', 'let cutoff = now + LOGIN_FAILURE_WINDOW;'),
-    ('api-block-check-off', 'cg-api', API, 'if self.throttle.blocked(client, now) {', 'if false && self.throttle.blocked(client, now) {'),
     ('api-cookie-not-httponly', 'cg-api', API, 'if http_only { "; HttpOnly" } else { "" }', '""'),
     ('api-body-limit-huge', 'cg-api', API, 'pub const MAX_BODY_BYTES: usize = 65_536;', 'pub const MAX_BODY_BYTES: usize = 655_360_000;'),
     ('api-content-type-unchecked', 'cg-api', API, 'if has_body && ctype != "application/json" {', 'if false && ctype != "application/json" {'),
@@ -47,6 +43,21 @@ M = [
     ('acc-viewer-can-unmask', 'cg-access', ACC + 'permissions.rs', 'let l1: Perms = ["claims.view"].into_iter().collect();', 'let l1: Perms = ["claims.view", "pii.unmask"].into_iter().collect();'),
     ('acc-reviewer-can-decide-high', 'cg-access', ACC + 'permissions.rs', 'let mut l3 = l2.clone();\n    l3.insert("claims.decide_high");', 'let mut l3 = l2.clone();\n    l3.insert("claims.decide_high"); l2.insert("claims.decide_high");'),
     ('acc-notes-always-visible', 'cg-access', ACC + 'masking.rs', 'if !permissions.contains("claims.view_notes") {', 'if false && !permissions.contains("claims.view_notes") {'),
+    ('svc-lock-binds-the-owner-too', 'cg-access', ACC + 'service.rs', 'if user.locked_until.is_some_and(|l| l > now) && !known {', 'if user.locked_until.is_some_and(|l| l > now) {'),
+    ('svc-lock-ignored', 'cg-access', ACC + 'service.rs', 'if user.locked_until.is_some_and(|l| l > now) && !known {', 'if false && !known {'),
+    ('svc-pair-limit-off', 'cg-access', ACC + 'service.rs', 'self.store.counter(&pair, PAIR_WINDOW, now).map_err(unavailable)? >= PAIR_LIMIT;', 'self.store.counter(&pair, PAIR_WINDOW, now).map_err(unavailable)? >= 1_000_000;'),
+    ('svc-refusal-not-counted', 'cg-access', ACC + 'service.rs', '            self.store.bump_counter(&pair, PAIR_WINDOW, now).map_err(unavailable)?;\n', ''),
+    ('svc-device-never-remembered', 'cg-access', ACC + 'service.rs', '        self.store.mark_client(badge_id, &ck, now).map_err(unavailable)?;\n', ''),
+    ('svc-all-clients-look-alike', 'cg-access', ACC + 'service.rs', 'mac.update(format!("client|{client}").as_bytes());', 'mac.update(b"client|x");'),
+    ('api-address-limit-huge', 'cg-api', API, 'pub const LOGIN_FAILURE_LIMIT: i64 = 100;', 'pub const LOGIN_FAILURE_LIMIT: i64 = 100_000;'),
+    ('api-address-failures-not-counted', 'cg-api', API, 'let _ = self.access.store.bump_counter(&self.ip_key(client), LOGIN_FAILURE_WINDOW as u64, now);', 'let _ = ();'),
+    ('guard-trusts-claim-values', 'cg-queue', QUE + 'guard.rs', '.filter(|(k, _)| WRITTEN_BY_THE_ENGINE.contains(&k.as_str()))', '.filter(|(_k, _)| true)'),
+    ('fill-does-not-quote', 'cg-queue', QUE + 'explain.rs', 'if capped.is_empty() || plain { capped } else {', 'if true { capped } else {'),
+    ('fill-keeps-direction-characters', 'cg-queue', QUE + 'explain.rs', 'GeneralCategory::Format | GeneralCategory::Control', 'GeneralCategory::Control'),
+    ('crypt-field-not-bound-to-its-place', 'cg-mongo', 'cg-mongo/src/crypt.rs', 'let here_ok = ids.0.as_deref().map_or(true, |id| env["c"] == id) && ids.1.map_or(true, |ver| env["v"] == ver) && (field.is_empty() || env["f"] == field);', 'let here_ok = true;'),
+    ('crypt-patient-index-in-clear', 'cg-mongo', 'cg-mongo/src/crypt.rs', 'mac.finalize().into_bytes().iter().take(16).map(|b| format!("{b:02x}")).collect()', 'patient_id.to_string()'),
+    ('mirror-follows-an-edited-log', 'cg-audit', 'cg-audit/src/mirror.rs', 'if prefix_hash(mirror, have)?.as_deref() != Some(src.as_str()) {', 'if false {'),
+    ('guard-job-failure-shown-as-ok', 'cg-api', 'cg-api/src/ops.rs', '(DOWN, format!("FAILED {} s ago: {}", age as i64,', '(OK, format!("FAILED {} s ago: {}", age as i64,'),
     ('que-same-person-countersign', 'cg-queue', QUE + 'service.rs', 'if sign["first_by"] == principal.badge() || sign["second_by"] == principal.badge() {', 'if false && (sign["first_by"] == principal.badge() || sign["second_by"] == principal.badge()) {'),
     ('que-lease-owner-unchecked', 'cg-queue', QUE + 'service.rs', 'if doc["state"] == "leased" && doc["lease"]["badge_id"] == principal.badge() {', 'if doc["state"] == "leased" {'),
     ('que-expired-lease-usable', 'cg-queue', QUE + 'service.rs', 'if doc["lease"]["expires_at"].as_f64().unwrap_or(0.0) <= now {', 'if false && doc["lease"]["expires_at"].as_f64().unwrap_or(0.0) <= now {'),
@@ -78,7 +89,7 @@ def main():
         path.write_bytes((mutated.replace('\n', '\r\n') if crlf else mutated).encode('utf8'))
         t0 = time.time()
         try:
-            p = subprocess.run([str(Path.home() / '.cargo' / 'bin' / 'cargo.exe'), 'test', '--release', '-p', crate, '--quiet'], cwd=RUST, env=env, capture_output=True, text=True, timeout=1500)
+            p = subprocess.run([str(Path.home() / '.cargo' / 'bin' / 'cargo.exe'), 'test', '--release', '-p', crate, '--quiet'], cwd=RUST, env=env, capture_output=True, text=True, encoding='utf-8', errors='replace', timeout=1500)
             built = 'could not compile' not in p.stderr and 'error[' not in p.stderr
             result = 'SURVIVED' if p.returncode == 0 else ('KILLED' if built else 'KILLED(build error: fix the mutant)')
         except subprocess.TimeoutExpired:

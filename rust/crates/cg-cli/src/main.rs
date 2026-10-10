@@ -13,6 +13,7 @@ use std::io::{BufRead, BufReader, Write};
 use std::path::PathBuf;
 
 mod boot;
+mod selfcheck;
 mod serve;
 mod tools;
 
@@ -30,6 +31,7 @@ fn main() {
         Some("extensions") => extensions(&args),
         Some("model-check") => std::process::exit(model_check()),
         Some("timestamp") => std::process::exit(timestamp(&args[2..])),
+        Some("selfcheck") => std::process::exit(selfcheck::run()),
         Some("health") => std::process::exit(serve::health(&args[2..])),
         Some("worker") => std::process::exit(serve::worker(&args[2..])),
         Some("admin") => std::process::exit(tools::admin(&args[2..])),

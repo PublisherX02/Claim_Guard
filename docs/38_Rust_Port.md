@@ -5,7 +5,7 @@
 **Short answer.**
 1. **Same behaviour, checked by machine.** Every layer was compared with the Python build on the same inputs: the 15 rules on 10,600 claims, the 8 extension rules on 6,000 claims, the audit log, passwords, session tokens, authenticator codes and pseudonyms value by value, the AI step's prompts (181 of 181 byte-identical), and the HTTP API on 132 requests as four different roles. The only API difference left is explained in section 4.
 2. **Smaller and lighter.** The container image is 159 MB (Python: 362 MB), the server starts in 3 s instead of 5 and uses about 25 MB less memory; request speed is about the same (section 6).
-3. **Attacked, not just tested.** An 83-check black-box penetration test over real sockets, a 400,000-request fuzz of the API boundary, and a mutation test of 36 security-rule breakages, all caught after eight test gaps were closed (section 5). The pen test found two real weaknesses (slow-connection exhaustion and an oversized-header allowance); both are fixed and covered.
+3. **Attacked, not just tested.** An 83-check black-box penetration test over real sockets, a 400,000-request fuzz of the API boundary, a mutation test of 51 security-rule breakages (all caught), a 50-check attack on the deployed Docker stack, a red team of the AI step with the real gemma3:4b, a browser-side check in Chrome and a dependency audit (`docs/39`). The pen test found two real weaknesses (slow-connection exhaustion and an oversized-header allowance); both are fixed and covered.
 4. **Not finished:** cloud model providers, a real Redis broker and the recheck route. Section 7 lists everything that is missing.
 
 ---
@@ -138,7 +138,7 @@ Most of a request here is opening a connection on Windows, not the work; the rul
 ## 8. Checking it again
 
 ```
-cd rust && cargo test --release --workspace                           # 176 tests (set MONGO_URI and REQUIRE_MONGO=1 to include the real-database contracts)
+cd rust && cargo test --release --workspace                           # 195 tests (set MONGO_URI and REQUIRE_MONGO=1 to include the real-database contracts)
 python rust/tools/compare_engine.py && python rust/tools/compare_extensions.py
 python rust/tools/compare_audit.py && python rust/tools/compare_access.py && python rust/tools/compare_model.py
 python rust/tools/conformance.py                                       # starts both servers

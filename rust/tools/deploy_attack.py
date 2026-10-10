@@ -186,8 +186,6 @@ def attack():
     check('network', 'the proxy cannot reach MongoDB', 'RESULT:closed' in out, out)
     rc, out = exec_in('proxy', 'nc -z -w 3 redis 6379 && echo RESULT:open || echo RESULT:closed')
     check('network', 'the proxy cannot reach Redis', 'RESULT:closed' in out, out)
-    rc, out = exec_in('api', 'cg health --port 8443 && echo ok')
-    check('network', 'the API answers its own health check', 'ok' in out, out)
     rc, out = sh('docker', 'exec', container('mongo'), 'bash', '-c', 'timeout 4 bash -c "echo > /dev/tcp/1.1.1.1/443" && echo RESULT:open || echo RESULT:closed')
     check('network', 'MongoDB has no route to the internet', 'RESULT:closed' in out, out)
     rc, out = sh('docker', 'exec', container('redis'), 'bash', '-c', 'timeout 4 bash -c "echo > /dev/tcp/1.1.1.1/443" && echo RESULT:open || echo RESULT:closed')
@@ -203,11 +201,18 @@ def attack():
     check('database', 'Redis refuses commands without the password', 'NOAUTH' in out, out)
     rc, out = sh('docker', 'exec', container('redis'), 'redis-cli', '-a', 'wrong', '--no-auth-warning', 'ping')
     check('database', 'Redis refuses a wrong password', 'WRONGPASS' in out or 'invalid' in out.lower(), out)
-    # ---------------------------------------------------------------- container isolation
+    # ---------------------------------------------------------------- container isolation (the image has no shell: `cg selfcheck` reports from inside)
+    selfcheck = {}
     for svc in ('api', 'worker'):
         info = inspect(container(svc))
         hc, cfg = info['HostConfig'], info['Config']
-        check('isolation', f'{svc}: runs as a non-root user', cfg.get('User') in ('claimguard', '10001') or rc == 0 and 'uid=10001' in exec_in(svc, 'id')[1], cfg.get('User'))
+        rc, out = sh('docker', 'exec', container(svc), 'cg', 'selfcheck')
+        try:
+            sc = selfcheck[svc] = json.loads(out.splitlines()[-1])
+        except (ValueError, IndexError):
+            sc = selfcheck[svc] = {}
+            check('isolation', f'{svc}: cg selfcheck runs inside the container', False, out[:200])
+        check('isolation', f'{svc}: runs as a non-root user', str(cfg.get('User')) not in ('', '0', 'root') and sc.get('uid') not in (None, '0'), (cfg.get('User'), sc.get('uid')))
         check('isolation', f'{svc}: read-only root file system, all capabilities dropped, no-new-privileges, not privileged',
               hc['ReadonlyRootfs'] is True and 'ALL' in (hc.get('CapDrop') or []) and not hc.get('CapAdd') and any('no-new-privileges' in o for o in hc.get('SecurityOpt') or []) and hc['Privileged'] is False,
               {k: hc.get(k) for k in ('ReadonlyRootfs', 'CapDrop', 'CapAdd', 'SecurityOpt', 'Privileged')})
@@ -215,23 +220,27 @@ def attack():
         mounts = [m['Source'] + ':' + m['Destination'] for m in info['Mounts']]
         check('isolation', f'{svc}: no host path and no Docker socket is mounted', all(m.get('Type') == 'volume' for m in info['Mounts']) and not any('docker.sock' in m for m in mounts), mounts)
         check('isolation', f'{svc}: not on the host network or host PID namespace', hc['NetworkMode'] != 'host' and hc.get('PidMode', '') != 'host', hc['NetworkMode'])
-        rc, out = exec_in(svc, 'id -u; touch /pwned 2>&1; touch /app/pwned 2>&1; touch /usr/local/bin/pwned 2>&1; echo x > /tmp/ok && echo tmp-writable; grep -E "^(CapEff|CapBnd|NoNewPrivs)" /proc/self/status')
-        lines = out.splitlines()
-        check('isolation', f'{svc}: uid is not 0', lines and lines[0].strip() not in ('0', ''), lines[:1])
-        check('isolation', f'{svc}: writing to /, /app and /usr/local/bin fails (read-only), /tmp works', out.count('Read-only file system') == 3 and 'tmp-writable' in out, out[:300])
-        check('isolation', f'{svc}: no effective capabilities and NoNewPrivs is set', 'CapEff:\t0000000000000000' in out and 'NoNewPrivs:\t1' in out, out[-200:])
-    rc, out = exec_in('worker', 'touch /mirror/ok && echo mirror-writable; ls /mirror >/dev/null 2>&1 && echo mirror-present')
-    check('isolation', 'worker: the audit mirror volume is mounted and writable', 'mirror-writable' in out, out)
-    rc, out = exec_in('api', 'grep -c " /mirror " /proc/mounts; touch /mirror/x 2>&1')
-    check('isolation', 'api: the audit mirror volume is NOT mounted and /mirror cannot be written (a compromised API cannot rewrite the copy)', out.splitlines()[0].strip() == '0' and 'Read-only' in out, out)
+        w = sc.get('writable', {})
+        check('isolation', f'{svc}: writing to /, /app and /usr/local/bin fails (read-only), /tmp and /data work', not w.get('/') and not w.get('/app') and not w.get('/usr/local/bin') and w.get('/tmp') and w.get('/data'), w)
+        check('isolation', f'{svc}: no effective capabilities and NoNewPrivs is set', sc.get('cap_effective') == '0000000000000000' and sc.get('no_new_privs') == '1', (sc.get('cap_effective'), sc.get('no_new_privs')))
+        check('isolation', f'{svc}: the container holds no shell, interpreter, compiler, downloader or ssh client', sc.get('tools_present') == [], sc.get('tools_present'))
+    check('isolation', 'worker: the audit mirror volume is mounted and writable', selfcheck['worker'].get('mirror_is_a_mount') and selfcheck['worker'].get('writable', {}).get('/mirror'), selfcheck['worker'])
+    check('isolation', 'api: the audit mirror volume is NOT mounted and /mirror cannot be written (a compromised API cannot rewrite the copy)',
+          not selfcheck['api'].get('mirror_is_a_mount') and not selfcheck['api'].get('writable', {}).get('/mirror'), selfcheck['api'])
+    rc, out = sh('docker', 'exec', container('api'), 'cg', 'health', '--port', '8443')
+    check('network', 'the API answers its own health check from inside', rc == 0, out)
     # ---------------------------------------------------------------- the image
-    rc, out = sh('docker', 'run', '--rm', '--entrypoint', 'sh', 'claimguard-rs:latest', '-c',
-                 'find / -xdev \\( -name ".env*" -o -name "*.pem" -o -name "*.key" -o -name "dev_secrets.json" -o -name "demo_accounts.json" -o -name "id_rsa*" \\) 2>/dev/null | grep -v "^/etc/ssl\\|^/usr/share\\|^/usr/lib\\|^/etc/ca-cert" | head')
-    check('image', 'the image contains no environment file, key, certificate or demo account file', out.strip() == '', out[:200])
+    cid = sh('docker', 'create', 'claimguard-rs:latest')[1].strip()
+    exported = subprocess.run(f'docker export {cid} | tar -t', shell=True, capture_output=True, text=True, encoding='utf-8', errors='replace', env=dict(os.environ, MSYS_NO_PATHCONV='1')).stdout.splitlines()
+    sh('docker', 'rm', cid)
+    sensitive = [f for f in exported if any(f.rstrip('/').endswith(s) or '/.env' in f or s in f.split('/')[-1] for s in ('.pem', '.key', 'dev_secrets.json', 'demo_accounts.json', 'id_rsa', '.env')) and not f.startswith(('etc/ssl/', 'usr/share/ca-certificates', 'etc/ca-certificates'))]
+    check('image', f'the image ({len(exported)} files) contains no environment file, key, certificate or demo account file', not sensitive, sensitive[:5])
+    shells = [f for f in exported if f.split('/')[-1] in ('sh', 'bash', 'dash', 'busybox', 'apt', 'apt-get', 'dpkg', 'perl', 'python3', 'curl', 'wget', 'mount', 'su', 'sudo')]
+    check('image', 'the image holds no shell, package manager, interpreter, downloader or mount/su binary', not shells, shells[:8])
     rc, out = sh('docker', 'history', '--no-trunc', '--format', '{{.CreatedBy}}', 'claimguard-rs:latest')
     check('image', 'no secret-like value appears in the build history', not any(w in out for w in ('JWT_SECRET=', 'FERNET_KEY=', 'PASSWORD=', 'PII_KEY=')), '')
-    rc, out = sh('docker', 'run', '--rm', '--entrypoint', 'sh', 'claimguard-rs:latest', '-c', 'which gcc cc make curl wget python python3 nc git ssh 2>/dev/null')
-    check('image', 'the runtime image has no compiler, package fetcher, interpreter or ssh client', out.strip() == '', out)
+    info = json.loads(sh('docker', 'inspect', 'claimguard-rs:latest')[1])[0]
+    check('image', 'the image itself is set to run as an unprivileged user', info['Config'].get('User') in ('65532:65532', '65532', 'nonroot'), info['Config'].get('User'))
 
 
 if __name__ == '__main__':
