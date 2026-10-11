@@ -84,7 +84,7 @@
     invalid_credentials: 'Sign-in failed. Check the badge, password and the current code.', too_many_attempts: 'Too many attempts. Wait and try again later.',
     conflict: 'Someone changed this first, or your claim lease ran out. Reload and look again.', not_found: 'That was not found.',
     invalid_request: 'The server refused that input.', unavailable: 'The database is not reachable right now. Try again in a moment.',
-    decision_rejected: 'That decision was refused.', password_change_required: 'You must set a new password first.', not_implemented: 'This is not built yet.'
+    decision_rejected: 'That decision was refused.', wrong_code: 'That authenticator code is wrong, or was already used. Wait for the next code.', cross_site: 'That request came from another site and was refused.', password_change_required: 'You must set a new password first.', not_implemented: 'This is not built yet.'
   };
   CG.api = function (method, path, body) {
     var headers = { 'Accept': 'application/json' };

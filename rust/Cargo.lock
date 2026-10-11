@@ -495,7 +495,9 @@ dependencies = [
 name = "cg-audit"
 version = "0.1.0"
 dependencies = [
+ "base64 0.22.1",
  "cg-core",
+ "fernet",
  "hex",
  "hmac 0.12.1",
  "num-bigint",

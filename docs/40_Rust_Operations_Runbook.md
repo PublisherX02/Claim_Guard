@@ -19,7 +19,9 @@ bash deploy/rust/install.sh <address-or-domain> internal|public [ai]
 | `AUDIT_ANCHOR_KEY` | signs the audit logs' anchors | required |
 | `PII_KEY` | makes the stable pseudonyms shown instead of patient and member ids, and hashes client addresses | required |
 | `FERNET_KEY` | encrypts the authenticator seeds in the user records | required |
-| `DATA_KEY` | encrypts the claim data in the database; a Fernet key | empty: derived from `FERNET_KEY` |
+| `DATA_KEY` | encrypts the claim data, the people's names and the audit log files on disk; a Fernet key | empty: derived from `FERNET_KEY` |
+| `DATA_KEY_PREVIOUS` | older secrets (comma separated) that rows already written to the audit logs were encrypted under; read-only | empty |
+| `DUAL_CONTROL`, `APPROVAL_TTL_SECONDS` | dangerous administrator actions need a second administrator (section 5b); how long a request stays open | true, 86400 |
 | `MONGO_ROOT_USER`, `MONGO_ROOT_PASSWORD`, `REDIS_PASSWORD` | database and cache credentials | required |
 | `CG_SITE`, `CADDYFILE` | the address and which proxy configuration | required |
 | `QUEUE_AI_PROVIDER=ollama`, `OLLAMA_BASE_URL`, `OLLAMA_MODEL`, `QUEUE_AI_TWO_PASS=1` | the AI explanation step; blank = none | none |
@@ -27,7 +29,7 @@ bash deploy/rust/install.sh <address-or-domain> internal|public [ai]
 | `AUDIT_VERIFY_SECONDS` | how often both log chains are verified | 3600 |
 | `TSA_URL`, `TSA_CA_FILE`, `AUDIT_WITNESS_SECONDS` | an outside RFC 3161 timestamp of each log anchor | off, 3600 |
 | `UNMASK_PER_HOUR` | how many claims one person may unmask per hour | 60 |
-| `CG_ENCRYPT_AT_REST=false` | turns claim-data encryption **off** (do not) | on |
+| `CG_ENCRYPT_AT_REST=false` | turns encryption of claim data, names and audit logs **off** (do not) | on |
 | `TOKEN_TTL_SECONDS`, `MAX_FAILED_LOGINS`, `LOCKOUT_SECONDS`, `BCRYPT_ROUNDS` | session length (3600), failures before an account locks (5), lock time (900), password hash cost (12) | as shown |
 | (no setting) | the server takes the client address from the last hop of `X-Forwarded-For`; that is safe only because nothing but the proxy can reach the API's port, which the network layout guarantees | |
 
@@ -38,13 +40,13 @@ bash deploy/rust/install.sh <address-or-domain> internal|public [ai]
 | `JWT_SECRET` | nothing is lost | everyone is signed out once; safe, and the right response to a suspected stolen session |
 | `AUDIT_ANCHOR_KEY` | the anchors can no longer be checked | old anchors fail verification: only change it with a plan (verify first, note the break) |
 | `PII_KEY` | nothing stored is lost | the pseudonyms shown change (the same person gets a new pseudonym) and the unmask counts and client list restart |
-| `FERNET_KEY` | **every authenticator seed is unreadable: nobody can sign in** (and the claim data too if `DATA_KEY` is empty) | same |
-| `DATA_KEY` | **the claim data is unreadable for good** | use `cg rotate-key` (section 5), never edit it by hand |
+| `FERNET_KEY` | **every authenticator seed is unreadable: nobody can sign in** (and the claim data, names and audit logs too if `DATA_KEY` is empty) | use `cg rotate-fernet-key` (section 5a); nobody re-enrols |
+| `DATA_KEY` | **the claim data, the names and the audit log files are unreadable for good** | use `cg rotate-key` (section 5), never edit it by hand |
 | `MONGO_ROOT_PASSWORD` | restore from backup | change it in the database and in `.env` together |
 
 Keep a copy of `.env` somewhere other than the server and other than the backups. **The backups do not contain these secrets** and are useless without them.
 
-## 4. Backup and restore (tested: `python rust/tools/backup_restore_test.py`, 18 checks)
+## 4. Backup and restore (tested: `python rust/tools/backup_restore_test.py`, 23 checks)
 
 ```
 openssl rand -base64 48 > /root/claimguard-backup.key ; chmod 600 /root/claimguard-backup.key     # once; keep a copy elsewhere
@@ -62,7 +64,20 @@ BACKUP_KEY_FILE=/root/claimguard-backup.key bash deploy/rust/restore.sh /srv/bac
 2. Stop the API and the worker: `docker compose -f deploy/rust/compose.yml --env-file .env stop api worker`.
 3. Make the new key and run the rotation with the old environment: `NEW_DATA_KEY=$(python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())") docker compose ... run --rm -e NEW_DATA_KEY api cg rotate-key --dry-run`, then again without `--dry-run`. It re-encrypts every claim document, reports how many it rewrote, and can be repeated after an interruption.
 4. Put the new key in `.env` as `DATA_KEY`, start the API and the worker, check the console and the health panel, keep the old key for one backup cycle, then destroy it.
-Only claim data is covered by `DATA_KEY`. `FERNET_KEY` (authenticator seeds) has no rotation tool: to change it every user's authenticator must be re-enrolled with `cg admin reset-totp`.
+`DATA_KEY` covers the claim data and the people's names (both are re-encrypted by the command above), and the audit log files on disk. **The audit logs are not rewritten**: that would break their hash chain, the mirror and every timestamp. New rows use the new key; the old rows stay readable only if you put the old secret in `DATA_KEY_PREVIOUS` (the old `DATA_KEY`, or the `FERNET_KEY` value if `DATA_KEY` had been empty). The command prints the exact line to add. Keep it for as long as the old rows exist, and add to the comma-separated list at the next rotation.
+
+### 5a. Rotating FERNET_KEY (authenticator seeds)
+
+`DATA_KEY` must be set first (if it is empty, everything above is derived from `FERNET_KEY`; the tool refuses and tells you to run section 5 first). Then, with the API and worker stopped:
+`NEW_FERNET_KEY=<new Fernet key> cg rotate-fernet-key --dry-run`, then again without `--dry-run`, then set `FERNET_KEY` to the new key and start. Every authenticator seed is re-encrypted in place: **nobody has to re-enrol**. It can be repeated after an interruption, and stops with an error (changing nothing for that person) if a seed opens with neither key. Keep the old key until you have signed in once, then destroy it.
+
+### 5b. Two-person approval (dual control)
+
+Four things are never done on one administrator's word: replacing a person's authenticator, creating an administrator, and changing (promoting, demoting, deactivating, editing) an existing administrator. Asking for one gives a **request** (the console says so; the API answers 202), and **nothing changes** until a *different* administrator approves it in **Users → Waiting for a second administrator**, typing a **fresh authenticator code** of their own (so a stolen session alone cannot approve). Five wrong codes in 15 minutes stop that administrator from approving for a while. Requests expire after `APPROVAL_TTL_SECONDS` (a day); the person who asked can withdraw theirs; another administrator can reject it. The log records who asked, who approved, and what was done (`approval` events, and the usual `totp_reset` / `user_created` / `user_updated` events with an `approved_by`). When the request is to replace an authenticator, the person who asked receives the new setup link at once; it works only after approval.
+
+- **It applies once two administrators are active.** A lone administrator acts alone (nobody could approve), and each such action is logged as `done_without_second_administrator`; the health of that is yours to watch: create a second administrator early. `DUAL_CONTROL=false` switches it off entirely.
+- **It cannot know that two accounts are two people.** An administrator who controls both accounts defeats it; the protection is organisational (separate people) and the log.
+- Break-glass: `cg admin` on the server is not subject to approval (it needs a shell on the machine) and is logged by the operating system, not the application.
 
 ## 6. Updating
 
@@ -92,6 +107,9 @@ Only claim data is covered by `DATA_KEY`. `FERNET_KEY` (authenticator seeds) has
 3. Compare the log and its mirror: the message says how many leading bytes differ; the first differing row is the first altered row. Every row after the break is untrusted.
 4. Decide who had access to the machine and the volumes. Rotate `JWT_SECRET` (signs everyone out) and the administrators' passwords and authenticators.
 5. Restore from the last good backup if the data is also in doubt; the mirror and the backup are the evidence.
+
+### 8.1b An audit log cannot be read ("cannot be decrypted")
+The key does not match the rows. Check `DATA_KEY` (and `DATA_KEY_PREVIOUS` after a rotation, or `FERNET_KEY` if `DATA_KEY` is empty). Do not "fix" the log. The standalone `cg audit-verify <log>` also needs the key in the environment (`DATA_KEY` or `FERNET_KEY`) when the log is encrypted.
 
 ### 8.2 A user is locked out
 An administrator unlocks them in **Users**, or `cg admin unlock --badge CG-xxxx`. A lock never stops the person from signing in from a device they have used before. If it happens often to one person, someone is guessing their badge number: look at the failed sign-ins in the audit panel.

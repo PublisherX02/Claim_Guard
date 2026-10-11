@@ -36,6 +36,26 @@ pub struct User {
     pub last_login: Option<f64>,
 }
 
+/// A dangerous administrator action waiting for a second administrator (see `AccessService::approve`). `payload` holds what is needed to
+/// carry the action out (it can include a password hash or an encrypted authenticator seed, never a plain secret) and is never shown;
+/// `summary` is the plain description shown to the approver.
+#[derive(Debug, Clone, PartialEq)]
+pub struct Approval {
+    pub id: String,
+    pub action: String,
+    pub target: String,
+    pub requested_by: String,
+    pub requested_at: f64,
+    pub expires_at: f64,
+    /// pending, approved, rejected, cancelled, expired or failed
+    pub status: String,
+    pub summary: String,
+    pub payload: String,
+    pub decided_by: Option<String>,
+    pub decided_at: Option<f64>,
+    pub note: Option<String>,
+}
+
 /// The fields an update may change; `None` leaves a field alone. (`locked_until: Some(None)` clears the lock.)
 #[derive(Debug, Clone, Default, PartialEq)]
 pub struct UserUpdate {
@@ -129,6 +149,15 @@ pub trait UserStore: Send + Sync {
     /// Has this person signed in successfully from this client (a keyed hash of its address) within `KNOWN_CLIENT_SECONDS`?
     fn client_known(&self, badge_id: &str, client: &str, now: f64) -> Result<bool, StoreError>;
     fn mark_client(&self, badge_id: &str, client: &str, now: f64) -> Result<(), StoreError>;
+    /// Stores a new pending approval. `Duplicate` if a pending, unexpired one already exists for the same (action, target); a pending one
+    /// whose time has run out is marked expired first.
+    fn create_approval(&self, approval: &Approval, now: f64) -> Result<(), StoreError>;
+    fn get_approval(&self, id: &str) -> Result<Option<Approval>, StoreError>;
+    /// The most recent approvals first.
+    fn list_approvals(&self, limit: usize) -> Result<Vec<Approval>, StoreError>;
+    /// Atomically moves an approval from status `from` to `to` and records who and when. When `from` is "pending" it also requires that
+    /// the time has not run out. True if this call made the change; false if someone else got there first (or it expired).
+    fn settle_approval(&self, id: &str, from: &str, to: &str, by: &str, now: f64, note: Option<&str>) -> Result<bool, StoreError>;
 }
 
 /// How long a client counts as known after the last successful sign-in from it (30 days).
@@ -141,6 +170,7 @@ struct Inner {
     revoked: HashMap<String, f64>,
     counters: HashMap<String, (i64, i64)>,
     clients: HashMap<(String, String), f64>,
+    approvals: Vec<Approval>,
 }
 
 #[derive(Default)]
@@ -250,6 +280,36 @@ impl UserStore for MemoryStore {
     fn mark_client(&self, badge_id: &str, client: &str, now: f64) -> Result<(), StoreError> {
         self.lock().clients.insert((badge_id.to_string(), client.to_string()), now);
         Ok(())
+    }
+
+    fn create_approval(&self, approval: &Approval, now: f64) -> Result<(), StoreError> {
+        let mut g = self.lock();
+        for a in g.approvals.iter_mut().filter(|a| a.status == "pending" && a.expires_at <= now) {
+            a.status = "expired".into();
+        }
+        if g.approvals.iter().any(|a| a.status == "pending" && a.action == approval.action && a.target == approval.target) {
+            return Err(StoreError::Duplicate);
+        }
+        g.approvals.push(approval.clone());
+        Ok(())
+    }
+
+    fn get_approval(&self, id: &str) -> Result<Option<Approval>, StoreError> {
+        Ok(self.lock().approvals.iter().find(|a| a.id == id).cloned())
+    }
+
+    fn list_approvals(&self, limit: usize) -> Result<Vec<Approval>, StoreError> {
+        Ok(self.lock().approvals.iter().rev().take(limit).cloned().collect())
+    }
+
+    fn settle_approval(&self, id: &str, from: &str, to: &str, by: &str, now: f64, note: Option<&str>) -> Result<bool, StoreError> {
+        let mut g = self.lock();
+        let Some(a) = g.approvals.iter_mut().find(|a| a.id == id && a.status == from && (from != "pending" || a.expires_at > now)) else { return Ok(false) };
+        a.status = to.into();
+        a.decided_by = Some(by.into());
+        a.decided_at = Some(now);
+        a.note = note.map(str::to_string);
+        Ok(true)
     }
 }
 

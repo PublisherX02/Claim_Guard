@@ -7,7 +7,7 @@
 use crate::permissions::{self, PermissionError, Perms};
 use crate::securitylog::SecurityLog;
 use crate::settings::Settings;
-use crate::store::{StoreError, User, UserStore, UserUpdate};
+use crate::store::{Approval, StoreError, User, UserStore, UserUpdate};
 use crate::{passwords, tokens, totp, Clock};
 use regex::Regex;
 use serde_json::{json, Value};
@@ -48,6 +48,8 @@ pub enum ServiceError {
     NotFound,
     #[error("{0}")]
     Invalid(String),
+    #[error("too many attempts")]
+    Throttled,
 }
 
 impl From<StoreError> for ServiceError {
@@ -81,6 +83,14 @@ pub struct Session {
     pub csrf: String,
     pub expires_at: i64,
     pub must_change_password: bool,
+}
+
+/// What a dangerous administrator action did: it was carried out, or it became a request for a second administrator (with the new
+/// authenticator link where there is one: the person who asked gets it now, and it only works once the request is approved).
+#[derive(Debug)]
+pub enum Gate<T> {
+    Done(T),
+    Pending { approval: Approval, uri: Option<String> },
 }
 
 /// Fields of a user change request; `None` means "leave it".
@@ -314,6 +324,15 @@ impl AccessService {
     /// calls this. Returns (user, provisioning URI); the URI carries the authenticator seed and is shown once.
     pub fn provision_user(&self, badge_id: &str, name: &str, password: &str, level: i64, created_by: &str, grants: &[String], revokes: &[String], must_change_password: bool)
         -> Result<(User, String), ServiceError> {
+        let (user, uri) = self.build_user(badge_id, name, password, level, created_by, grants, revokes, must_change_password)?;
+        self.store.create_user(&user)?;
+        Ok((user, uri))
+    }
+
+    /// Checks everything about a new user and makes the record (password hashed, authenticator seed made and encrypted) without storing it.
+    #[allow(clippy::too_many_arguments)]
+    fn build_user(&self, badge_id: &str, name: &str, password: &str, level: i64, created_by: &str, grants: &[String], revokes: &[String], must_change_password: bool)
+        -> Result<(User, String), ServiceError> {
         if !badge_re().is_match(badge_id) {
             return Err(ServiceError::Invalid("badge must look like CG-1234 (4 to 8 digits)".into()));
         }
@@ -342,7 +361,6 @@ impl AccessService {
             created_at: self.now(),
             last_login: None,
         };
-        self.store.create_user(&user)?;
         Ok((user, totp::provisioning_uri(&secret, badge_id, "ClaimGuard")))
     }
 
@@ -360,6 +378,11 @@ impl AccessService {
     }
 
     pub fn update_user(&self, actor: &Principal, badge_id: &str, changes: &Changes) -> Result<User, ServiceError> {
+        self.update_user_inner(actor, badge_id, changes, false)?.ok_or(ServiceError::NotFound)
+    }
+
+    /// With `check_only` every rule is applied but nothing is changed (None is returned).
+    fn update_user_inner(&self, actor: &Principal, badge_id: &str, changes: &Changes, check_only: bool) -> Result<Option<User>, ServiceError> {
         Self::require(actor, "users.manage")?;
         if changes.name.is_none() && changes.level.is_none() && changes.grants.is_none() && changes.revokes.is_none() && changes.active.is_none() {
             return Err(ServiceError::Invalid("changes must be a non-empty object".into()));
@@ -377,6 +400,9 @@ impl AccessService {
         let stops_being_admin = target.level == permissions::ADMIN_LEVEL && target.active && (new_level != permissions::ADMIN_LEVEL || !new_active);
         if stops_being_admin && self.store.count_active_admins()? <= 1 {
             return Err(PermissionError::Denied("cannot remove the last active administrator".into()).into());
+        }
+        if check_only {
+            return Ok(None);
         }
         let updated = self.store.update_user(
             badge_id,
@@ -399,7 +425,7 @@ impl AccessService {
             diff.insert("name".into(), json!(["changed"]));
         }
         self.must("user_updated", json!({"actor": actor.badge(), "badge_id": badge_id, "changes": Value::Object(diff)}))?;
-        Ok(updated)
+        Ok(Some(updated))
     }
 
     pub fn unlock_user(&self, actor: &Principal, badge_id: &str) -> Result<(), ServiceError> {
@@ -416,6 +442,231 @@ impl AccessService {
         self.store.update_user(badge_id, &UserUpdate { totp_secret_enc: Some(enc), ..Default::default() })?;
         self.must("totp_reset", json!({"actor": actor.badge(), "badge_id": badge_id}))?;
         Ok(totp::provisioning_uri(&secret, badge_id, "ClaimGuard"))
+    }
+
+    // ---- dual control ------------------------------------------------------------------------------------------------
+    // The most dangerous administrator actions (replacing someone's authenticator; creating, promoting, demoting or deactivating an
+    // administrator) are not carried out when asked for. They become a request, and a different administrator must approve it with a
+    // fresh authenticator code. The API uses the `*_gated` functions; the plain ones above do the work and are what runs after approval.
+
+    /// Dual control applies when it is switched on and there are at least two active administrators to ask. A lone administrator acts alone
+    /// (nobody else could approve) and the action is logged as such.
+    fn dual_control(&self) -> Result<bool, ServiceError> {
+        Ok(self.settings.dual_control && self.store.count_active_admins()? >= 2)
+    }
+
+    fn approval_event(&self, actor: &str, a: &Approval, outcome: &str) -> Result<(), ServiceError> {
+        Ok(self.must("approval", json!({"actor": actor, "approval_id": a.id, "action": a.action, "badge_id": a.target, "requested_by": a.requested_by, "outcome": outcome}))?)
+    }
+
+    fn open_approval(&self, actor: &Principal, action: &str, target: &str, summary: String, payload: Value) -> Result<Approval, ServiceError> {
+        let now = self.now();
+        let a = Approval {
+            id: format!("AP-{}", crate::settings::random_token(6)),
+            action: action.into(),
+            target: target.into(),
+            requested_by: actor.badge().into(),
+            requested_at: now,
+            expires_at: now + self.settings.approval_ttl_seconds as f64,
+            status: "pending".into(),
+            summary: cut(&summary, 300),
+            payload: payload.to_string(),
+            decided_by: None,
+            decided_at: None,
+            note: None,
+        };
+        self.store.create_approval(&a, now)?;
+        self.approval_event(actor.badge(), &a, "requested")?;
+        Ok(a)
+    }
+
+    /// Notes in the log that an action which would need a second person was done by a lone administrator.
+    fn note_unchecked(&self, actor: &Principal, action: &str, target: &str) {
+        if self.settings.dual_control {
+            let _ = self.log.record("approval", json!({"actor": actor.badge(), "approval_id": "-", "action": action, "badge_id": target, "requested_by": actor.badge(), "outcome": "done_without_second_administrator"}));
+        }
+    }
+
+    pub fn create_user_gated(&self, actor: &Principal, badge_id: &str, name: &str, password: &str, level: i64, grants: &[String], revokes: &[String]) -> Result<Gate<(User, String)>, ServiceError> {
+        if level != permissions::ADMIN_LEVEL {
+            return Ok(Gate::Done(self.create_user(actor, badge_id, name, password, level, grants, revokes)?));
+        }
+        Self::require(actor, "users.manage")?;
+        permissions::check_user_change(actor.user.level, level, level, grants, revokes, false)?;
+        if !self.dual_control()? {
+            let out = self.create_user(actor, badge_id, name, password, level, grants, revokes)?;
+            self.note_unchecked(actor, "create_admin", badge_id);
+            return Ok(Gate::Done(out));
+        }
+        if self.store.get_user(badge_id)?.is_some() {
+            return Err(ServiceError::Duplicate);
+        }
+        let (user, uri) = self.build_user(badge_id, name, password, level, actor.badge(), grants, revokes, true)?;
+        let payload = json!({"name": user.name, "password_hash": user.password_hash, "totp_secret_enc": user.totp_secret_enc, "level": user.level, "grants": user.grants, "revokes": user.revokes});
+        let approval = self.open_approval(actor, "create_admin", badge_id, format!("Create administrator {badge_id} ({})", user.name), payload)?;
+        Ok(Gate::Pending { approval, uri: Some(uri) })
+    }
+
+    pub fn update_user_gated(&self, actor: &Principal, badge_id: &str, changes: &Changes) -> Result<Gate<User>, ServiceError> {
+        Self::require(actor, "users.manage")?;
+        let target = self.store.get_user(badge_id)?.ok_or(ServiceError::NotFound)?;
+        let touches_an_admin = target.level == permissions::ADMIN_LEVEL || changes.level == Some(permissions::ADMIN_LEVEL);
+        if !touches_an_admin {
+            return Ok(Gate::Done(self.update_user(actor, badge_id, changes)?));
+        }
+        if !self.dual_control()? {
+            let out = self.update_user(actor, badge_id, changes)?;
+            self.note_unchecked(actor, "update_user", badge_id);
+            return Ok(Gate::Done(out));
+        }
+        self.update_user_inner(actor, badge_id, changes, true)?; // every rule now, so a doomed request is refused at once
+        let mut parts = vec![];
+        if let Some(l) = changes.level { parts.push(format!("level {} to {l}", target.level)); }
+        if let Some(a) = changes.active { parts.push(if a { "activate".to_string() } else { "deactivate".to_string() }); }
+        if changes.grants.is_some() || changes.revokes.is_some() { parts.push("permissions".into()); }
+        if changes.name.is_some() { parts.push("name".into()); }
+        let payload = json!({"name": changes.name, "level": changes.level, "grants": changes.grants, "revokes": changes.revokes, "active": changes.active});
+        let approval = self.open_approval(actor, "update_user", badge_id, format!("Change {badge_id}: {}", parts.join(", ")), payload)?;
+        Ok(Gate::Pending { approval, uri: None })
+    }
+
+    pub fn reset_totp_gated(&self, actor: &Principal, badge_id: &str) -> Result<Gate<String>, ServiceError> {
+        Self::require(actor, "users.manage")?;
+        if !self.dual_control()? {
+            let uri = self.reset_totp(actor, badge_id)?;
+            self.note_unchecked(actor, "reset_totp", badge_id);
+            return Ok(Gate::Done(uri));
+        }
+        let target = self.store.get_user(badge_id)?.ok_or(ServiceError::NotFound)?;
+        let secret = totp::new_secret();
+        let enc = totp::encrypt_secret(&secret, &self.settings.fernet_key).map_err(ServiceError::Invalid)?;
+        let approval = self.open_approval(actor, "reset_totp", badge_id, format!("Replace the authenticator of {badge_id} ({})", target.name), json!({"totp_secret_enc": enc}))?;
+        Ok(Gate::Pending { approval, uri: Some(totp::provisioning_uri(&secret, badge_id, "ClaimGuard")) })
+    }
+
+    pub fn list_approvals(&self, actor: &Principal) -> Result<Vec<Approval>, ServiceError> {
+        Self::require(actor, "users.manage")?;
+        Ok(self.store.list_approvals(100)?)
+    }
+
+    /// A fresh authenticator code from the person approving, so a stolen session alone cannot approve. Wrong codes are counted.
+    fn confirm_with_authenticator(&self, actor: &Principal, code: &str) -> Result<(), ServiceError> {
+        let now = self.now();
+        let key = format!("stepup|{}", badge_key(actor.badge()));
+        if self.store.counter(&key, 900, now)? >= 5 {
+            return Err(ServiceError::Throttled);
+        }
+        let wrong = |why: &str| -> ServiceError {
+            let _ = self.store.bump_counter(&key, 900, now);
+            self.gated("login_failure", why, json!({"badge_attempt": actor.badge()}));
+            AuthError::InvalidCredentials.into()
+        };
+        let user = self.store.get_user(actor.badge())?.ok_or(ServiceError::NotFound)?;
+        let Ok(secret) = totp::decrypt_secret(&user.totp_secret_enc, &self.settings.fernet_key) else { return Err(wrong("seed_unreadable")) };
+        let Some(step) = totp::verify_code(&secret, code, now, self.settings.totp_step) else { return Err(wrong("bad_step_up_code")) };
+        if !self.store.mark_totp_used(actor.badge(), step, ((step + 2) * self.settings.totp_step) as f64)? {
+            return Err(wrong("replayed_step_up_code"));
+        }
+        Ok(())
+    }
+
+    fn approver_checks(&self, actor: &Principal, id: &str) -> Result<Approval, ServiceError> {
+        Self::require(actor, "users.manage")?;
+        if actor.user.level != permissions::ADMIN_LEVEL {
+            return Err(PermissionError::Denied("only an administrator can decide on a request".into()).into());
+        }
+        self.store.get_approval(id)?.ok_or(ServiceError::NotFound)
+    }
+
+    fn still_pending(&self, a: &Approval) -> Result<(), ServiceError> {
+        if a.status != "pending" {
+            return Err(ServiceError::Invalid(format!("this request is already {}", a.status)));
+        }
+        if a.expires_at <= self.now() {
+            return Err(ServiceError::Invalid("this request has expired".into()));
+        }
+        Ok(())
+    }
+
+    /// A different administrator approves (with a fresh authenticator code) and the action is carried out at once.
+    pub fn approve(&self, actor: &Principal, id: &str, totp_code: &str) -> Result<Approval, ServiceError> {
+        let a = self.approver_checks(actor, id)?;
+        if a.requested_by == actor.badge() {
+            return Err(PermissionError::Denied("the person who asked cannot approve their own request".into()).into());
+        }
+        self.still_pending(&a)?;
+        self.confirm_with_authenticator(actor, totp_code)?;
+        let now = self.now();
+        if !self.store.settle_approval(id, "pending", "approved", actor.badge(), now, None)? {
+            return Err(ServiceError::Invalid("someone else decided this request first, or it has expired".into()));
+        }
+        match self.carry_out(actor, &a) {
+            Ok(()) => {
+                self.approval_event(actor.badge(), &a, "approved")?;
+                Ok(self.store.get_approval(id)?.unwrap_or(a))
+            }
+            Err(e) => {
+                let _ = self.store.settle_approval(id, "approved", "failed", actor.badge(), now, Some(&cut(&e.to_string(), 200)));
+                let _ = self.approval_event(actor.badge(), &a, "failed");
+                Err(e)
+            }
+        }
+    }
+
+    fn carry_out(&self, approver: &Principal, a: &Approval) -> Result<(), ServiceError> {
+        let requester = self.store.get_user(&a.requested_by)?.filter(|u| u.active).ok_or_else(|| ServiceError::Invalid("the administrator who asked is no longer active".into()))?;
+        let p: Value = serde_json::from_str(&a.payload).map_err(|_| ServiceError::Invalid("the stored request is damaged".into()))?;
+        let text = |k: &str| p[k].as_str().unwrap_or("").to_string();
+        let strings = |k: &str| p[k].as_array().map(|l| l.iter().filter_map(|s| s.as_str().map(str::to_string)).collect::<Vec<_>>());
+        match a.action.as_str() {
+            "create_admin" => {
+                let user = User {
+                    badge_id: a.target.clone(), name: text("name"), password_hash: text("password_hash"), totp_secret_enc: text("totp_secret_enc"), level: p["level"].as_i64().unwrap_or(0),
+                    grants: strings("grants").unwrap_or_default(), revokes: strings("revokes").unwrap_or_default(), active: true, failed_attempts: 0, locked_until: None,
+                    must_change_password: true, created_by: requester.badge_id.clone(), created_at: self.now(), last_login: None,
+                };
+                self.store.create_user(&user)?;
+                self.must("user_created", json!({"actor": requester.badge_id, "badge_id": a.target, "level": user.level, "approved_by": approver.badge()}))?;
+            }
+            "update_user" => {
+                let changes = Changes { name: p["name"].as_str().map(str::to_string), level: p["level"].as_i64(), grants: strings("grants"), revokes: strings("revokes"), active: p["active"].as_bool() };
+                self.update_user(approver, &a.target, &changes)?;
+            }
+            "reset_totp" => {
+                self.store.update_user(&a.target, &UserUpdate { totp_secret_enc: Some(text("totp_secret_enc")), ..Default::default() })?;
+                self.must("totp_reset", json!({"actor": requester.badge_id, "badge_id": a.target, "approved_by": approver.badge()}))?;
+            }
+            _ => return Err(ServiceError::Invalid("unknown action".into())),
+        }
+        Ok(())
+    }
+
+    /// A different administrator refuses the request.
+    pub fn reject_request(&self, actor: &Principal, id: &str, note: &str) -> Result<Approval, ServiceError> {
+        let a = self.approver_checks(actor, id)?;
+        if a.requested_by == actor.badge() {
+            return Err(PermissionError::Denied("withdraw your own request instead of rejecting it".into()).into());
+        }
+        self.settle(actor, &a, "rejected", note)
+    }
+
+    /// The administrator who asked withdraws the request.
+    pub fn cancel(&self, actor: &Principal, id: &str) -> Result<Approval, ServiceError> {
+        let a = self.approver_checks(actor, id)?;
+        if a.requested_by != actor.badge() {
+            return Err(PermissionError::Denied("only the person who asked can withdraw a request".into()).into());
+        }
+        self.settle(actor, &a, "cancelled", "")
+    }
+
+    fn settle(&self, actor: &Principal, a: &Approval, to: &str, note: &str) -> Result<Approval, ServiceError> {
+        self.still_pending(a)?;
+        let note = (!note.trim().is_empty()).then(|| cut(note.trim(), 200));
+        if !self.store.settle_approval(&a.id, "pending", to, actor.badge(), self.now(), note.as_deref())? {
+            return Err(ServiceError::Invalid("someone else decided this request first, or it has expired".into()));
+        }
+        self.approval_event(actor.badge(), a, to)?;
+        Ok(self.store.get_approval(&a.id)?.unwrap_or_else(|| a.clone()))
     }
 
     pub fn change_password(&self, principal: &Principal, old_password: &str, new_password: &str) -> Result<(), ServiceError> {
@@ -457,11 +708,16 @@ pub mod testkit {
     }
 
     pub fn world() -> World {
+        world_with(|_| {})
+    }
+
+    pub fn world_with(tweak: impl FnOnce(&mut Settings)) -> World {
         let clock = Arc::new(AtomicU64::new(1_700_000_000_000));
         let c2 = clock.clone();
         let clock_fn: Clock = Arc::new(move || c2.load(Ordering::SeqCst) as f64 / 1000.0);
         let dir = tempfile::tempdir().unwrap();
-        let settings = crate::settings::test_settings();
+        let mut settings = crate::settings::test_settings();
+        tweak(&mut settings);
         let log = Arc::new(SecurityLog::open(dir.path().join("sec.jsonl"), &settings.audit_anchor_key).unwrap());
         let store = Arc::new(MemoryStore::new());
         let svc = Arc::new(AccessService::new(store.clone(), settings, log, clock_fn));
@@ -512,6 +768,187 @@ mod tests {
 
     fn events(w: &World) -> Vec<Value> {
         w.svc.log.scan(1000).unwrap().into_iter().map(|r| r["event"].clone()).collect()
+    }
+
+    // ---- dual control -----------------------------------------------------------------------------------------------------
+    fn seed_of(uri: &str) -> String {
+        uri.split("secret=").nth(1).unwrap().split('&').next().unwrap().to_string()
+    }
+
+    fn two_admins() -> (World, Principal, Principal) {
+        let w = world();
+        w.provision("CG-4004", 4, PW);
+        w.provision("CG-4005", 4, PW);
+        w.provision("CG-2002", 2, PW);
+        let (a, b) = (w.principal("CG-4004", PW), w.principal("CG-4005", PW));
+        (w, a, b)
+    }
+
+    fn pending<T: std::fmt::Debug>(g: Gate<T>) -> (Approval, Option<String>) {
+        match g {
+            Gate::Pending { approval, uri } => (approval, uri),
+            other => panic!("expected a request for approval, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn a_lone_administrator_acts_alone_and_it_is_logged() {
+        let w = world();
+        w.provision("CG-4004", 4, PW);
+        w.provision("CG-2002", 2, PW);
+        let admin = w.principal("CG-4004", PW);
+        assert!(matches!(w.svc.reset_totp_gated(&admin, "CG-2002").unwrap(), Gate::Done(uri) if uri.contains("secret=")));
+        assert!(events(&w).iter().any(|e| e["event_type"] == "approval" && e["outcome"] == "done_without_second_administrator" && e["action"] == "reset_totp"));
+        assert!(w.svc.list_approvals(&admin).unwrap().is_empty());
+    }
+
+    #[test]
+    fn switching_dual_control_off_makes_every_action_direct() {
+        let w = world_with(|s| s.dual_control = false);
+        w.provision("CG-4004", 4, PW);
+        w.provision("CG-4005", 4, PW);
+        w.provision("CG-2002", 2, PW);
+        let admin = w.principal("CG-4004", PW);
+        assert!(matches!(w.svc.reset_totp_gated(&admin, "CG-2002").unwrap(), Gate::Done(_)));
+        assert!(matches!(w.svc.update_user_gated(&admin, "CG-4005", &Changes { active: Some(false), ..Default::default() }).unwrap(), Gate::Done(_)));
+        assert!(!events(&w).iter().any(|e| e["event_type"] == "approval"), "nothing to note when the control is off on purpose");
+    }
+
+    #[test]
+    fn an_authenticator_reset_waits_for_a_different_administrator_and_a_fresh_code() {
+        let (w, a, b) = two_admins();
+        let old_seed = w.seeds.lock().unwrap()["CG-2002"].clone();
+        let (req, uri) = pending(w.svc.reset_totp_gated(&a, "CG-2002").unwrap());
+        assert_eq!((req.status.as_str(), req.action.as_str(), req.requested_by.as_str()), ("pending", "reset_totp", "CG-4004"));
+        let new_seed = seed_of(&uri.unwrap());
+        assert_ne!(new_seed, old_seed);
+        // nothing has changed yet: the old authenticator still signs the person in
+        assert!(w.login("CG-2002", PW).is_ok());
+        // the one who asked cannot approve, whatever code they give
+        let own = w.code("CG-4004");
+        assert!(matches!(w.svc.approve(&a, &req.id, &own), Err(ServiceError::Permission(_))));
+        // a wrong code, then the right one
+        assert!(matches!(w.svc.approve(&b, &req.id, "000000"), Err(ServiceError::Auth(AuthError::InvalidCredentials))));
+        assert_eq!(w.svc.store.get_approval(&req.id).unwrap().unwrap().status, "pending");
+        let code = w.code("CG-4005");
+        let done = w.svc.approve(&b, &req.id, &code).unwrap();
+        assert_eq!((done.status.as_str(), done.decided_by.as_deref()), ("approved", Some("CG-4005")));
+        // the new authenticator works, the old one does not
+        w.seeds.lock().unwrap().insert("CG-2002".into(), old_seed);
+        assert!(w.login("CG-2002", PW).is_err());
+        w.seeds.lock().unwrap().insert("CG-2002".into(), new_seed);
+        assert!(w.login("CG-2002", PW).is_ok());
+        // it can be decided once only
+        let code = w.code("CG-4005");
+        assert!(matches!(w.svc.approve(&b, &req.id, &code), Err(ServiceError::Invalid(m)) if m.contains("already approved")));
+        let ev = events(&w);
+        for outcome in ["requested", "approved"] {
+            assert!(ev.iter().any(|e| e["event_type"] == "approval" && e["outcome"] == outcome && e["approval_id"] == req.id.as_str()), "{outcome} is on the log");
+        }
+        let reset = ev.iter().find(|e| e["event_type"] == "totp_reset").unwrap();
+        assert_eq!((reset["actor"].as_str(), reset["approved_by"].as_str()), (Some("CG-4004"), Some("CG-4005")), "the log names both people");
+    }
+
+    #[test]
+    fn approval_codes_cannot_be_guessed_or_replayed() {
+        let (w, a, b) = two_admins();
+        let (req, _) = pending(w.svc.reset_totp_gated(&a, "CG-2002").unwrap());
+        for _ in 0..5 {
+            assert!(matches!(w.svc.approve(&b, &req.id, "000000"), Err(ServiceError::Auth(AuthError::InvalidCredentials))));
+        }
+        let code = w.code("CG-4005");
+        assert!(matches!(w.svc.approve(&b, &req.id, &code), Err(ServiceError::Throttled)), "five wrong codes stop even the right one for a while");
+        w.advance(901.0);
+        let code = w.code("CG-4005");
+        assert!(w.svc.approve(&b, &req.id, &code).is_ok());
+        // a code that has been used once is never accepted again, here or anywhere else
+        let (req2, _) = pending(w.svc.reset_totp_gated(&a, "CG-2002").unwrap());
+        let code = w.code("CG-4005");
+        assert!(w.svc.approve(&b, &req2.id, &code).is_ok());
+        let (req3, _) = pending(w.svc.reset_totp_gated(&a, "CG-2002").unwrap());
+        assert!(matches!(w.svc.approve(&b, &req3.id, &code), Err(ServiceError::Auth(AuthError::InvalidCredentials))), "the same code a second time");
+    }
+
+    #[test]
+    fn creating_an_administrator_waits_and_only_then_exists() {
+        let (w, a, b) = two_admins();
+        let (req, uri) = pending(w.svc.create_user_gated(&a, "CG-4006", "New Admin", PW, 4, &[], &[]).unwrap());
+        assert!(w.store.get_user("CG-4006").unwrap().is_none(), "no account exists before approval");
+        assert!(matches!(w.svc.create_user_gated(&a, "CG-4006", "New Admin", PW, 4, &[], &[]), Err(ServiceError::Duplicate)), "one request at a time");
+        let seed = seed_of(&uri.unwrap());
+        let code = w.code("CG-4005");
+        w.svc.approve(&b, &req.id, &code).unwrap();
+        let user = w.store.get_user("CG-4006").unwrap().unwrap();
+        assert_eq!((user.level, user.active, user.must_change_password, user.created_by.as_str()), (4, true, true, "CG-4004"));
+        w.seeds.lock().unwrap().insert("CG-4006".into(), seed);
+        assert!(w.login("CG-4006", PW).is_ok(), "the password and authenticator given when asking now work");
+        // a lower-level account needs no second person
+        assert!(matches!(w.svc.create_user_gated(&a, "CG-2003", "Reviewer", PW, 2, &[], &[]).unwrap(), Gate::Done(_)));
+        assert_eq!(w.svc.list_approvals(&a).unwrap().len(), 1);
+    }
+
+    #[test]
+    fn changes_to_administrators_wait_and_ordinary_changes_do_not() {
+        let (w, a, b) = two_admins();
+        w.provision("CG-3003", 3, PW);
+        assert!(matches!(w.svc.update_user_gated(&a, "CG-3003", &Changes { level: Some(2), ..Default::default() }).unwrap(), Gate::Done(_)), "a senior reviewer to reviewer");
+        // promoting someone to administrator, and deactivating one, are requests
+        let (promote, _) = pending(w.svc.update_user_gated(&a, "CG-2002", &Changes { level: Some(4), ..Default::default() }).unwrap());
+        let (deactivate, _) = pending(w.svc.update_user_gated(&a, "CG-4005", &Changes { active: Some(false), ..Default::default() }).unwrap());
+        assert_eq!(w.store.get_user("CG-2002").unwrap().unwrap().level, 2);
+        assert!(w.store.get_user("CG-4005").unwrap().unwrap().active);
+        // a request the rules forbid anyway is refused at once, not queued
+        assert!(matches!(w.svc.update_user_gated(&a, "CG-4004", &Changes { active: Some(false), ..Default::default() }), Err(ServiceError::Permission(_))), "not yourself");
+        // approving the promotion
+        let code = w.code("CG-4005");
+        w.svc.approve(&b, &promote.id, &code).unwrap();
+        assert_eq!(w.store.get_user("CG-2002").unwrap().unwrap().level, 4);
+        // the deactivation of CG-4005 was asked for by CG-4004; the newly promoted CG-2002 (now an administrator) approves it
+        let c = w.principal("CG-2002", PW);
+        let code = w.code("CG-2002");
+        w.svc.approve(&c, &deactivate.id, &code).unwrap();
+        assert!(!w.store.get_user("CG-4005").unwrap().unwrap().active);
+        assert!(events(&w).iter().filter(|e| e["event_type"] == "user_updated").count() >= 3);
+        // two administrators are left (CG-4004 and CG-2002), so asking to deactivate one is again a request, and approval is still needed
+        let (again, _) = pending(w.svc.update_user_gated(&c, "CG-4004", &Changes { active: Some(false), ..Default::default() }).unwrap());
+        assert_eq!(again.status, "pending");
+    }
+
+    #[test]
+    fn requests_can_be_rejected_withdrawn_and_expire() {
+        let (w, a, b) = two_admins();
+        let (r1, _) = pending(w.svc.reset_totp_gated(&a, "CG-2002").unwrap());
+        assert!(matches!(w.svc.reject_request(&a, &r1.id, "no"), Err(ServiceError::Permission(_))), "withdraw your own instead");
+        assert!(matches!(w.svc.cancel(&b, &r1.id), Err(ServiceError::Permission(_))), "only the person who asked can withdraw");
+        let rejected = w.svc.reject_request(&b, &r1.id, "not today").unwrap();
+        assert_eq!((rejected.status.as_str(), rejected.note.as_deref()), ("rejected", Some("not today")));
+        let code = w.code("CG-4005");
+        assert!(matches!(w.svc.approve(&b, &r1.id, &code), Err(ServiceError::Invalid(m)) if m.contains("rejected")));
+        let (r2, _) = pending(w.svc.reset_totp_gated(&a, "CG-2002").unwrap());
+        assert_eq!(w.svc.cancel(&a, &r2.id).unwrap().status, "cancelled");
+        let (r3, _) = pending(w.svc.reset_totp_gated(&a, "CG-2002").unwrap());
+        w.advance(86_401.0);
+        let code = w.code("CG-4005");
+        assert!(matches!(w.svc.approve(&b, &r3.id, &code), Err(ServiceError::Invalid(m)) if m == "this request has expired"), "the reason given is the real one");
+        // a lower-level person can neither see nor decide
+        let reviewer = w.principal("CG-2002", PW);
+        assert!(w.svc.list_approvals(&reviewer).is_err());
+        assert!(w.svc.approve(&reviewer, &r3.id, "123456").is_err() && w.svc.cancel(&reviewer, &r3.id).is_err());
+        assert!(matches!(w.svc.approve(&b, "AP-nope", "123456"), Err(ServiceError::NotFound)));
+    }
+
+    #[test]
+    fn a_request_does_not_survive_its_requester_being_deactivated() {
+        let (w, a, b) = two_admins();
+        w.provision("CG-4006", 4, PW);
+        let c = w.principal("CG-4006", PW);
+        let (req, _) = pending(w.svc.reset_totp_gated(&c, "CG-2002").unwrap());
+        // the requester is deactivated (by the other two)
+        w.store.update_user("CG-4006", &UserUpdate { active: Some(false), ..Default::default() }).unwrap();
+        let code = w.code("CG-4005");
+        assert!(matches!(w.svc.approve(&b, &req.id, &code), Err(ServiceError::Invalid(m)) if m.contains("no longer active")));
+        assert_eq!(w.svc.store.get_approval(&req.id).unwrap().unwrap().status, "failed");
+        let _ = a;
     }
 
     fn kinds(w: &World) -> Vec<String> {

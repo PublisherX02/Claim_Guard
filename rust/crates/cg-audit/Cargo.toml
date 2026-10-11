@@ -11,6 +11,8 @@ num-traits.workspace = true
 sha2.workspace = true
 hex.workspace = true
 hmac = "0.12"
+base64 = "0.22"
+fernet = { version = "0.2", default-features = false, features = ["rustcrypto"] }
 thiserror.workspace = true
 
 [dev-dependencies]

@@ -82,6 +82,16 @@ fn with_dev_secrets(env: &mut HashMap<String, String>, dir: &Path) -> Result<(),
     Ok(())
 }
 
+/// Switches on encryption of the audit logs on disk: a key derived from DATA_KEY (or FERNET_KEY), unless CG_ENCRYPT_AT_REST=false.
+pub fn set_audit_encryption(env: &HashMap<String, String>, fernet_key: &str) -> Result<(), String> {
+    let at_rest = env.get("CG_ENCRYPT_AT_REST").map(|v| v.trim().to_lowercase()).as_deref() != Some("false");
+    let secret = env.get("DATA_KEY").map(|k| k.trim()).filter(|k| !k.is_empty()).unwrap_or(fernet_key);
+    // DATA_KEY_PREVIOUS: comma-separated older secrets (old DATA_KEY values, or the old FERNET_KEY if no DATA_KEY was set), so rows written
+    // under them stay readable after a rotation.
+    let previous: Vec<String> = env.get("DATA_KEY_PREVIOUS").map(|v| v.split(',').map(|s| cg_audit::atrest::derive_key(s.trim())).collect()).unwrap_or_default();
+    cg_audit::atrest::set_keys(at_rest.then(|| cg_audit::atrest::derive_key(secret)).as_deref(), &previous).map_err(|e| e.to_string())
+}
+
 /// The queue database's name: QUEUE_DB, or the main database's name plus `_queue`.
 pub fn queue_db_name(settings: &Settings, env: &HashMap<String, String>) -> String {
     env.get("QUEUE_DB").map(|s| s.trim().to_string()).filter(|s| !s.is_empty()).unwrap_or_else(|| format!("{}_queue", settings.mongo_db))
@@ -91,7 +101,11 @@ fn build_stores(settings: &Settings, env: &HashMap<String, String>, dev: bool, q
     let down = || "the database cannot be reached".to_string();
     if let Some(uri) = &settings.mongo_uri {
         let client = cg_mongo::connect(uri, 3000).map_err(|e| format!("{} ({})", down(), e.to_string().chars().take(120).collect::<String>()))?;
-        let users = cg_mongo::MongoUserStore::new(client.clone(), &settings.mongo_db);
+        let mut users = cg_mongo::MongoUserStore::new(client.clone(), &settings.mongo_db);
+        // People's names are encrypted like the claim data (same switch, same key).
+        if env.get("CG_ENCRYPT_AT_REST").map(|v| v.trim().to_lowercase()).as_deref() != Some("false") {
+            users = users.with_encryption(cg_mongo::crypt::FieldCrypt::new(&settings.fernet_key, env.get("DATA_KEY").map(String::as_str)).map_err(|e| format!("configuration error: {}", e.0))?);
+        }
         users.ensure_indexes().map_err(|e| format!("{} (users: {e})", down()))?;
         let q: Option<Arc<dyn QueueStore>> = if queue {
             let db = queue_db_name(settings, env);
@@ -135,6 +149,7 @@ pub fn boot(o: &Options) -> Result<Boot, String> {
         with_dev_secrets(&mut env, &data_dir)?;
     }
     let settings = load_settings(&env, o.dev, &o.host).map_err(|e| format!("configuration error: {}", e.0))?;
+    set_audit_encryption(&env, &settings.fernet_key)?;
     let (users, queue_store) = build_stores(&settings, &env, o.dev, o.queue)?;
     let clock = system_clock();
     let securitylog = Arc::new(SecurityLog::open(data_dir.join("security_audit.jsonl"), &settings.audit_anchor_key).map_err(|e| e.to_string())?);

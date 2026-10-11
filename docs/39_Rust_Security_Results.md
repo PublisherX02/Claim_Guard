@@ -5,9 +5,9 @@ Tested 2026-10-09 and 2026-10-10 (a second round on 2026-10-10 closed the limits
 **Scope and authority.** The user's own application, run locally on 127.0.0.1 with generated demo accounts. No real data, no third-party system. The test of a deployment (TLS, firewall, container limits, database authentication) is separate and still to be done on the target server (section 7).
 
 **Short answer.**
-1. **Black-box penetration test: 91 checks, 91 pass** (83 in the first rounds, after two fixes: connections held open forever, and a 70 KB header accepted; 8 more in the third round for cross-site refusal, headers and unmask reasons).
+1. **Black-box penetration test: 116 checks, 116 pass** (91 after round 3, 25 more in round 4; of the 91, 83 in the first rounds, after two fixes: connections held open forever, and a 70 KB header accepted; 8 more in the third round for cross-site refusal, headers and unmask reasons).
 2. **Fuzzing at the API boundary: 400,000 random requests, 0 server errors, 0 leaks.**
-3. **Mutation test: 61 deliberate breakages of security rules, all caught** (36 in the first round, of which 8 were missed until tests were added; 15 more in the second round; 10 in the third, of which 1 was missed until a test was tightened).
+3. **Mutation test: 75 deliberate breakages of security rules in the harness, all caught in one full run on 2026-10-11** (the round-by-round tallies recorded at the time were 36 in the first round, of which 8 were missed until tests were added; 15 more in the second round; 10 in the third, of which 1 was missed until a test was tightened).
 4. **The five limits listed after the first round were worked on (section 6):** lockout no longer lets a stranger keep the owner out of their usual device; throttles live in the database; the audit log has a second append-only copy, a scheduled verification and an optional outside timestamp; claim data is encrypted at rest in MongoDB; `cargo audit` was installed and run (five advisories, all via `yara-x`, none reachable).
 5. **The five things the first round did not test were tested (section 7):** the deployed Docker stack (50 checks, which found four problems), the real gemma3:4b model (15 of 15 rules; a red team that **found and fixed a real weakness in the AI guard**), a single-machine flood (16 checks), the console in real Chrome (19 checks, no payload ran), and refusal timing (all eight kinds within 3 %).
 6. **A third round (section 11)** added cross-site refusal, identifier-free reasons, unmask rationing, key rotation, an encrypted backup with a restore proven end to end (which found two real bugs in its own first version), pinned image digests and an operations runbook (`docs/40`).
@@ -196,7 +196,7 @@ cd rust && cargo test --release --workspace                               # unit
 cargo test --release -p cg-access --test timing -- --ignored --nocapture # refusal timing
 CG_FUZZ_N=400000 cargo test --release -p cg-api --test api_fuzz random    # fuzz stress
 cargo audit                                                               # dependency advisories (uses rust/.cargo/audit.toml)
-python rust/tools/pentest.py                                              # 83 checks against a local server
+python rust/tools/pentest.py                                              # 116 checks against a local server
 python rust/tools/flood.py                                                # load and exhaustion
 python rust/tools/audit_guard_demo.py                                     # rewrite a live log and watch the protection notice
 python rust/tools/model_redteam.py                                        # needs Ollama with gemma3:4b
@@ -258,3 +258,50 @@ A runbook for the person who runs the server is in `docs/40_Rust_Operations_Runb
 - User records are not field-encrypted; the audit logs on disk are not encrypted (they hold badge numbers, claim ids and reasons, which can no longer contain the identifier); `FERNET_KEY` has no rotation tool (authenticators must be re-enrolled).
 - There is no automatic scheduling of backups or of the image-update routine; both are manual procedures with scripts.
 - Two-person approval for the most dangerous administrator actions (resetting an authenticator, deactivating the last reviewer) is not built.
+
+## 12. Fourth round (2026-10-10, night): the four items left open in section 11.8
+
+Section 11.8 ended with a list of what was still open. Three of the four were buildable and checkable on this machine; they are done and tested. The fourth (running it on the target virtual machine) is deliberately last.
+
+### 12.1 `FERNET_KEY` can be rotated: `cg rotate-fernet-key`
+`NEW_FERNET_KEY=<new Fernet key> cg rotate-fernet-key [--dry-run]` re-encrypts every authenticator seed from the old key to the new one. Nobody has to re-enrol. It stops with an error, changing nothing for that person, if a seed opens with neither key; it skips and reports a record that changed meanwhile; it can be repeated. **It refuses to run while `DATA_KEY` is empty**, because then the claim data, the names and the audit logs would be protected by a key derived from `FERNET_KEY`, which the command would change; the message tells the operator to run `cg rotate-key` first. Tested against real MongoDB (seeds readable only under the new key afterwards; a bad seed stops the run; a dry run changes nothing; repeating is safe).
+
+### 12.2 User names and the audit logs are encrypted at rest
+- **People's names** are stored in the user database as `enc1:<token>` (Fernet), bound to the badge and the field name: copying one person's sealed name onto another person is detected and refused. Names written before encryption was on are still read. `cg rotate-key` re-encrypts them together with the claim data.
+- **The audit log files** (`security_audit.jsonl`, `review_audit.jsonl`) are stored one encrypted row per line, `enc1:<token>`. The hash chain, the signed anchor and every check work on the *plain* row (the row is opened first), so the chain is unchanged and a plain log is still the Python build's format. The mirror copies stored bytes, so the second copy is encrypted too. The anchor file holds only a head hash, a count and a signature and stays readable, so it can be checked and timestamped without the key. Logs written before the switch stay readable (a log can be a mix); a row that cannot be opened (wrong key, or altered) is an error, never silently skipped.
+- **Rotation does not rewrite the logs** (that would break the chain, the mirror and every timestamp). New rows use the new key; the old secret goes in `DATA_KEY_PREVIOUS` and the old rows stay readable. Tested: the earlier bytes are byte-for-byte unchanged after a rotation, and without the previous key the old rows are refused.
+- The key is derived from `DATA_KEY` (or `FERNET_KEY` when it is empty) with a label of its own, so the audit key and the claim-data key are different keys even though they share a root secret. `CG_ENCRYPT_AT_REST=false` turns all of it off (not recommended).
+- The standalone `cg audit-verify` and `cg audit-append` open an encrypted log when `DATA_KEY` or `FERNET_KEY` is in the environment.
+- Black-box check against the running server (pen test): every row of both logs on disk starts with `enc1:`; no badge number, event name or user-created marker is readable in the file; the logs still verify end to end through the API and the audit panel still reads them. The audit-protection demo (`audit_guard_demo.py`) still notices a rewrite of an encrypted log.
+
+### 12.3 Two-person approval of the most dangerous administrator actions
+Replacing someone's authenticator, creating an administrator, and changing (promoting, demoting, deactivating, editing) an administrator no longer happen on one administrator's word. Asking gives a **request** (the API answers 202 and says so; the console shows it as waiting) and **nothing changes** until a *different* administrator approves it with a **fresh authenticator code of their own**, so a stolen session cannot approve. Rules, each with a test:
+- the person who asked cannot approve their own request (nor reject it; they can withdraw it);
+- a wrong code does not approve; five wrong codes in 15 minutes stop that administrator from approving for a while (429); a code used once is never accepted again (here or at sign-in); a wrong code is a 422, not a 401, so the console does not sign the person out for a typing mistake;
+- a request is decided exactly once, atomically (four administrators approving in parallel: exactly one wins), and expires after a day (`APPROVAL_TTL_SECONDS`);
+- one pending request per action and target, enforced by the database (a partial unique index);
+- the rules for the action (who may change whom, the last administrator, not yourself) are applied twice: when asking, so a doomed request is refused at once, and again when approving, by the approver;
+- the person who asked is still active at approval time, or the request fails;
+- the stored payload (a password hash or an encrypted authenticator seed) is never shown by any route; the new authenticator link goes to the person who asked, at once, and works only after approval;
+- the log has an `approval` event for requested / approved / rejected / cancelled / failed, and the usual `totp_reset`, `user_created`, `user_updated` events carry `approved_by`.
+
+**It applies once two administrators are active.** A lone administrator acts alone (nobody could approve), and each such action is logged as `done_without_second_administrator`. `DUAL_CONTROL=false` switches it off. The console has a *Waiting for a second administrator* panel under **Users**. The demo now has a second administrator (CG-4005) so this can be shown.
+
+### 12.4 Tests added, and what they found
+- 8 service tests for dual control, 1 API test (18 steps), 2 audit-log tests (one process-wide-key test: encrypted rows, mixed log, mirror, tampering, wrong key, no key, rotation with previous keys), 2 real-MongoDB tests (encrypted names with the shared contract suite; rotation of names and seeds), and approval storage added to the shared store contract (memory twin and real MongoDB: one pending per target, settle once, expiry, parallel settle).
+- Pen test: **116 checks, all pass** (25 new: dual control end to end, malformed approval bodies and ids, a senior reviewer cannot see approvals, the old authenticator works until approval and not after, ordinary accounts stay direct; encrypted logs on disk and still verifiable).
+- Two older mutation patterns had gone stale after earlier refactors (they matched nothing and so tested nothing): the replayed-code mutant and the frame-header mutant. Both were repaired and now kill.
+- **Mutation test, fourth round (full run, 75 mutants in all: the first run of 36 plus 39 more, with the six database-backed ones re-run against a real MongoDB because without a database their tests skip and the mutants wrongly look alive): all 75 caught. 18 of them are new** (dual control never applies; applies to a lone administrator; own-request approval; approval without a code; wrong codes not counted; codes replayable; approval never expires; authenticator reset direct; administrator changes direct; administrator creation direct; anyone can withdraw; approved action skips the rules; audit rows in clear; previous keys ignored; names in clear; names moved between people accepted; seeds not rewritten; names not rewritten). **17 were caught at once; one survived**: with the expiry check removed, the store still refused an expired request, only with a different message. The test now requires the exact reason, and the mutant is killed.
+
+### 12.5 Deployment
+`DUAL_CONTROL`, `APPROVAL_TTL_SECONDS` and `DATA_KEY_PREVIOUS` are passed through `compose.yml` and listed in `deploy/env.production.example`; a deployment test checks both. The runbook (`docs/40`) has the new procedures: rotating `FERNET_KEY` (5a), the approval flow (5b), and "an audit log cannot be read" (8.1b).
+
+### 12.6 What is still open
+- Not run on the target virtual machine (deliberately last).
+- Dual control cannot know that two administrator accounts belong to two people; a person who controls both defeats it. The log records who did what.
+- A lone administrator is not protected (nobody could approve); it is logged.
+- User records other than the name (level, permissions, timestamps) are readable in the database; they hold no personal data beyond the badge number.
+- The audit log keeps the badge numbers of the people who acted (needed for accountability) and, since the log is encrypted, they are protected on disk but are visible to anyone who can read the API's audit panel with the right permission.
+- Disk: the build machine's disk is almost full (the health panel reports `disk: down`, correctly). That is a finding about this laptop, not the product.
+
+**A note on the count.** The harness (`rust/tools/mutate.py`) holds 75 mutants, and that is the number checked by the full run. The tallies of earlier rounds (61 after round 3, plus the 18 listed in 12.4) add up to 79, not 75: some mutants were merged or replaced when earlier ones were repaired, and the per-round figures were not reconciled at the time. The authoritative figure is the harness itself. The run needs a real MongoDB (`MONGO_URI`, `REQUIRE_MONGO=1`); without one the database-backed mutants are not caught because their tests skip.

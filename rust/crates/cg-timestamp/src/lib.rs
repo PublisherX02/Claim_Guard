@@ -345,8 +345,8 @@ pub fn timestamp_status(log: &Path, anchor: &Path, trusted_ca_pem: Option<&str>)
 
 /// True when the row at position `count` has hash `head`: the stamped state is a prefix of the present chain.
 fn head_in_log(log: &Path, head: &str, count: u64) -> bool {
-    let Ok(text) = std::fs::read_to_string(log) else { return false };
-    text.lines().nth(count.saturating_sub(1) as usize).filter(|_| count > 0).and_then(|l| serde_json::from_str::<Value>(l).ok()).is_some_and(|v| v["hash"] == head)
+    let Ok(rows) = cg_audit::read_rows(log) else { return false };
+    rows.get(count.saturating_sub(1) as usize).filter(|_| count > 0).and_then(|l| serde_json::from_str::<Value>(l).ok()).is_some_and(|v| v["hash"] == head)
 }
 
 #[cfg(test)]

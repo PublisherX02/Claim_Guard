@@ -408,3 +408,70 @@ fn a_reason_that_contains_the_patients_identifier_is_refused_and_unmasking_is_ra
     let ev = j(&t.get("/api/v1/audit/events?event_type=forbidden", &admin));
     assert!(ev["events"].to_string().contains("hourly limit"), "{ev}");
 }
+
+#[test]
+fn dangerous_administrator_actions_wait_for_a_second_administrator() {
+    let t = t();
+    t.w.provision("CG-4005", 4, PW);
+    let first = t.login("CG-4004");
+    let second = t.login("CG-4005");
+
+    // asking for an authenticator reset only makes a request: 202, the link for the person who asked, nothing changed yet
+    let asked = t.post("/api/v1/users/CG-2002/reset-totp", json!({}), &first);
+    assert_eq!(asked.status, 202, "{:?}", j(&asked));
+    let body = j(&asked);
+    assert_eq!(body["status"], "pending_approval");
+    assert!(body["provisioning_uri"].as_str().unwrap().contains("secret="));
+    let id = body["approval"]["id"].as_str().unwrap().to_string();
+    assert_eq!((body["approval"]["status"].as_str(), body["approval"]["requested_by"].as_str()), (Some("pending"), Some("CG-4004")));
+    assert!(body["approval"].get("payload").is_none(), "what is needed to carry it out is never shown");
+    assert_eq!(t.post("/api/v1/users/CG-2002/reset-totp", json!({}), &first).status, 409, "one request at a time");
+
+    // both administrators see it; others do not
+    let listed = j(&t.get("/api/v1/approvals", &second));
+    assert_eq!(listed["approvals"][0]["id"], id.as_str());
+    assert_eq!(listed["dual_control"], true);
+    assert!(!listed.to_string().contains("totp_secret_enc"));
+    assert_eq!(t.get("/api/v1/approvals", &t.login("CG-3003")).status, 403);
+
+    // the person who asked cannot approve; a wrong code and an odd body are refused; an unknown request does not exist
+    let own = t.w.code("CG-4004");
+    assert_eq!(t.post(&format!("/api/v1/approvals/{id}/approve"), json!({"totp_code": own}), &first).status, 403);
+    assert_eq!(t.post(&format!("/api/v1/approvals/{id}/approve"), json!({"totp_code": "000000"}), &second).status, 422);
+    assert_eq!(t.post(&format!("/api/v1/approvals/{id}/approve"), json!({"totp_code": "000000", "extra": 1}), &second).status, 422);
+    assert_eq!(t.post(&format!("/api/v1/approvals/{id}/approve"), json!({}), &second).status, 422);
+    assert_eq!(t.post("/api/v1/approvals/AP-nothing/approve", json!({"totp_code": "123456"}), &second).status, 404);
+    assert_eq!(t.post("/api/v1/approvals/..%2Fusers/approve", json!({"totp_code": "123456"}), &second).status, 404);
+    assert_eq!(j(&t.get("/api/v1/approvals", &second))["approvals"][0]["status"], "pending");
+
+    // the other administrator approves with a fresh code, and it is carried out
+    let code = t.w.code("CG-4005");
+    let done = t.post(&format!("/api/v1/approvals/{id}/approve"), json!({"totp_code": code}), &second);
+    assert_eq!(done.status, 200, "{:?}", j(&done));
+    assert_eq!((j(&done)["approval"]["status"].as_str(), j(&done)["approval"]["decided_by"].as_str()), (Some("approved"), Some("CG-4005")));
+    let code = t.w.code("CG-4005");
+    assert_eq!(t.post(&format!("/api/v1/approvals/{id}/approve"), json!({"totp_code": code}), &second).status, 422, "once only");
+
+    // an administrator cannot be created or demoted on one person's say-so either, and a request can be withdrawn or rejected
+    let made = t.post("/api/v1/users", json!({"badge_id": "CG-4006", "name": "Third Admin", "password": PW, "level": 4}), &first);
+    assert_eq!(made.status, 202);
+    assert_eq!(j(&t.get("/api/v1/users", &first))["users"].as_array().unwrap().iter().filter(|u| u["badge_id"] == "CG-4006").count(), 0, "no account yet");
+    let id2 = j(&made)["approval"]["id"].as_str().unwrap().to_string();
+    assert_eq!(t.post(&format!("/api/v1/approvals/{id2}/reject"), json!({"note": "who is this"}), &first).status, 403, "withdraw instead");
+    assert_eq!(t.post(&format!("/api/v1/approvals/{id2}/reject"), json!({"note": "who is this"}), &second).status, 200);
+    let patch = t.api.handle(req("PATCH", "/api/v1/users/CG-4005", Some(json!({"active": false})), Some(&first.0), Some(&first.1)));
+    assert_eq!(patch.status, 202);
+    let id3 = j(&patch)["approval"]["id"].as_str().unwrap().to_string();
+    assert_eq!(t.post(&format!("/api/v1/approvals/{id3}/cancel"), json!({}), &second).status, 403, "only the person who asked");
+    assert_eq!(t.post(&format!("/api/v1/approvals/{id3}/cancel"), json!({}), &first).status, 200);
+
+    // ordinary changes stay direct
+    assert_eq!(t.post("/api/v1/users", json!({"badge_id": "CG-5005", "name": "New Person", "password": PW, "level": 2}), &first).status, 201);
+
+    // the log tells the story
+    let events = j(&t.get("/api/v1/audit/events?limit=200", &first));
+    let outcomes: Vec<String> = events["events"].as_array().unwrap().iter().filter(|e| e["event"]["event_type"] == "approval").map(|e| e["event"]["outcome"].as_str().unwrap().to_string()).collect();
+    for o in ["requested", "approved", "rejected", "cancelled"] {
+        assert!(outcomes.iter().any(|x| x == o), "{o} missing from {outcomes:?}");
+    }
+}

@@ -17,7 +17,8 @@ pub mod server;
 use cg_access::masking;
 use cg_access::permissions::{self, Perms};
 use cg_access::securitylog::SecurityLog;
-use cg_access::service::{AccessService, AuthError, Changes, Forbidden, Principal, ServiceError};
+use cg_access::service::{AccessService, AuthError, Changes, Forbidden, Gate, Principal, ServiceError};
+use cg_access::store::Approval;
 use cg_access::settings::Settings;
 use cg_access::Clock;
 use cg_audit::AuditLog;
@@ -397,6 +398,12 @@ impl Api {
             ServiceError::Invalid(m) | ServiceError::Permission(permissions::PermissionError::Invalid(m)) => invalid().with("detail", json!(m.chars().take(300).collect::<String>())),
             ServiceError::Auth(AuthError::Unavailable) => ApiError::new(503, "unavailable"),
             ServiceError::Auth(_) => ApiError::new(401, "invalid_credentials"),
+            ServiceError::Throttled => {
+                self.access.note_forbidden(p.badge(), &req.method, &format!("{} (too many wrong codes)", req.path));
+                let mut e = ApiError::new(429, "too_many_attempts");
+                e.headers.push(("retry-after".into(), "900".into()));
+                e
+            }
         }
     }
 
@@ -451,6 +458,10 @@ impl Api {
             ["users", badge] => if m == "PATCH" { self.users_patch(req, badge) } else { Err(wrong()) },
             ["users", badge, "unlock"] => if m == "POST" { self.users_unlock(req, badge) } else { Err(wrong()) },
             ["users", badge, "reset-totp"] => if m == "POST" { self.users_reset_totp(req, badge) } else { Err(wrong()) },
+            ["approvals"] => if m == "GET" { self.approvals_list(req) } else { Err(wrong()) },
+            ["approvals", id, "approve"] => if m == "POST" { self.approvals_approve(req, id) } else { Err(wrong()) },
+            ["approvals", id, "reject"] => if m == "POST" { self.approvals_reject(req, id) } else { Err(wrong()) },
+            ["approvals", id, "cancel"] => if m == "POST" { self.approvals_cancel(req, id) } else { Err(wrong()) },
             ["work", "inbox"] if self.queue.is_some() => if m == "GET" { self.work_inbox(req) } else { Err(wrong()) },
             ["work", "next"] if self.queue.is_some() => if m == "POST" { self.work_next(req) } else { Err(wrong()) },
             ["work", "heartbeat"] if self.queue.is_some() => if m == "POST" { self.work_heartbeat(req) } else { Err(wrong()) },
@@ -700,8 +711,10 @@ impl Api {
             .ok()
             .filter(|b: &CreateUserBody| !(too_long(&b.badge_id, 64) || too_long(&b.name, 200) || too_long(&b.password, 128) || b.grants.len() > 20 || b.revokes.len() > 20))
             .ok_or_else(invalid)?;
-        let (user, uri) = self.access.create_user(&p, &b.badge_id, &b.name, &b.password, b.level, &b.grants, &b.revokes).map_err(|e| self.serr(e, req, &p))?;
-        Ok(ApiResponse::json(201, &json!({"badge_id": user.badge_id, "provisioning_uri": uri})))
+        match self.access.create_user_gated(&p, &b.badge_id, &b.name, &b.password, b.level, &b.grants, &b.revokes).map_err(|e| self.serr(e, req, &p))? {
+            Gate::Done((user, uri)) => Ok(ApiResponse::json(201, &json!({"badge_id": user.badge_id, "provisioning_uri": uri}))),
+            Gate::Pending { approval, uri } => Ok(Self::pending(&approval, uri)),
+        }
     }
 
     fn users_patch(&self, req: &ApiRequest, badge: &str) -> R {
@@ -724,8 +737,10 @@ impl Api {
             revokes: strings("revokes")?,
             active: match m.get("active") { None => None, Some(Value::Bool(b)) => Some(*b), Some(_) => return Err(invalid()) },
         };
-        let u = self.access.update_user(&p, badge, &changes).map_err(|e| self.serr(e, req, &p))?;
-        Ok(ApiResponse::json(200, &json!({"badge_id": u.badge_id, "level": u.level, "active": u.active})))
+        match self.access.update_user_gated(&p, badge, &changes).map_err(|e| self.serr(e, req, &p))? {
+            Gate::Done(u) => Ok(ApiResponse::json(200, &json!({"badge_id": u.badge_id, "level": u.level, "active": u.active}))),
+            Gate::Pending { approval, uri } => Ok(Self::pending(&approval, uri)),
+        }
     }
 
     fn users_unlock(&self, req: &ApiRequest, badge: &str) -> R {
@@ -736,8 +751,77 @@ impl Api {
 
     fn users_reset_totp(&self, req: &ApiRequest, badge: &str) -> R {
         let p = self.need(req, "users.manage")?;
-        let uri = self.access.reset_totp(&p, badge).map_err(|e| self.serr(e, req, &p))?;
-        Ok(ApiResponse::json(200, &json!({"provisioning_uri": uri})))
+        match self.access.reset_totp_gated(&p, badge).map_err(|e| self.serr(e, req, &p))? {
+            Gate::Done(uri) => Ok(ApiResponse::json(200, &json!({"provisioning_uri": uri}))),
+            Gate::Pending { approval, uri } => Ok(Self::pending(&approval, uri)),
+        }
+    }
+
+    // ---- approvals (dual control) ------------------------------------------------------------------------------------------
+    /// 202: nothing has happened yet; a second administrator has to approve. The authenticator link (where there is one) goes to the person
+    /// who asked, now, and only works once the request is approved. The stored payload is never shown.
+    fn pending(a: &Approval, uri: Option<String>) -> ApiResponse {
+        let mut body = json!({"status": "pending_approval", "approval": Self::approval_view(a, 0.0)});
+        if let Some(u) = uri {
+            body["provisioning_uri"] = json!(u);
+        }
+        ApiResponse::json(202, &body)
+    }
+
+    fn approval_view(a: &Approval, now: f64) -> Value {
+        let status = if a.status == "pending" && now > 0.0 && a.expires_at <= now { "expired" } else { a.status.as_str() };
+        json!({"id": a.id, "action": a.action, "badge_id": a.target, "summary": a.summary, "requested_by": a.requested_by, "requested_at": a.requested_at, "expires_at": a.expires_at,
+            "status": status, "decided_by": a.decided_by, "decided_at": a.decided_at, "note": a.note})
+    }
+
+    fn approval_id(id: &str) -> Result<(), ApiError> {
+        if id.len() > 32 || !id.chars().all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_') {
+            return Err(ApiError::new(404, "not_found"));
+        }
+        Ok(())
+    }
+
+    fn approvals_list(&self, req: &ApiRequest) -> R {
+        let p = self.need(req, "users.manage")?;
+        let now = self.now();
+        let rows: Vec<Value> = self.access.list_approvals(&p).map_err(|e| self.serr(e, req, &p))?.iter().map(|a| Self::approval_view(a, now)).collect();
+        Ok(ApiResponse::json(200, &json!({"approvals": rows, "dual_control": self.access.settings.dual_control})))
+    }
+
+    fn approvals_approve(&self, req: &ApiRequest, id: &str) -> R {
+        let p = self.need(req, "users.manage")?;
+        Self::approval_id(id)?;
+        let m = object_body(req)?;
+        let code = match (m.len(), m.get("totp_code")) {
+            (1, Some(Value::String(c))) if c.len() <= 12 => c.clone(),
+            _ => return Err(invalid()),
+        };
+        // a wrong code is 422, not 401: the person is still signed in, and the console must not throw them out for a typing mistake
+        let a = self.access.approve(&p, id, &code).map_err(|e| match e {
+            ServiceError::Auth(AuthError::InvalidCredentials) => ApiError::new(422, "wrong_code"),
+            other => self.serr(other, req, &p),
+        })?;
+        Ok(ApiResponse::json(200, &json!({"approval": Self::approval_view(&a, 0.0)})))
+    }
+
+    fn approvals_reject(&self, req: &ApiRequest, id: &str) -> R {
+        let p = self.need(req, "users.manage")?;
+        Self::approval_id(id)?;
+        let m = object_body(req)?;
+        let note = match (m.keys().all(|k| k == "note"), m.get("note")) {
+            (true, None) => String::new(),
+            (true, Some(Value::String(n))) if n.chars().count() <= 200 => n.clone(),
+            _ => return Err(invalid()),
+        };
+        let a = self.access.reject_request(&p, id, &note).map_err(|e| self.serr(e, req, &p))?;
+        Ok(ApiResponse::json(200, &json!({"approval": Self::approval_view(&a, 0.0)})))
+    }
+
+    fn approvals_cancel(&self, req: &ApiRequest, id: &str) -> R {
+        let p = self.need(req, "users.manage")?;
+        Self::approval_id(id)?;
+        let a = self.access.cancel(&p, id).map_err(|e| self.serr(e, req, &p))?;
+        Ok(ApiResponse::json(200, &json!({"approval": Self::approval_view(&a, 0.0)})))
     }
 
     // ---- the queue --------------------------------------------------------------------------------------------------------

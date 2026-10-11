@@ -31,6 +31,9 @@ pub struct Settings {
     pub lockout_seconds: f64,
     pub totp_step: i64,
     pub cookie_secure: bool,
+    /// Dangerous administrator actions need a second administrator (DUAL_CONTROL=false turns it off).
+    pub dual_control: bool,
+    pub approval_ttl_seconds: i64,
     pub dev: bool,
 }
 
@@ -113,6 +116,8 @@ pub fn load_settings(env: &HashMap<String, String>, dev: bool, bind_host: &str) 
         lockout_seconds: int(env, "LOCKOUT_SECONDS", 900, 1, 86400)? as f64,
         totp_step: 30,
         cookie_secure: secure,
+        dual_control: !matches!(env.get("DUAL_CONTROL").map(|v| v.trim().to_lowercase()).as_deref(), Some("false" | "0" | "off" | "no")),
+        approval_ttl_seconds: int(env, "APPROVAL_TTL_SECONDS", 86_400, 60, 604_800)?,
         dev,
     })
 }

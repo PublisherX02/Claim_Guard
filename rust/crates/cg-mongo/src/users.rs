@@ -1,6 +1,7 @@
 //! The MongoDB user store (`src/access/store_mongo.py`).
 
-use cg_access::store::{validate_update, validate_user, StoreError, User, UserStore, UserUpdate};
+use crate::crypt::FieldCrypt;
+use cg_access::store::{validate_update, validate_user, Approval, StoreError, User, UserStore, UserUpdate};
 use mongodb::bson::{doc, Bson, DateTime, Document};
 use mongodb::options::{IndexOptions, ReturnDocument, UpdateModifications};
 use mongodb::sync::{Client, Collection};
@@ -47,11 +48,16 @@ fn strings(d: &Document, key: &str) -> Vec<String> {
     d.get_array(key).map(|a| a.iter().filter_map(|b| b.as_str().map(str::to_string)).collect()).unwrap_or_default()
 }
 
-fn to_user(d: &Document) -> Result<User, StoreError> {
+fn to_user(d: &Document, crypt: Option<&FieldCrypt>) -> Result<User, StoreError> {
     let text = |k: &str| d.get_str(k).map(str::to_string).map_err(|_| StoreError::Unavailable);
+    let badge_id = text("badge_id")?;
+    let name = match crypt {
+        Some(c) => c.open_text(&badge_id, "name", &text("name")?).map_err(|_| StoreError::Unavailable)?,
+        None => text("name")?,
+    };
     Ok(User {
-        badge_id: text("badge_id")?,
-        name: text("name")?,
+        badge_id,
+        name,
         password_hash: text("password_hash")?,
         totp_secret_enc: text("totp_secret_enc")?,
         level: i64_of(d, "level")?,
@@ -67,6 +73,24 @@ fn to_user(d: &Document) -> Result<User, StoreError> {
     })
 }
 
+fn to_approval(d: &Document) -> Result<Approval, StoreError> {
+    let text = |k: &str| d.get_str(k).map(str::to_string).map_err(|_| StoreError::Unavailable);
+    Ok(Approval {
+        id: text("id")?,
+        action: text("action")?,
+        target: text("target")?,
+        requested_by: text("requested_by")?,
+        requested_at: f64_of(d, "requested_at").unwrap_or(0.0),
+        expires_at: f64_of(d, "expires_at").unwrap_or(0.0),
+        status: text("status")?,
+        summary: text("summary")?,
+        payload: text("payload")?,
+        decided_by: d.get_str("decided_by").ok().map(str::to_string),
+        decided_at: f64_of(d, "decided_at"),
+        note: d.get_str("note").ok().map(str::to_string),
+    })
+}
+
 fn opt_f64(v: Option<f64>) -> Bson {
     v.map(Bson::Double).unwrap_or(Bson::Null)
 }
@@ -79,12 +103,28 @@ pub struct MongoUserStore {
     revoked: Collection<Document>,
     counters: Collection<Document>,
     clients: Collection<Document>,
+    approvals: Collection<Document>,
+    crypt: Option<FieldCrypt>,
 }
 
 impl MongoUserStore {
+    /// Stores people's names encrypted (readable only with the key); names stored before this was switched on are still read.
+    pub fn with_encryption(mut self, crypt: FieldCrypt) -> MongoUserStore {
+        self.crypt = Some(crypt);
+        self
+    }
+
+    fn user_of(&self, d: &Document) -> Result<User, StoreError> {
+        to_user(d, self.crypt.as_ref())
+    }
+
+    fn stored_name(&self, badge_id: &str, name: &str) -> String {
+        self.crypt.as_ref().map_or_else(|| name.to_string(), |c| c.seal_text(badge_id, "name", name))
+    }
+
     pub fn new(client: Client, db_name: &str) -> MongoUserStore {
         let db = client.database(db_name);
-        MongoUserStore { users: db.collection("users"), totp: db.collection("used_totp"), revoked: db.collection("revoked_tokens"), counters: db.collection("counters"), clients: db.collection("known_clients"), client, db_name: db_name.to_string() }
+        MongoUserStore { users: db.collection("users"), totp: db.collection("used_totp"), revoked: db.collection("revoked_tokens"), counters: db.collection("counters"), clients: db.collection("known_clients"), approvals: db.collection("approvals"), crypt: None, client, db_name: db_name.to_string() }
     }
 
     pub fn ensure_indexes(&self) -> Result<(), StoreError> {
@@ -98,7 +138,75 @@ impl MongoUserStore {
         self.counters.create_index(IndexModel::builder().keys(doc! {"expires_at": 1}).options(ttl()).build()).run().map_err(unavailable)?;
         self.clients.create_index(IndexModel::builder().keys(doc! {"badge_id": 1, "client": 1}).options(unique()).build()).run().map_err(unavailable)?;
         self.clients.create_index(IndexModel::builder().keys(doc! {"expires_at": 1}).options(ttl()).build()).run().map_err(unavailable)?;
+        self.approvals.create_index(IndexModel::builder().keys(doc! {"id": 1}).options(unique()).build()).run().map_err(unavailable)?;
+        // at most one pending request per (action, target), enforced by the database itself
+        let one_pending = IndexOptions::builder().unique(true).partial_filter_expression(doc! {"status": "pending"}).build();
+        self.approvals.create_index(IndexModel::builder().keys(doc! {"action": 1, "target": 1}).options(one_pending).build()).run().map_err(unavailable)?;
         Ok(())
+    }
+
+    /// Re-encrypts every person's name from this store's key to `new` (see `MongoQueueStore::reencrypt_all`). Returns (rewritten, already on
+    /// the new key, skipped because it changed meanwhile).
+    pub fn reencrypt_names(&self, new: &FieldCrypt, dry_run: bool) -> Result<(usize, usize, usize), StoreError> {
+        let old = self.crypt.as_ref().ok_or_else(|| StoreError::Invalid("this store has no encryption key to rotate from".into()))?;
+        let (mut rewritten, mut current, mut skipped) = (0, 0, 0);
+        let all: Vec<Document> = self.users.find(doc! {}).run().map_err(unavailable)?.collect::<Result<_, _>>().map_err(unavailable)?;
+        for raw in all {
+            let (Ok(badge), Ok(stored)) = (raw.get_str("badge_id"), raw.get_str("name")) else { continue };
+            let plain = match old.open_text(badge, "name", stored) {
+                Ok(p) => p, // sealed with the old key, or a plain name from before encryption was on
+                Err(_) => match new.open_text(badge, "name", stored) {
+                    Ok(_) => {
+                        current += 1;
+                        continue;
+                    }
+                    Err(e) => return Err(StoreError::Invalid(format!("the name of {badge} opens with neither key: {}", e.0))),
+                },
+            };
+            if dry_run {
+                rewritten += 1;
+                continue;
+            }
+            let r = self.users.update_one(doc! {"badge_id": badge, "name": stored}, doc! {"$set": {"name": new.seal_text(badge, "name", &plain)}}).run().map_err(unavailable)?;
+            if r.modified_count == 1 {
+                rewritten += 1;
+            } else {
+                skipped += 1;
+            }
+        }
+        Ok((rewritten, current, skipped))
+    }
+
+    /// Re-encrypts every authenticator seed from the Fernet key `old` to `new` (rotating `FERNET_KEY`). A seed that opens with neither key
+    /// stops the run with an error and nothing is half-changed for that person. Returns (rewritten, already on the new key, skipped).
+    pub fn reencrypt_seeds(&self, old: &str, new: &str, dry_run: bool) -> Result<(usize, usize, usize), StoreError> {
+        let (o, n) = match (fernet::Fernet::new(old), fernet::Fernet::new(new)) {
+            (Some(o), Some(n)) => (o, n),
+            _ => return Err(StoreError::Invalid("a Fernet key is not valid".into())),
+        };
+        let (mut rewritten, mut current, mut skipped) = (0, 0, 0);
+        let all: Vec<Document> = self.users.find(doc! {}).run().map_err(unavailable)?.collect::<Result<_, _>>().map_err(unavailable)?;
+        for raw in all {
+            let (Ok(badge), Ok(stored)) = (raw.get_str("badge_id"), raw.get_str("totp_secret_enc")) else { continue };
+            let Ok(plain) = o.decrypt(stored) else {
+                if n.decrypt(stored).is_ok() {
+                    current += 1;
+                    continue;
+                }
+                return Err(StoreError::Invalid(format!("the authenticator seed of {badge} opens with neither key")));
+            };
+            if dry_run {
+                rewritten += 1;
+                continue;
+            }
+            let r = self.users.update_one(doc! {"badge_id": badge, "totp_secret_enc": stored}, doc! {"$set": {"totp_secret_enc": n.encrypt(&plain)}}).run().map_err(unavailable)?;
+            if r.modified_count == 1 {
+                rewritten += 1;
+            } else {
+                skipped += 1;
+            }
+        }
+        Ok((rewritten, current, skipped))
     }
 
     pub fn drop_database(&self) {
@@ -118,7 +226,7 @@ impl UserStore for MongoUserStore {
 
     fn create_user(&self, u: &User) -> Result<(), StoreError> {
         validate_user(u)?;
-        let d = doc! {"badge_id": &u.badge_id, "name": &u.name, "password_hash": &u.password_hash, "totp_secret_enc": &u.totp_secret_enc, "level": u.level,
+        let d = doc! {"badge_id": &u.badge_id, "name": self.stored_name(&u.badge_id, &u.name), "password_hash": &u.password_hash, "totp_secret_enc": &u.totp_secret_enc, "level": u.level,
             "grants": u.grants.clone(), "revokes": u.revokes.clone(), "active": u.active, "failed_attempts": u.failed_attempts, "locked_until": opt_f64(u.locked_until),
             "must_change_password": u.must_change_password, "created_by": &u.created_by, "created_at": u.created_at, "last_login": opt_f64(u.last_login)};
         match self.users.insert_one(d).run() {
@@ -129,19 +237,19 @@ impl UserStore for MongoUserStore {
     }
 
     fn get_user(&self, badge_id: &str) -> Result<Option<User>, StoreError> {
-        self.users.find_one(doc! {"badge_id": badge_id}).run().map_err(unavailable)?.as_ref().map(to_user).transpose()
+        self.users.find_one(doc! {"badge_id": badge_id}).run().map_err(unavailable)?.as_ref().map(|d| self.user_of(d)).transpose()
     }
 
     fn list_users(&self) -> Result<Vec<User>, StoreError> {
         let cursor = self.users.find(doc! {}).sort(doc! {"badge_id": 1}).run().map_err(unavailable)?;
-        cursor.map(|r| r.map_err(unavailable).and_then(|d| to_user(&d))).collect()
+        cursor.map(|r| r.map_err(unavailable).and_then(|d| self.user_of(&d))).collect()
     }
 
     fn update_user(&self, badge_id: &str, f: &UserUpdate) -> Result<User, StoreError> {
         validate_update(f)?;
         let mut set = Document::new();
         if let Some(v) = &f.name {
-            set.insert("name", v);
+            set.insert("name", self.stored_name(badge_id, v));
         }
         if let Some(v) = &f.password_hash {
             set.insert("password_hash", v);
@@ -176,7 +284,7 @@ impl UserStore for MongoUserStore {
             self.users.find_one_and_update(doc! {"badge_id": badge_id}, doc! {"$set": set}).return_document(ReturnDocument::After).run()
         }
         .map_err(unavailable)?;
-        found.as_ref().map(to_user).transpose()?.ok_or(StoreError::NotFound)
+        found.as_ref().map(|d| self.user_of(d)).transpose()?.ok_or(StoreError::NotFound)
     }
 
     fn record_failed_login(&self, badge_id: &str, now: f64, max_failed: i64, lockout_seconds: f64) -> Result<User, StoreError> {
@@ -193,7 +301,7 @@ impl UserStore for MongoUserStore {
             .return_document(ReturnDocument::After)
             .run()
             .map_err(unavailable)?;
-        found.as_ref().map(to_user).transpose()?.ok_or(StoreError::NotFound)
+        found.as_ref().map(|d| self.user_of(d)).transpose()?.ok_or(StoreError::NotFound)
     }
 
     fn record_successful_login(&self, badge_id: &str, now: f64) -> Result<(), StoreError> {
@@ -270,6 +378,35 @@ impl UserStore for MongoUserStore {
         Ok(self.clients.find_one(doc! {"badge_id": badge_id, "client": client, "seen_ts": {"$gt": cutoff}}).run().map_err(unavailable)?.is_some())
     }
 
+    fn create_approval(&self, a: &Approval, now: f64) -> Result<(), StoreError> {
+        self.approvals.update_many(doc! {"status": "pending", "expires_at": {"$lte": now}}, doc! {"$set": {"status": "expired"}}).run().map_err(unavailable)?;
+        let d = doc! {"id": &a.id, "action": &a.action, "target": &a.target, "requested_by": &a.requested_by, "requested_at": a.requested_at, "expires_at": a.expires_at,
+            "status": &a.status, "summary": &a.summary, "payload": &a.payload, "decided_by": a.decided_by.clone(), "decided_at": opt_f64(a.decided_at), "note": a.note.clone()};
+        match self.approvals.insert_one(d).run() {
+            Ok(_) => Ok(()),
+            Err(e) if duplicate(&e) => Err(StoreError::Duplicate),
+            Err(e) => Err(unavailable(e)),
+        }
+    }
+
+    fn get_approval(&self, id: &str) -> Result<Option<Approval>, StoreError> {
+        self.approvals.find_one(doc! {"id": id}).run().map_err(unavailable)?.as_ref().map(to_approval).transpose()
+    }
+
+    fn list_approvals(&self, limit: usize) -> Result<Vec<Approval>, StoreError> {
+        let cursor = self.approvals.find(doc! {}).sort(doc! {"_id": -1}).limit(limit as i64).run().map_err(unavailable)?;
+        cursor.map(|r| r.map_err(unavailable).and_then(|d| to_approval(&d))).collect()
+    }
+
+    fn settle_approval(&self, id: &str, from: &str, to: &str, by: &str, now: f64, note: Option<&str>) -> Result<bool, StoreError> {
+        let mut filter = doc! {"id": id, "status": from};
+        if from == "pending" {
+            filter.insert("expires_at", doc! {"$gt": now});
+        }
+        let set = doc! {"status": to, "decided_by": by, "decided_at": now, "note": note.map(str::to_string)};
+        Ok(self.approvals.update_one(filter, doc! {"$set": set}).run().map_err(unavailable)?.modified_count == 1)
+    }
+
     fn mark_client(&self, badge_id: &str, client: &str, now: f64) -> Result<(), StoreError> {
         let update = doc! {"$set": {"seen_ts": now, "expires_at": dt(now + cg_access::store::KNOWN_CLIENT_SECONDS)}};
         for attempt in 0..2 {
@@ -316,6 +453,97 @@ mod tests {
         for n in names.lock().unwrap().iter() {
             let _ = client.database(n).drop().run();
         }
+    }
+
+    fn with_db<R>(f: impl FnOnce(&Client, &str) -> R) -> Option<R> {
+        let uri = uri()?;
+        let client = crate::connect(&uri, 3000).expect("connect");
+        let name = format!("claimguard_rs_test_{}", rand::random::<u64>());
+        let r = f(&client, &name);
+        let _ = client.database(&name).drop().run();
+        Some(r)
+    }
+
+    #[test]
+    fn names_are_stored_encrypted_and_the_store_still_meets_the_contract() {
+        let fk = fernet::Fernet::generate_key();
+        with_db(|client, name| {
+            let make = || -> Box<dyn UserStore> {
+                let n = format!("{name}_{}", rand::random::<u32>());
+                let s = MongoUserStore::new(client.clone(), &n).with_encryption(FieldCrypt::new(&fk, None).unwrap());
+                s.ensure_indexes().unwrap();
+                Box::new(s)
+            };
+            contract::run(&make);
+            let store = MongoUserStore::new(client.clone(), name).with_encryption(FieldCrypt::new(&fk, None).unwrap());
+            store.ensure_indexes().unwrap();
+            let (mut a, mut b) = (contract::sample("CG-1001", 1), contract::sample("CG-1002", 2));
+            a.name = "Amal Haddad".into();
+            b.name = "Omar Rached".into();
+            store.create_user(&a).unwrap();
+            store.create_user(&b).unwrap();
+            let raw = client.database(name).collection::<Document>("users").find_one(doc! {"badge_id": "CG-1001"}).run().unwrap().unwrap();
+            assert!(!raw.get_str("name").unwrap().contains("Amal") && raw.get_str("name").unwrap().starts_with("enc1:"), "{raw:?}");
+            assert_eq!(store.get_user("CG-1001").unwrap().unwrap().name, "Amal Haddad");
+            let mut changed = UserUpdate::default();
+            changed.name = Some("Amal H".into());
+            assert_eq!(store.update_user("CG-1001", &changed).unwrap().name, "Amal H");
+            // one person's sealed name copied onto another person is refused
+            let other = client.database(name).collection::<Document>("users").find_one(doc! {"badge_id": "CG-1002"}).run().unwrap().unwrap();
+            client.database(name).collection::<Document>("users").update_one(doc! {"badge_id": "CG-1001"}, doc! {"$set": {"name": other.get_str("name").unwrap()}}).run().unwrap();
+            assert_eq!(store.get_user("CG-1001"), Err(StoreError::Unavailable), "the name of CG-1002 under CG-1001");
+            // a store without the key cannot make sense of it either (it shows the token, not the name)
+            let blind = MongoUserStore::new(client.clone(), name);
+            assert!(blind.get_user("CG-1002").unwrap().unwrap().name.starts_with("enc1:"));
+            // names written before encryption was on are still read
+            client.database(name).collection::<Document>("users").update_one(doc! {"badge_id": "CG-1001"}, doc! {"$set": {"name": "Old Plain Name"}}).run().unwrap();
+            assert_eq!(store.get_user("CG-1001").unwrap().unwrap().name, "Old Plain Name");
+        })
+        .unwrap_or_else(|| assert!(std::env::var("REQUIRE_MONGO").is_err(), "REQUIRE_MONGO is set but MONGO_URI is not"));
+    }
+
+    #[test]
+    fn names_and_authenticator_seeds_can_be_rotated_to_new_keys() {
+        let (fk1, fk2) = (fernet::Fernet::generate_key(), fernet::Fernet::generate_key());
+        let (dk1, dk2) = (fernet::Fernet::generate_key(), fernet::Fernet::generate_key());
+        with_db(|client, name| {
+            let old = || FieldCrypt::new(&fk1, Some(&dk1)).unwrap();
+            let store = MongoUserStore::new(client.clone(), name).with_encryption(old());
+            store.ensure_indexes().unwrap();
+            let mut a = contract::sample("CG-1001", 1);
+            a.name = "Amal Haddad".into();
+            a.totp_secret_enc = fernet::Fernet::new(&fk1).unwrap().encrypt(b"JBSWY3DPEHPK3PXP");
+            let mut plain = contract::sample("CG-1002", 1);
+            plain.name = "Written Before".into();
+            plain.totp_secret_enc = fernet::Fernet::new(&fk1).unwrap().encrypt(b"JBSWY3DPEHPK3PXQ");
+            store.create_user(&a).unwrap();
+            client.database(name).collection::<Document>("users").insert_one(doc! {"badge_id": "CG-1002", "name": "Written Before", "password_hash": "x", "totp_secret_enc": &plain.totp_secret_enc, "level": 1_i64,
+                "grants": Vec::<String>::new(), "revokes": Vec::<String>::new(), "active": true, "failed_attempts": 0_i64, "locked_until": Bson::Null, "must_change_password": false, "created_by": "t", "created_at": 0.0, "last_login": Bson::Null}).run().unwrap();
+
+            // names: dry run changes nothing, the real run changes both (including the plain one), a repeat finds nothing to do
+            let new = FieldCrypt::new(&fk1, Some(&dk2)).unwrap();
+            assert_eq!(store.reencrypt_names(&new, true).unwrap(), (2, 0, 0));
+            assert_eq!(store.get_user("CG-1001").unwrap().unwrap().name, "Amal Haddad");
+            assert_eq!(store.reencrypt_names(&new, false).unwrap(), (2, 0, 0));
+            assert_eq!(store.reencrypt_names(&new, false).unwrap(), (0, 2, 0), "repeating it is safe");
+            let after = MongoUserStore::new(client.clone(), name).with_encryption(FieldCrypt::new(&fk1, Some(&dk2)).unwrap());
+            assert_eq!(after.get_user("CG-1001").unwrap().unwrap().name, "Amal Haddad");
+            assert_eq!(after.get_user("CG-1002").unwrap().unwrap().name, "Written Before");
+            assert_eq!(store.get_user("CG-1001"), Err(StoreError::Unavailable), "the old key no longer opens the names");
+
+            // seeds
+            assert_eq!(store.reencrypt_seeds(&fk1, &fk2, true).unwrap(), (2, 0, 0));
+            assert_eq!(store.reencrypt_seeds(&fk1, &fk2, false).unwrap(), (2, 0, 0));
+            assert_eq!(store.reencrypt_seeds(&fk1, &fk2, false).unwrap(), (0, 2, 0));
+            let seed = after.get_user("CG-1001").unwrap().unwrap().totp_secret_enc;
+            assert_eq!(fernet::Fernet::new(&fk2).unwrap().decrypt(&seed).unwrap(), b"JBSWY3DPEHPK3PXP");
+            assert!(fernet::Fernet::new(&fk1).unwrap().decrypt(&seed).is_err());
+            // a seed that opens with neither key stops the run
+            client.database(name).collection::<Document>("users").update_one(doc! {"badge_id": "CG-1001"}, doc! {"$set": {"totp_secret_enc": "garbage"}}).run().unwrap();
+            assert!(store.reencrypt_seeds(&fk1, &fk2, false).unwrap_err().to_string().contains("neither key"));
+            assert!(store.reencrypt_seeds("not a key", &fk2, false).is_err());
+        })
+        .unwrap_or_else(|| assert!(std::env::var("REQUIRE_MONGO").is_err(), "REQUIRE_MONGO is set but MONGO_URI is not"));
     }
 
     #[test]

@@ -36,6 +36,7 @@ fn main() {
         Some("worker") => std::process::exit(serve::worker(&args[2..])),
         Some("admin") => std::process::exit(tools::admin(&args[2..])),
         Some("rotate-key") => std::process::exit(tools::rotate_key(&args[2..])),
+        Some("rotate-fernet-key") => std::process::exit(tools::rotate_fernet_key(&args[2..])),
         Some("queue") => std::process::exit(tools::queue(&args[2..])),
         Some("serve") =>std::process::exit(serve::run(&args[2..])),
         _ => {
@@ -95,7 +96,20 @@ fn evaluate(args: &[String]) {
     }
 }
 
+/// The standalone log commands open an encrypted log when the deployment's key is in the environment (DATA_KEY or FERNET_KEY).
+fn audit_key_from_env() {
+    let env: std::collections::HashMap<String, String> = std::env::vars().collect();
+    let secret = env.get("DATA_KEY").or_else(|| env.get("FERNET_KEY")).map(|k| k.trim().to_string()).filter(|k| !k.is_empty());
+    if let Some(s) = secret {
+        if let Err(e) = crate::boot::set_audit_encryption(&env, &s) {
+            eprintln!("error: {e}");
+            std::process::exit(2);
+        }
+    }
+}
+
 fn audit_verify(args: &[String]) {
+    audit_key_from_env();
     let Some(log) = args.get(2) else { std::process::exit(2) };
     let strict = args.iter().any(|a| a == "--strict");
     match cg_audit::verify_with_anchor(std::path::Path::new(log), None, strict) {
@@ -108,6 +122,7 @@ fn audit_verify(args: &[String]) {
 }
 
 fn audit_append(args: &[String]) {
+    audit_key_from_env();
     let (Some(log), Some(events)) = (args.get(2), args.get(3)) else { std::process::exit(2) };
     let review = args.iter().any(|a| a == "--review");
     let text = std::fs::read_to_string(events).unwrap_or_default();

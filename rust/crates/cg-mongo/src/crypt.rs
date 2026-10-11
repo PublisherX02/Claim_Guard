@@ -21,6 +21,7 @@ use sha2::Sha256;
 /// Top-level fields of a claim document that are encrypted. `decisions` is a list whose elements are encrypted one by one.
 pub const SEALED_FIELDS: [&str; 4] = ["claim", "results", "advisory", "explanation"];
 const MARKER: &str = "$enc";
+const TEXT_PREFIX: &str = "enc1:";
 
 #[derive(Debug, PartialEq)]
 pub struct CryptError(pub String);
@@ -48,6 +49,26 @@ impl FieldCrypt {
             }
         };
         Ok(FieldCrypt { fernet, mac_key: derive(data_key.filter(|k| !k.trim().is_empty()).unwrap_or(fernet_key), "claimguard data at rest v1: patient index") })
+    }
+
+    /// A short text (a person's name) as `enc1:<token>`, bound to its owner (`scope`, e.g. the badge) and field name.
+    pub fn seal_text(&self, scope: &str, field: &str, text: &str) -> String {
+        format!("{TEXT_PREFIX}{}", self.fernet.encrypt(json!({"s": scope, "f": field, "d": text}).to_string().as_bytes()))
+    }
+
+    /// The text behind `seal_text`; text written before encryption was on (no prefix) is returned as it is.
+    pub fn open_text(&self, scope: &str, field: &str, stored: &str) -> Result<String, CryptError> {
+        let Some(token) = stored.strip_prefix(TEXT_PREFIX) else { return Ok(stored.to_string()) };
+        let plain = self.fernet.decrypt(token).map_err(|_| CryptError("a stored text cannot be decrypted (wrong key, or the data was changed)".into()))?;
+        let env: Value = serde_json::from_slice(&plain).map_err(|_| CryptError("a stored text is damaged".into()))?;
+        if env["s"] != scope || env["f"] != field {
+            return Err(CryptError("an encrypted text belongs to another record or field: the data was moved".into()));
+        }
+        Ok(env["d"].as_str().unwrap_or("").to_string())
+    }
+
+    pub fn is_sealed_text(stored: &str) -> bool {
+        stored.starts_with(TEXT_PREFIX)
     }
 
     /// A keyed hash of a patient id, stored in the clear so a patient's earlier claims can be found without the id being readable.

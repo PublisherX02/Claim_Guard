@@ -124,7 +124,7 @@ impl FileClaimStore {
 /// Per-finding review state derived from the review audit log (the log is the source of truth; results are never edited). A decision
 /// counts only if it was recorded AFTER that claim's latest `run_started` event; within a run the latest decision wins.
 pub fn review_state(results: &Value, log_path: &Path) -> BTreeMap<(String, String), &'static str> {
-    let rows: Vec<Value> = std::fs::read_to_string(log_path).unwrap_or_default().split('\n').filter(|l| !l.trim().is_empty()).filter_map(|l| serde_json::from_str(l).ok()).collect();
+    let rows: Vec<Value> = cg_audit::read_rows(log_path).unwrap_or_default().iter().filter_map(|l| serde_json::from_str(l).ok()).collect();
     let mut run_start: BTreeMap<String, i64> = BTreeMap::new();
     for row in &rows {
         let e = &row["event"];

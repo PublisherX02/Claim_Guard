@@ -173,12 +173,93 @@ pub fn rotate_key(args: &[String]) -> i32 {
             return 2;
         }
     };
+    let dry = has(args, "--dry-run");
+    let old_users = match FieldCrypt::new(&settings.fernet_key, env.get("DATA_KEY").map(String::as_str)) {
+        Ok(o) => o,
+        Err(e) => {
+            say(&format!("error: {}", e.0));
+            return 2;
+        }
+    };
+    let users = cg_mongo::MongoUserStore::new(client.clone(), &settings.mongo_db).with_encryption(old_users);
     let store = cg_mongo::MongoQueueStore::new(client, &crate::boot::queue_db_name(&settings, &env)).with_encryption(old);
-    match store.reencrypt_all(&new, has(args, "--dry-run")) {
+    let label = if dry { "dry run" } else { "done" };
+    let mut problems = 0;
+    match store.reencrypt_all(&new, dry) {
         Ok((rewritten, current, skipped)) => {
-            say(&format!("{}: {rewritten} documents re-encrypted, {current} already on the new key, {skipped} skipped because they changed meanwhile", if has(args, "--dry-run") { "dry run" } else { "done" }));
-            if !has(args, "--dry-run") && skipped == 0 {
-                say("Now set DATA_KEY to the new key in the environment and start the API and the worker. Keep the old key until you have checked the console.");
+            say(&format!("{label}: claims: {rewritten} re-encrypted, {current} already on the new key, {skipped} skipped because they changed meanwhile"));
+            problems += skipped;
+        }
+        Err(e) => {
+            say(&format!("error: {e}"));
+            return 2;
+        }
+    }
+    match users.reencrypt_names(&new, dry) {
+        Ok((rewritten, current, skipped)) => {
+            say(&format!("{label}: user names: {rewritten} re-encrypted, {current} already on the new key, {skipped} skipped because they changed meanwhile"));
+            problems += skipped;
+        }
+        Err(e) => {
+            say(&format!("error: {e}"));
+            return 2;
+        }
+    }
+    if !dry && problems == 0 {
+        let old_secret = env.get("DATA_KEY").map(|k| k.trim()).filter(|k| !k.is_empty()).unwrap_or(settings.fernet_key.as_str());
+        say("Now set DATA_KEY to the new key in the environment and start the API and the worker. Keep the old key until you have checked the console.");
+        say("The audit logs are not rewritten (that would break their chain, mirror and stamps): new rows use the new key and the old rows stay readable if you also set");
+        say(&format!("DATA_KEY_PREVIOUS={old_secret}   (keep it for as long as the old rows exist; add to the list with commas at the next rotation)"));
+    }
+    if problems > 0 { 1 } else { 0 }
+}
+
+/// `cg rotate-fernet-key [--dry-run]`: re-encrypts every authenticator seed from FERNET_KEY to NEW_FERNET_KEY (a Fernet key in the
+/// environment). Refuses to run while DATA_KEY is empty: then the claim data, the names and the audit logs would be using a key derived from
+/// FERNET_KEY and would become unreadable. (Set DATA_KEY first with `cg rotate-key`.) Stop the API and the worker first. Afterwards set
+/// FERNET_KEY to the new key and start them again. Safe to run twice.
+pub fn rotate_fernet_key(args: &[String]) -> i32 {
+    use cg_access::settings::load_settings;
+    let say = |s: &str| println!("{s}");
+    let env: std::collections::HashMap<String, String> = std::env::vars().collect();
+    let settings = match load_settings(&env, false, "127.0.0.1") {
+        Ok(s) => s,
+        Err(e) => {
+            say(&format!("configuration error: {}", e.0));
+            return 2;
+        }
+    };
+    let Some(uri) = settings.mongo_uri.clone() else {
+        say("error: MONGO_URI is required");
+        return 2;
+    };
+    if env.get("DATA_KEY").map(|k| k.trim().is_empty()).unwrap_or(true) {
+        say("error: DATA_KEY is empty, so the claim data, the names and the audit logs are protected by a key derived from FERNET_KEY, which this would change.");
+        say("First give them their own key: NEW_DATA_KEY=<new Fernet key> cg rotate-key, then set DATA_KEY (and DATA_KEY_PREVIOUS as it tells you).");
+        return 2;
+    }
+    let Some(new_key) = env.get("NEW_FERNET_KEY").map(|k| k.trim().to_string()).filter(|k| !k.is_empty()) else {
+        say("error: set NEW_FERNET_KEY to the new Fernet key (python -c \"from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())\")");
+        return 2;
+    };
+    if new_key == settings.fernet_key {
+        say("error: NEW_FERNET_KEY is the key already in use");
+        return 2;
+    }
+    let client = match cg_mongo::connect(&uri, 3000) {
+        Ok(c) => c,
+        Err(_) => {
+            say("error: the database cannot be reached");
+            return 2;
+        }
+    };
+    let dry = has(args, "--dry-run");
+    let users = cg_mongo::MongoUserStore::new(client, &settings.mongo_db);
+    match users.reencrypt_seeds(&settings.fernet_key, &new_key, dry) {
+        Ok((rewritten, current, skipped)) => {
+            say(&format!("{}: authenticator seeds: {rewritten} re-encrypted, {current} already on the new key, {skipped} skipped because they changed meanwhile", if dry { "dry run" } else { "done" }));
+            if !dry && skipped == 0 {
+                say("Now set FERNET_KEY to the new key in the environment and start the API and the worker. Nobody has to re-enrol an authenticator. Keep the old key until you have checked a sign-in, then destroy it.");
             }
             if skipped > 0 { 1 } else { 0 }
         }

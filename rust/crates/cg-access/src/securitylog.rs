@@ -104,10 +104,9 @@ impl SecurityLog {
         if !self.path.exists() {
             return Ok(vec![]);
         }
-        let text = std::fs::read_to_string(&self.path).map_err(|e| AuditError::Io(e.to_string()))?;
         let mut recent: VecDeque<Value> = VecDeque::new();
-        for line in text.split('\n').filter(|l| !l.trim().is_empty()) {
-            let row: Value = serde_json::from_str(line).map_err(|e| AuditError::Invalid(e.to_string()))?;
+        for line in cg_audit::read_rows(&self.path)? {
+            let row: Value = serde_json::from_str(&line).map_err(|e| AuditError::Invalid(e.to_string()))?;
             if recent.len() == max_rows {
                 recent.pop_front();
             }

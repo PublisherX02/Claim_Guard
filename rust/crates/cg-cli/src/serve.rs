@@ -22,13 +22,14 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 
 const LOCAL: [&str; 3] = ["127.0.0.1", "localhost", "::1"];
-const DEMO_ACCOUNTS: [(i64, &str, &str); 6] = [
+const DEMO_ACCOUNTS: [(i64, &str, &str); 7] = [
     (1, "CG-1001", "Demo Viewer"),
     (2, "CG-2002", "Demo Reviewer Amal"),
     (2, "CG-2003", "Demo Reviewer Omar"),
     (3, "CG-3003", "Demo Senior Layla"),
     (3, "CG-3004", "Demo Senior Karim"),
     (4, "CG-4004", "Demo Administrator"),
+    (4, "CG-4005", "Demo Administrator Two"),
 ];
 
 pub const USAGE: &str = "usage: cg serve [--host H] [--port N] [--dev] [--demo] [--queue] [--behind-proxy] [--data-dir D] [--claims FILE]\n       cg worker [--dev] [--data-dir D]";

@@ -165,8 +165,14 @@
       qr, h('div', { class: 'mono small', style: null, text: uri }));
   }
 
+  // A dangerous action does not happen when asked for: it becomes a request that a different administrator must approve.
+  function waiting(r, what) {
+    return h('div', { class: 'notice warn', role: 'status', text: what + ' is waiting for a second administrator to approve it (request ' + r.approval.id + '). Nothing has changed yet.' });
+  }
+  function failDetail(e) { CG.toast(e && e.data && e.data.detail ? e.data.detail : (e && e.message) || 'Something went wrong.', 'bad'); }
+
   CG.views.users = function (root) {
-    var list = h('div'), extra = h('div');
+    var list = h('div'), extra = h('div'), approvals = h('div');
     var LEVELS = { 1: '1 Viewer', 2: '2 Reviewer', 3: '3 Senior reviewer', 4: '4 Administrator' };
     function load() {
       CG.api('GET', '/users').then(function (d) {
@@ -181,14 +187,38 @@
             return h('div', { class: 'row' },
               u.locked ? h('button', { class: 'btn small', type: 'button', text: 'Unlock', onclick: function () { act(CG.api('POST', '/users/' + encodeURIComponent(u.badge_id) + '/unlock')); } }) : null,
               h('button', { class: 'btn small', type: 'button', text: 'Reset authenticator', onclick: function () {
-                CG.api('POST', '/users/' + encodeURIComponent(u.badge_id) + '/reset-totp').then(function (r) { CG.clear(extra); extra.appendChild(provisioning(r.provisioning_uri, u.badge_id)); load(); }, CG.fail);
+                CG.api('POST', '/users/' + encodeURIComponent(u.badge_id) + '/reset-totp').then(function (r) {
+                  CG.clear(extra);
+                  if (r.status === 'pending_approval') { extra.appendChild(waiting(r, 'Replacing the authenticator of ' + u.badge_id)); extra.appendChild(h('div', { class: 'notice info', text: 'The new setup link below only works once the request is approved. Give it to the person then, not before.' })); }
+                  extra.appendChild(provisioning(r.provisioning_uri, u.badge_id)); load(); loadApprovals();
+                }, failDetail);
               } }),
               me ? null : h('button', { class: 'btn small ' + (u.active ? 'danger' : ''), type: 'button', text: u.active ? 'Deactivate' : 'Activate', onclick: function () { act(CG.api('PATCH', '/users/' + encodeURIComponent(u.badge_id), { active: !u.active })); } }));
           } }
         ], d.users));
       }, CG.fail);
     }
-    function act(p) { p.then(function () { CG.toast('Done.', 'good'); load(); }, CG.fail); }
+    function act(p) { p.then(function (r) { if (r && r.status === 'pending_approval') { CG.clear(extra); extra.appendChild(waiting(r, r.approval.summary)); CG.toast('Sent for approval.', 'info'); } else CG.toast('Done.', 'good'); load(); loadApprovals(); }, failDetail); }
+
+    function loadApprovals() {
+      CG.api('GET', '/approvals').then(function (d) {
+        CG.clear(approvals);
+        var me = CG.state.me.badge_id, shown = d.approvals.filter(function (a) { return a.status === 'pending'; });
+        if (!d.dual_control) approvals.appendChild(h('p', { class: 'notice warn', text: 'Dual control is switched off on this server: these actions happen at once.' }));
+        if (!shown.length) { approvals.appendChild(h('p', { class: 'muted', text: 'Nothing is waiting for approval.' })); return; }
+        approvals.appendChild(CG.table([
+          { label: 'Request', get: function (a) { return a.summary; } }, { label: 'Asked by', get: function (a) { return h('span', { class: 'mono', text: a.requested_by }); } },
+          { label: 'Expires', get: function (a) { return CG.fmtTime(a.expires_at); } },
+          { label: '', get: function (a) {
+            if (a.requested_by === me) return h('button', { class: 'btn small', type: 'button', text: 'Withdraw', onclick: function () { CG.api('POST', '/approvals/' + encodeURIComponent(a.id) + '/cancel', {}).then(function () { CG.toast('Withdrawn.', 'good'); loadApprovals(); }, failDetail); } });
+            var code = h('input', { type: 'text', inputmode: 'numeric', maxlength: '8', autocomplete: 'off', placeholder: 'Your next code', 'aria-label': 'Your authenticator code to approve ' + a.id });
+            return h('div', { class: 'row' }, code,
+              h('button', { class: 'btn small primary', type: 'button', text: 'Approve', onclick: function () { CG.api('POST', '/approvals/' + encodeURIComponent(a.id) + '/approve', { totp_code: code.value.trim() }).then(function () { CG.toast('Approved and carried out.', 'good'); load(); loadApprovals(); }, failDetail); } }),
+              h('button', { class: 'btn small danger', type: 'button', text: 'Reject', onclick: function () { CG.api('POST', '/approvals/' + encodeURIComponent(a.id) + '/reject', {}).then(function () { CG.toast('Rejected.', 'good'); loadApprovals(); }, failDetail); } }));
+          } }
+        ], shown));
+      }, function () { CG.clear(approvals); });
+    }
 
     var badge = h('input', { type: 'text', maxlength: '64', placeholder: 'CG-2010', autocomplete: 'off' });
     var name = h('input', { type: 'text', maxlength: '200', autocomplete: 'off' });
@@ -197,17 +227,21 @@
     level.value = '2';
     var create = h('button', { class: 'btn primary', type: 'button', text: 'Create user', onclick: function () {
       CG.api('POST', '/users', { badge_id: badge.value.trim(), name: name.value.trim(), password: pw.value, level: Number(level.value) }).then(function (r) {
-        CG.clear(extra); extra.appendChild(provisioning(r.provisioning_uri, r.badge_id));
-        badge.value = name.value = pw.value = ''; load();
-      }, CG.fail);
+        CG.clear(extra);
+        if (r.status === 'pending_approval') extra.appendChild(waiting(r, r.approval.summary));
+        extra.appendChild(provisioning(r.provisioning_uri, r.badge_id || r.approval.badge_id));
+        badge.value = name.value = pw.value = ''; load(); loadApprovals();
+      }, failDetail);
     } });
     root.appendChild(h('h1', { text: 'Users' }));
     root.appendChild(h('div', { class: 'card' }, h('h2', { text: 'Add a person' }),
       h('div', { class: 'row' }, h('div', { class: 'grow' }, h('label', { text: 'Badge' }), badge), h('div', { class: 'grow' }, h('label', { text: 'Name' }), name), h('div', { class: 'grow' }, h('label', { text: 'Temporary password' }), pw), h('div', null, h('label', { text: 'Level' }), level)),
       h('p', { class: 'muted small', text: 'They must change the password at first sign-in. Level 4 cannot decide claims, so whoever runs the system never approves its findings.' }), create));
     root.appendChild(extra);
+    root.appendChild(h('div', { class: 'card' }, h('h2', { text: 'Waiting for a second administrator' }),
+      h('p', { class: 'muted small', text: 'Replacing an authenticator, and creating, promoting, demoting or deactivating an administrator, need a different administrator to approve with a fresh authenticator code.' }), approvals));
     root.appendChild(h('div', { class: 'card' }, h('h2', { text: 'Everyone' }), list));
-    load();
+    load(); loadApprovals();
   };
 
   // ---- audit ------------------------------------------------------------------------------------------------------------------

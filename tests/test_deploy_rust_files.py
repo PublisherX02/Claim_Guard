@@ -32,6 +32,13 @@ class RustCompose(unittest.TestCase):
             self.assertRegex(self.text, r'\$\{' + name + r':\?', name)
             self.assertNotRegex(self.text, r'\$\{' + name + r':-', name)
 
+    def test_dual_control_is_on_by_default_and_the_old_data_key_can_be_kept(self):
+        self.assertRegex(self.text, r'DUAL_CONTROL: \$\{DUAL_CONTROL:-true\}')
+        self.assertRegex(self.text, r'DATA_KEY_PREVIOUS: \$\{DATA_KEY_PREVIOUS:-\}')
+        example = (ROOT / 'deploy' / 'env.production.example').read_text(encoding='utf-8')
+        self.assertIn('DUAL_CONTROL=true', example)
+        self.assertIn('DATA_KEY_PREVIOUS=', example)
+
     def test_app_containers_are_locked_down(self):
         head = self.text.split('\nservices:\n', 1)[0]
         for needle in ('no-new-privileges:true', 'cap_drop: [ALL]', 'read_only: true'):

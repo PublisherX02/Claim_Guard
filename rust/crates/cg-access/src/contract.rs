@@ -1,7 +1,7 @@
 //! One contract every `UserStore` must satisfy: the in-memory twin and the MongoDB store run the same checks, so the twin used by fast
 //! tests is verified against the real database's behaviour (the Python build does the same with tests/access_store_contract.py).
 
-use crate::store::{StoreError, User, UserStore, UserUpdate};
+use crate::store::{Approval, StoreError, User, UserStore, UserUpdate};
 use std::sync::atomic::{AtomicUsize, Ordering};
 
 pub fn sample(badge: &str, level: i64) -> User {
@@ -120,6 +120,46 @@ pub fn run(fresh: &dyn Fn() -> Box<dyn UserStore>) {
     assert!(s.client_known("CG-1001", "c1", 300.0).unwrap());
     assert!(!s.client_known("CG-1001", "c2", 300.0).unwrap() && !s.client_known("CG-2002", "c1", 300.0).unwrap());
     assert!(!s.client_known("CG-1001", "c1", 200.0 + crate::store::KNOWN_CLIENT_SECONDS + 1.0).unwrap(), "a client unused for thirty days is no longer known");
+
+    // approvals: one pending request per (action, target), settled exactly once, expiry
+    let s = fresh();
+    let ap = |id: &str, action: &str, target: &str, expires: f64| Approval {
+        id: id.into(), action: action.into(), target: target.into(), requested_by: "CG-4001".into(), requested_at: 10.0, expires_at: expires, status: "pending".into(),
+        summary: "s".into(), payload: "{}".into(), decided_by: None, decided_at: None, note: None,
+    };
+    s.create_approval(&ap("a1", "reset_totp", "CG-1001", 100.0), 10.0).unwrap();
+    assert_eq!(s.create_approval(&ap("a2", "reset_totp", "CG-1001", 100.0), 11.0), Err(StoreError::Duplicate), "one pending request per action and target");
+    s.create_approval(&ap("a3", "reset_totp", "CG-2002", 100.0), 11.0).unwrap();
+    s.create_approval(&ap("a4", "update_user", "CG-1001", 100.0), 11.0).unwrap();
+    assert_eq!(s.get_approval("a1").unwrap().unwrap().status, "pending");
+    assert_eq!(s.get_approval("nope").unwrap(), None);
+    assert_eq!(s.list_approvals(10).unwrap().iter().map(|a| a.id.as_str()).collect::<Vec<_>>(), ["a4", "a3", "a1"], "newest first");
+    assert_eq!(s.list_approvals(2).unwrap().len(), 2);
+    assert!(!s.settle_approval("a1", "pending", "approved", "CG-4002", 200.0, None).unwrap(), "after its time it can no longer be settled");
+    assert!(s.settle_approval("a3", "pending", "approved", "CG-4002", 50.0, Some("ok")).unwrap());
+    assert!(!s.settle_approval("a3", "pending", "rejected", "CG-4003", 51.0, None).unwrap(), "settled once only");
+    let done = s.get_approval("a3").unwrap().unwrap();
+    assert_eq!((done.status.as_str(), done.decided_by.as_deref(), done.decided_at, done.note.as_deref()), ("approved", Some("CG-4002"), Some(50.0), Some("ok")));
+    assert!(s.settle_approval("a3", "approved", "failed", "CG-4002", 52.0, Some("could not apply")).unwrap(), "an approved one can be marked failed");
+    s.create_approval(&ap("a5", "reset_totp", "CG-1001", 400.0), 300.0).unwrap(); // a1 ran out, so a new request for the same thing is fine
+    assert_eq!(s.get_approval("a1").unwrap().unwrap().status, "expired");
+    s.settle_approval("a5", "pending", "cancelled", "CG-4001", 301.0, None).unwrap();
+    s.create_approval(&ap("a6", "reset_totp", "CG-1001", 900.0), 302.0).unwrap(); // after a cancel it is possible again
+    // parallel settling: exactly one wins
+    let s = fresh();
+    s.create_approval(&ap("p1", "reset_totp", "CG-1001", 1e9), 1.0).unwrap();
+    let wins = AtomicUsize::new(0);
+    std::thread::scope(|sc| {
+        for who in ["CG-4002", "CG-4003", "CG-4004", "CG-4005"] {
+            let (s, wins) = (&s, &wins);
+            sc.spawn(move || {
+                if s.settle_approval("p1", "pending", "approved", who, 2.0, None).unwrap() {
+                    wins.fetch_add(1, Ordering::SeqCst);
+                }
+            });
+        }
+    });
+    assert_eq!(wins.load(Ordering::SeqCst), 1, "two administrators cannot both settle one request");
 
     // administrators are counted only while active
     let s = fresh();

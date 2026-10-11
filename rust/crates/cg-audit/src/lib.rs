@@ -5,6 +5,7 @@
 //! (`<log>.head.json`) holds the head hash and the event count (HMAC-signed when `AUDIT_ANCHOR_KEY` is set) so truncation and whole-log
 //! replacement are detected, which a chain alone cannot do. This is tamper-EVIDENT, not immutable.
 
+pub mod atrest;
 pub mod canonical;
 pub mod mirror;
 
@@ -45,10 +46,10 @@ fn invalid<T>(msg: impl Into<String>) -> Result<T, AuditError> {
 pub const SYSTEM_DECISIONS: [&str; 3] = ["route_to_human_review", "no_findings_for_review", "quarantine_claim"];
 const REVIEW_ACTIONS: [&str; 4] = ["confirm_issue", "dismiss_with_reason", "request_information", "mark_corrected_for_recheck"];
 
-pub const SECURITY_EVENT_TYPES: [&str; 23] = [
+pub const SECURITY_EVENT_TYPES: [&str; 24] = [
     "login_success", "login_failure", "lockout", "logout", "token_rejected", "forbidden", "unmask", "user_created", "user_updated", "user_unlocked", "totp_reset",
     "password_changed", "audit_read", "audit_verify", "decision", "routing_config_changed", "lease_expired", "lease_reclaimed", "claim_dealt", "claim_decided_green",
-    "queue_admin", "claim_signoff", "triage_receipt",
+    "queue_admin", "claim_signoff", "triage_receipt", "approval",
 ];
 
 fn required() -> &'static BTreeMap<&'static str, BTreeSet<&'static str>> {
@@ -90,6 +91,7 @@ fn required() -> &'static BTreeMap<&'static str, BTreeSet<&'static str>> {
             ("queue_admin", &["actor", "command"]),
             ("claim_signoff", &["claim_id", "badge_id", "stage", "outcome"]),
             ("triage_receipt", &["claim_id", "input_hash", "result_hash", "lane", "score", "config_version"]),
+            ("approval", &["actor", "approval_id", "action", "badge_id", "outcome"]),
         ];
         rows.iter().map(|(k, fields)| (*k, fields.iter().copied().collect())).collect()
     })
@@ -149,7 +151,15 @@ fn rows_of(path: &Path) -> Result<Vec<String>, AuditError> {
     let text = std::fs::read(path)?;
     let text = String::from_utf8(text).map_err(|e| AuditError::Invalid(format!("Audit log is not valid UTF-8: {e}")))?;
     // split on \n only: a U+2028 inside a reviewer's reason must not split a record
-    Ok(text.split('\n').filter(|l| !l.trim().is_empty()).map(str::to_string).collect())
+    text.split('\n').filter(|l| !l.trim().is_empty()).map(atrest::open_line).collect()
+}
+
+/// Every row of a log as plain JSON text, oldest first, whether or not the file is encrypted at rest. Other crates read logs through this.
+pub fn read_rows(path: &Path) -> Result<Vec<String>, AuditError> {
+    if !path.exists() {
+        return Ok(vec![]);
+    }
+    rows_of(path)
 }
 
 /// `audit.verify`: walks the chain, returns (head, count).
@@ -366,7 +376,8 @@ impl AuditLog {
             chunk *= 2;
         };
         let torn = || AuditError::Invalid("Audit log tail is torn or altered; refusing to append".into());
-        let mut row: Value = serde_json::from_slice(&last).map_err(|_| torn())?;
+        let last = atrest::open_line(&String::from_utf8(last).map_err(|_| torn())?).map_err(|_| torn())?;
+        let mut row: Value = serde_json::from_str(&last).map_err(|_| torn())?;
         let claimed = row.as_object_mut().and_then(|o| o.remove("hash")).and_then(|h| h.as_str().map(str::to_string)).ok_or_else(torn)?;
         if canonical::digest(&row) != claimed {
             return Err(torn());
@@ -409,7 +420,7 @@ impl AuditLog {
             head = canonical::digest(&row);
             let mut full = row;
             full["hash"] = Value::String(head.clone());
-            file.write_all(canonical::line(&full).as_bytes())?;
+            file.write_all(atrest::seal_line(&canonical::line(&full)).as_bytes())?;
             file.write_all(b"\n")?;
             count += 1;
         }
