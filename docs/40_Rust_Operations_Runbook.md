@@ -27,6 +27,7 @@ bash deploy/rust/install.sh <address-or-domain> internal|public [ai]
 | `CG_BROKER_MIN_IDLE_SECONDS` | how long a message may stay unacknowledged before another consumer takes it over; never below the 90 s explanation ceiling plus 10 s | 120 |
 | `CG_REPUBLISH_AFTER_SECONDS` | a claim unfinished this long while the broker is empty is published again (never under 120) | 900 |
 | `CG_BROKER_STREAM` | the Redis stream name | `cg:queue:claims` |
+| `MONGO_CACHE_GB` | MongoDB's cache size; without a cap it takes half of the machine's RAM | 1 |
 | `CG_SITE`, `CADDYFILE` | the address and which proxy configuration | required |
 | `QUEUE_AI_PROVIDER=ollama`, `OLLAMA_BASE_URL`, `OLLAMA_MODEL`, `QUEUE_AI_TWO_PASS=1` | the AI explanation step; blank = none | none |
 | `AUDIT_MIRROR_DIR` (`/mirror`), `AUDIT_MIRROR_SECONDS` | the append-only second copy of the audit logs | on in the stack, 300 s |
@@ -88,6 +89,9 @@ Four things are never done on one administrator's word: replacing a person's aut
 - **The application:** pull the new source, `docker compose ... up -d --build`. The worker and API restart; claims in progress are safe (the queue is in the database).
 - **The base images are pinned by digest** (`compose.yml`, `Dockerfile`, the backup scripts), so a rebuild gives the same bytes. That also means *you* take security updates: `docker buildx imagetools inspect <tag>` for the new digest, edit it in those three places, rebuild, run `python rust/tools/deploy_attack.py`. Do this at least monthly and whenever a vulnerability scan (`docker run aquasec/trivy image ...`) reports something in a package the image really uses.
 - **Dependencies:** `cd rust && cargo audit` must stay clean apart from the reviewed list in `rust/.cargo/audit.toml`.
+
+### Memory
+Every container has a memory limit in `deploy/rust/compose.yml`, so one runaway cannot take the machine down: proxy 128 MB, API 768 MB, worker 768 MB (both measured at about 70 MB when idle), MongoDB 2 GB with its cache capped at `MONGO_CACHE_GB` (1), Redis 320 MB with `--maxmemory 200mb` and `noeviction` (at the limit a publish fails and the claim waits in the outbox, nothing is dropped), the model server 5 GB of host memory (the model itself sits in the graphics card). The worst case adds up to about 9 GB; the expected use is far lower. **Sizing:** about 2.5 GB without the AI model, about 4.5 GB with a 4B model on the GPU, 5 to 6 GB comfortable. **Measured** (2026-10-11, `docker stats` on the Compose stack right after the 50-check attack test, no model, little data): proxy 17 MB, API 39 MB, worker 10 MB, Redis 9 MB, MongoDB 290 MB: **about 370 MB in all**. Those are idle-ish figures; the worker and MongoDB grow with load and data, which is what the limits are for. The sizing above is a deliberately generous budget, not a measurement. Run `docker stats --no-stream` on the server once with the model loaded and write the real numbers here; the model server's host memory is the one figure estimated and not measured.
 
 ## 7. The health panel, component by component
 

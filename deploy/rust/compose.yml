@@ -52,6 +52,8 @@ services:
     image: caddy:2@sha256:f2a1290d0463aad60660d4ec134943f183ee2a5f6c3eb7bf32dd984f2f020772
     restart: unless-stopped
     networks: [edge]
+    mem_limit: 128m
+    pids_limit: 128
     ports: ["80:80", "443:443"]
     environment:
       CG_SITE: ${CG_SITE:?set CG_SITE in .env (a domain name, or an address for an internal certificate)}
@@ -88,7 +90,11 @@ services:
     environment:
       MONGO_INITDB_ROOT_USERNAME: ${MONGO_ROOT_USER}
       MONGO_INITDB_ROOT_PASSWORD: ${MONGO_ROOT_PASSWORD}
-    command: ["mongod", "--auth", "--bind_ip_all"]
+    # Without a cap MongoDB sizes its cache at half of the machine's RAM minus 1 GB (about 5.5 GB on a 12 GB server) and leaves little for the
+    # rest. 1 GB holds the recently used claims comfortably; older ones are read from disk. Raise MONGO_CACHE_GB on a bigger machine.
+    command: ["mongod", "--auth", "--bind_ip_all", "--wiredTigerCacheSizeGB", "${MONGO_CACHE_GB:-1}"]
+    mem_limit: 2g              # the cache plus connections and indexes; about 0.5 GB was measured when nearly empty
+    pids_limit: 512
     networks: [data]
     volumes: [mongo_data:/data/db]
     healthcheck:
@@ -105,7 +111,11 @@ services:
     # The worker's message broker (Redis Streams). The truth lives in MongoDB (the outbox and the claim state); Redis only carries "run this
     # claim" messages. The append-only file keeps them over a restart (at most about one second of messages can be lost in a crash), and the
     # worker re-publishes claims whose message was lost anyway (docs/38 section 7).
-    command: ["sh", "-c", "exec redis-server --save \"\" --appendonly yes --appendfsync everysec --requirepass \"$$REDIS_PASSWORD\""]
+    command: ["sh", "-c", "exec redis-server --save \"\" --appendonly yes --appendfsync everysec --maxmemory 200mb --maxmemory-policy noeviction --requirepass \"$$REDIS_PASSWORD\""]
+    # the stream holds only unfinished work (about 150 bytes a message), so 200 MB is a backlog of over a million; noeviction means that at the
+    # limit a publish fails and the claim waits safely in the outbox, instead of Redis silently dropping messages
+    mem_limit: 320m
+    pids_limit: 64
     networks: [data]
     volumes: [redis_data:/data]
     healthcheck:
@@ -120,6 +130,8 @@ services:
     restart: unless-stopped
     networks: [data]
     volumes: [ollama_data:/root/.ollama]
+    mem_limit: 5g              # host memory only; the model itself sits in the graphics card's memory
+    pids_limit: 512
     environment:
       OLLAMA_NUM_PARALLEL: ${CG_WORKER_CONCURRENCY:-4}   # parallel slots, the same number as the worker's pool
       OLLAMA_MAX_QUEUE: 64

@@ -69,6 +69,17 @@ class RustCompose(unittest.TestCase):
         for needle in ('mem_limit:', 'pids_limit:', 'cpus:'):
             self.assertIn(needle, head)
 
+    def test_every_container_has_a_memory_limit_and_the_database_and_broker_are_capped_inside_it(self):
+        head = self.text.split('\nservices:\n', 1)[0]
+        self.assertIn('mem_limit:', head)  # api and worker share it
+        for name in ('proxy', 'mongo', 'redis', 'ollama'):
+            self.assertIn('mem_limit:', self.svc[name], name)
+        # MongoDB would otherwise take half of the machine for its cache
+        self.assertRegex(self.svc['mongo'], r'--wiredTigerCacheSizeGB\W+\$\{MONGO_CACHE_GB:-1\}')
+        # and Redis refuses to publish rather than silently evicting queued work
+        self.assertIn('--maxmemory 200mb', self.svc['redis'])
+        self.assertIn('--maxmemory-policy noeviction', self.svc['redis'])
+
     def test_only_the_worker_mounts_the_audit_mirror(self):
         self.assertIn('audit_mirror:/mirror', self.svc['worker'])
         for name in ('api', 'proxy', 'mongo', 'redis'):
