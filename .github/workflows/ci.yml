@@ -141,7 +141,7 @@ jobs:
           python-version: '3.10'
           enable-cache: true
           activate-environment: true
-      - name: Install pinned dependencies (the dev set: the fuzz suites use hypothesis)
+      - name: Install pinned dependencies (the dev set, because the fuzz suites use hypothesis)
         run: uv pip install -r requirements-dev.txt
       - name: Adversarial suites (OWASP mapping, red-team findings, hostile input, prompt injection, audit tampering)
         env:
