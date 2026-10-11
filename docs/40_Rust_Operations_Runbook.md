@@ -22,7 +22,11 @@ bash deploy/rust/install.sh <address-or-domain> internal|public [ai]
 | `DATA_KEY` | encrypts the claim data, the people's names and the audit log files on disk; a Fernet key | empty: derived from `FERNET_KEY` |
 | `DATA_KEY_PREVIOUS` | older secrets (comma separated) that rows already written to the audit logs were encrypted under; read-only | empty |
 | `DUAL_CONTROL`, `APPROVAL_TTL_SECONDS` | dangerous administrator actions need a second administrator (section 5b); how long a request stays open | true, 86400 |
-| `MONGO_ROOT_USER`, `MONGO_ROOT_PASSWORD`, `REDIS_PASSWORD` | database and cache credentials | required |
+| `MONGO_ROOT_USER`, `MONGO_ROOT_PASSWORD`, `REDIS_PASSWORD` | database and broker credentials | required |
+| `CG_WORKER_CONCURRENCY` | claims processed at once by the worker, and so the most the AI model is asked at once (1 to 64). Keep it at or below the parallel requests the model server really runs; the Compose model server is given the same number (`OLLAMA_NUM_PARALLEL`) | 4 |
+| `CG_BROKER_MIN_IDLE_SECONDS` | how long a message may stay unacknowledged before another consumer takes it over; never below the 90 s explanation ceiling plus 10 s | 120 |
+| `CG_REPUBLISH_AFTER_SECONDS` | a claim unfinished this long while the broker is empty is published again (never under 120) | 900 |
+| `CG_BROKER_STREAM` | the Redis stream name | `cg:queue:claims` |
 | `CG_SITE`, `CADDYFILE` | the address and which proxy configuration | required |
 | `QUEUE_AI_PROVIDER=ollama`, `OLLAMA_BASE_URL`, `OLLAMA_MODEL`, `QUEUE_AI_TWO_PASS=1` | the AI explanation step; blank = none | none |
 | `AUDIT_MIRROR_DIR` (`/mirror`), `AUDIT_MIRROR_SECONDS` | the append-only second copy of the audit logs | on in the stack, 300 s |
@@ -95,6 +99,7 @@ Four things are never done on one administrator's word: replacing a person's aut
 | Log anchor | the anchor is not signed or the key is not configured |
 | External timestamp | optional; "unknown" means none configured |
 | Scheduled jobs and workers | the worker is down or late: restart it; exactly one worker must run |
+| Message broker (Redis) | down: claims wait safely in the outbox and are sent when it returns (section 8.5). Degraded: a message has been in progress for over five minutes. The detail shows how many messages wait, how many are in progress and how many consumers there are |
 | Publishing of new claims, Claim flow | claims are stuck: look for dead letters (`cg queue deadletters`) |
 | Disk space | the logs cannot grow: free space before anything else, because a full disk refuses privileged actions |
 | Model | the AI step is failing: claims keep the engine's own explanation; unset `QUEUE_AI_PROVIDER` to stop trying |
@@ -110,6 +115,13 @@ Four things are never done on one administrator's word: replacing a person's aut
 
 ### 8.1b An audit log cannot be read ("cannot be decrypted")
 The key does not match the rows. Check `DATA_KEY` (and `DATA_KEY_PREVIOUS` after a rotation, or `FERNET_KEY` if `DATA_KEY` is empty). Do not "fix" the log. The standalone `cg audit-verify <log>` also needs the key in the environment (`DATA_KEY` or `FERNET_KEY`) when the log is encrypted.
+
+### 8.5 Claims are piling up, or Redis lost its data
+
+1. Open the health panel, *Message broker*. **Many waiting, few in progress:** the model is the slow part. Check *Model*; raise `ai_per_minute` in the routing configuration if it is capping the explanations (default 30 a minute), or raise `CG_WORKER_CONCURRENCY` *and* the model server's parallel slots together. Claims never wait on the model forever: past the 90 s ceiling a claim keeps the engine's own text.
+2. **Redis down:** nothing is lost. New claims keep their outbox marker in MongoDB; the worker's consumers retry with a growing pause and resume by themselves.
+3. **Redis came back empty** (restarted without its data, or flushed): the claims it held are still in MongoDB in `triaged`. Within about 15 minutes the worker's `republish` job sends them again, but only when the stream is empty. To do it at once, restart the worker after lowering `CG_REPUBLISH_AFTER_SECONDS` to 120. Nothing needs to be re-submitted.
+4. A claim that failed three deliveries is a dead letter: `cg queue deadletters`, then `cg queue deadletter-replay ID` once the cause is fixed.
 
 ### 8.2 A user is locked out
 An administrator unlocks them in **Users**, or `cg admin unlock --badge CG-xxxx`. A lock never stops the person from signing in from a device they have used before. If it happens often to one person, someone is guessing their badge number: look at the failed sign-ins in the audit panel.

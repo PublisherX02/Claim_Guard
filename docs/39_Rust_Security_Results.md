@@ -304,4 +304,13 @@ Replacing someone's authenticator, creating an administrator, and changing (prom
 - The audit log keeps the badge numbers of the people who acted (needed for accountability) and, since the log is encrypted, they are protected on disk but are visible to anyone who can read the API's audit panel with the right permission.
 - Disk: the build machine's disk is almost full (the health panel reports `disk: down`, correctly). That is a finding about this laptop, not the product.
 
-**A note on the count.** The harness (`rust/tools/mutate.py`) holds 75 mutants, and that is the number checked by the full run. The tallies of earlier rounds (61 after round 3, plus the 18 listed in 12.4) add up to 79, not 75: some mutants were merged or replaced when earlier ones were repaired, and the per-round figures were not reconciled at the time. The authoritative figure is the harness itself. The run needs a real MongoDB (`MONGO_URI`, `REQUIRE_MONGO=1`); without one the database-backed mutants are not caught because their tests skip.
+**A note on the count.** The harness (`rust/tools/mutate.py`) holds 75 mutants, and that is the number checked by the full run. The tallies of earlier rounds (61 after round 3, plus the 18 listed in 12.4) add up to 79, not 75. The per-round figures were not reconciled against the harness at the time, and I did not trace the difference; it is possible some earlier tallies counted a mutant twice or counted ones since replaced. The authoritative figure is the harness itself. The run needs a real MongoDB (`MONGO_URI`, `REQUIRE_MONGO=1`); without one the database-backed mutants are not caught because their tests skip.
+
+## 13. The message broker (2026-10-11)
+
+The queue worker can now run on a Redis Stream (`docs/38` section 9). What was checked, by attack and by test:
+- **Mutation test: 14 new mutants, all killed** (the harness now holds 89). The Redis ones were run with a real Redis. The first full run of the older 75 had shown six database mutants as alive only because that run had no MongoDB and their tests skipped; they were all killed once a database was present. The same trap applies to Redis: run the mutation harness with `REDIS_URL` and `REQUIRE_REDIS=1` set.
+- **A forged message** (wrong hash, unknown claim, unknown version) changes nothing and is acknowledged. A message for the same claim twice runs once in a process.
+- **Redis address and password** never appear in an error text: tested against an unreachable address that carries a password.
+- **Poison input** cannot loop: three deliveries, then a dead letter.
+- **Not tested:** an attacker with access to the Redis port can publish messages. They are harmless on their own (each is checked against the stored claim's hash, so a forged one is a no-op), but they can fill the stream. Redis is on the private network with a password and is not published by the Compose file or the Kubernetes manifests.

@@ -172,6 +172,37 @@ pub fn sweep(store: &dyn QueueStore, publish: &dyn Fn(&str, i64, &str) -> std::r
     json!({"published": published, "failed": failed, "stale": stale})
 }
 
+/// The repair for a broker that lost messages (Redis restarted without its data, or someone flushed it). A claim the pipeline has not
+/// finished, with nothing left in the broker to finish it, is a lost message: publish it again. Consumers are idempotent, so a repeat is
+/// harmless. It does nothing while the broker still holds messages (a long backlog is not loss, and republishing it would only pile up
+/// copies), when the broker does not answer, or for claims younger than `older_than` seconds.
+pub fn republish_lost(store: &dyn QueueStore, broker: &dyn crate::broker::Broker, now: f64, older_than: f64) -> Value {
+    match broker.stats() {
+        Err(_) => return json!({"republished": 0, "skipped": "the broker does not answer"}),
+        Ok(st) if st.length > 0 => return json!({"republished": 0, "skipped": "the broker still holds messages"}),
+        Ok(_) => {}
+    }
+    let (mut republished, mut failed) = (0, 0);
+    'all: for state in PIPELINE_STATES {
+        for doc in store.by_state(state, RELAY_BATCH).unwrap_or_default() {
+            if republished + failed >= RELAY_BATCH {
+                break 'all;
+            }
+            if now - doc["state_at"].as_f64().unwrap_or(now) <= older_than {
+                continue;
+            }
+            match broker.publish(doc["claim_id"].as_str().unwrap_or(""), doc["version"].as_i64().unwrap_or(0), doc["input_hash"].as_str().unwrap_or("")) {
+                Ok(()) => republished += 1,
+                Err(_) => {
+                    failed += 1;
+                    break 'all; // the broker went away: the next run tries again
+                }
+            }
+        }
+    }
+    json!({"republished": republished, "failed": failed})
+}
+
 // ---- reconcile ------------------------------------------------------------------------------------------------------------
 
 pub struct Report {

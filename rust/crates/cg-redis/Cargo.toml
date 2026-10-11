@@ -1,0 +1,8 @@
+[package]
+name = "cg-redis"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+cg-queue = { path = "../cg-queue" }
+redis = { version = "=1.7.1", default-features = false }

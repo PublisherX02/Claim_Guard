@@ -154,13 +154,13 @@ fn start(a: Args, dev: bool) -> Result<(), String> {
     let stop = Arc::new(AtomicBool::new(false));
     let (mut queue_service, mut probes, mut worker, mut guard) = (None, vec![], None, None);
     if let Some(q) = &b.queue {
-        probes = queue_probes(q.service.clone(), q.breaker.clone(), q.runtime.explain.model_name(), b.env.get("REDIS_URL").cloned().filter(|s| !s.is_empty()), a.demo, b.clock.clone());
+        probes = queue_probes(q.service.clone(), q.breaker.clone(), q.runtime.explain.model_name(), q.broker.clone(), b.env.get("REDIS_URL").cloned().filter(|s| !s.is_empty()), a.demo, b.clock.clone());
         if a.demo {
             seed_demo(&b)?;
         }
         // In a real deployment the worker is its own process (`cg worker`); only the demo runs it here.
         if a.demo {
-            worker = Some(start_workers(q, stop.clone()));
+            worker = Some(start_workers(q, stop.clone(), &b.env));
             guard = Some(start_audit_guard(&b, q, stop.clone()));
         }
         queue_service = Some(q.service.clone());
@@ -203,7 +203,7 @@ pub fn worker(args: &[String]) -> i32 {
     };
     let Some(q) = &b.queue else { return 2 };
     let stop = Arc::new(AtomicBool::new(false));
-    let handle = start_workers(q, stop.clone());
+    let handle = start_workers(q, stop.clone(), &b.env);
     let guard = start_audit_guard(&b, q, stop.clone());
     println!("worker running (relay, deal, expire, reconcile, audit protection)");
     match tokio::runtime::Builder::new_current_thread().enable_all().build() {

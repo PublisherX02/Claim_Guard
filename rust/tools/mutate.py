@@ -91,6 +91,20 @@ M = [
     ('mongo-name-moved-between-people-accepted', 'cg-mongo', 'cg-mongo/src/crypt.rs', 'if env["s"] != scope || env["f"] != field {', 'if false {'),
     ('rotate-seeds-not-rewritten', 'cg-mongo', 'cg-mongo/src/users.rs', '"$set": {"totp_secret_enc": n.encrypt(&plain)}', '"$set": {"totp_secret_enc": stored}'),
     ('rotate-names-not-rewritten', 'cg-mongo', 'cg-mongo/src/users.rs', '"$set": {"name": new.seal_text(badge, "name", &plain)}', '"$set": {"name": stored}'),
+    ('broker-panic-is-acknowledged', 'cg-queue', 'cg-queue/src/consumer.rs', 'stats.panicked.fetch_add(1, Ordering::SeqCst);\n            false', 'stats.panicked.fetch_add(1, Ordering::SeqCst);\n            broker.ack(&d.msg_id).is_ok()'),
+    ('broker-ack-before-process', 'cg-queue', 'cg-queue/src/consumer.rs', '    let now = stats.in_flight.fetch_add(1, Ordering::SeqCst) + 1;', '    let _ = broker.ack(&d.msg_id);\n    let now = stats.in_flight.fetch_add(1, Ordering::SeqCst) + 1;'),
+    ('broker-pool-never-reclaims', 'cg-queue', 'cg-queue/src/consumer.rs', 'if last_reclaim.elapsed() >= Duration::from_millis(cfg.reclaim_every_ms) {', 'if false {'),
+    ('broker-pool-ignores-attempt-limit', 'cg-queue', 'cg-queue/src/consumer.rs', 'if d.attempts > cfg.max_attempts {', 'if false {'),
+    ('broker-pool-cap-ignored', 'cg-queue', 'cg-queue/src/consumer.rs', 'for i in 0..cfg.concurrency.max(1) {', 'for i in 0..cfg.concurrency.max(1) * 4 {'),
+    ('broker-pool-duplicate-guard-off', 'cg-queue', 'cg-queue/src/consumer.rs', 'if !in_flight.lock().unwrap_or_else(|p| p.into_inner()).insert(key.clone()) {', 'if false {'),
+    ('broker-takeover-floor-removed', 'cg-cli', 'cg-cli/src/boot.rs', 'cfg.min_idle_ms = (s.max(deadline_seconds + 10.0) * 1000.0) as u64;', 'cfg.min_idle_ms = (s * 1000.0) as u64;'),
+    ('broker-memory-reclaim-not-counted', 'cg-queue', 'cg-queue/src/broker.rs', 'e.deliveries += 1;\n                out.push(Self::deliver(id, e));', 'out.push(Self::deliver(id, e));'),
+    ('broker-memory-hands-pending-to-two', 'cg-queue', 'cg-queue/src/broker.rs', '.find(|(_, e)| e.owner.is_none())', '.find(|(_, _)| true)'),
+    ('broker-redis-ack-leaves-entry', 'cg-redis', 'cg-redis/src/lib.rs', '.ignore().cmd("XDEL").arg(&self.stream).arg(msg_id).ignore().query::<()>(c))', '.ignore().query::<()>(c))'),
+    ('broker-redis-reclaim-not-counted', 'cg-redis', 'cg-redis/src/lib.rs', '(before.max(0) as u32).saturating_add(1)', '(before.max(0) as u32).saturating_add(0)'),
+    ('broker-redis-no-self-heal', 'cg-redis', 'cg-redis/src/lib.rs', 'Err(m) if m.contains("NOGROUP") => {', 'Err(m) if false => {'),
+    ('broker-republish-ignores-backlog', 'cg-queue', 'cg-queue/src/flow.rs', 'Ok(st) if st.length > 0 => return', 'Ok(st) if false => return'),
+    ('broker-republish-ignores-age', 'cg-queue', 'cg-queue/src/flow.rs', 'if now - doc["state_at"].as_f64().unwrap_or(now) <= older_than {', 'if false {'),
 ]
 
 

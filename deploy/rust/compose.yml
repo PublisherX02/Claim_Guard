@@ -20,7 +20,9 @@ x-app: &app
     AUDIT_ANCHOR_KEY: ${AUDIT_ANCHOR_KEY:?set AUDIT_ANCHOR_KEY in .env}
     PII_KEY: ${PII_KEY:?set PII_KEY in .env}
     MONGO_URI: mongodb://${MONGO_ROOT_USER:?set MONGO_ROOT_USER in .env}:${MONGO_ROOT_PASSWORD:?set MONGO_ROOT_PASSWORD in .env}@mongo:27017/?authSource=admin
-    REDIS_URL: redis://:${REDIS_PASSWORD:?set REDIS_PASSWORD in .env}@redis:6379/0
+    REDIS_URL: redis://:${REDIS_PASSWORD:?set REDIS_PASSWORD in .env}@redis:6379/0   # the worker's message broker (Redis Streams); empty = claims are processed inline
+    CG_WORKER_CONCURRENCY: ${CG_WORKER_CONCURRENCY:-4}   # claims processed at once = the most the model is ever asked at once; keep equal to OLLAMA_NUM_PARALLEL
+    CG_BROKER_MIN_IDLE_SECONDS: ${CG_BROKER_MIN_IDLE_SECONDS:-}   # empty: the explanation ceiling plus 30 s before another consumer takes a message over
     QUEUE_AI_PROVIDER: ${QUEUE_AI_PROVIDER:-}
     QUEUE_AI_TWO_PASS: ${QUEUE_AI_TWO_PASS:-}
     OLLAMA_BASE_URL: ${OLLAMA_BASE_URL:-http://ollama:11434}
@@ -100,8 +102,12 @@ services:
     restart: unless-stopped
     environment:
       REDIS_PASSWORD: ${REDIS_PASSWORD:?set REDIS_PASSWORD in .env}
-    command: ["sh", "-c", "exec redis-server --save \"\" --appendonly no --requirepass \"$$REDIS_PASSWORD\""]
-    networks: [data]     # not needed by the Rust worker (the outbox in MongoDB is the queue); kept for the health panel and future caching
+    # The worker's message broker (Redis Streams). The truth lives in MongoDB (the outbox and the claim state); Redis only carries "run this
+    # claim" messages. The append-only file keeps them over a restart (at most about one second of messages can be lost in a crash), and the
+    # worker re-publishes claims whose message was lost anyway (docs/38 section 7).
+    command: ["sh", "-c", "exec redis-server --save \"\" --appendonly yes --appendfsync everysec --requirepass \"$$REDIS_PASSWORD\""]
+    networks: [data]
+    volumes: [redis_data:/data]
     healthcheck:
       test: ["CMD-SHELL", "redis-cli -a \"$$REDIS_PASSWORD\" --no-auth-warning ping"]
       interval: 10s
@@ -114,6 +120,9 @@ services:
     restart: unless-stopped
     networks: [data]
     volumes: [ollama_data:/root/.ollama]
+    environment:
+      OLLAMA_NUM_PARALLEL: ${CG_WORKER_CONCURRENCY:-4}   # parallel slots, the same number as the worker's pool
+      OLLAMA_MAX_QUEUE: 64
     # GPU: uncomment on a host with the NVIDIA container toolkit
     # deploy: { resources: { reservations: { devices: [{ driver: nvidia, count: all, capabilities: [gpu] }] } } }
 
@@ -129,6 +138,7 @@ volumes:
   audit_mirror:
   claimguard_data:
   mongo_data:
+  redis_data:
   caddy_data:
   caddy_config:
   ollama_data:

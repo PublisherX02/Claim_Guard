@@ -13,6 +13,8 @@ use cg_audit::AuditLog;
 use cg_engine::extensions::Extensions;
 use cg_engine::Engine;
 use cg_queue::breaker::CircuitBreaker;
+use cg_queue::broker::Broker;
+use cg_queue::consumer::{self, PoolConfig};
 use cg_queue::dispatcher::Dispatcher;
 use cg_queue::explain::{default_guard, ExplainStep, NoModel};
 use cg_queue::flow::{self, engine_fn, process, EngineFn, Intake, Runtime};
@@ -35,6 +37,8 @@ pub struct QueueStack {
     pub runtime: Arc<Runtime>,
     pub breaker: Arc<CircuitBreaker>,
     pub engine_fn: EngineFn,
+    /// The Redis Streams broker when REDIS_URL is set (never in the demo). None: claims are processed inline by the relay sweep.
+    pub broker: Option<Arc<dyn Broker>>,
 }
 
 pub struct Boot {
@@ -158,13 +162,13 @@ pub fn boot(o: &Options) -> Result<Boot, String> {
     let engine = Arc::new(Engine::load(&root).map_err(|e| format!("rule engine: {e}"))?);
     let queue = match queue_store {
         None => None,
-        Some(store) => Some(build_queue(store, &env, &root, &engine, &access, &securitylog, &review_log, &clock)?),
+        Some(store) => Some(build_queue(store, &env, &root, &engine, &access, &securitylog, &review_log, &clock, !o.demo)?),
     };
     Ok(Boot { env, root, data_dir, settings, clock, access, securitylog, review_log, engine, queue })
 }
 
 #[allow(clippy::too_many_arguments)]
-fn build_queue(store: Arc<dyn QueueStore>, env: &HashMap<String, String>, root: &Path, engine: &Arc<Engine>, access: &Arc<AccessService>, securitylog: &Arc<SecurityLog>, review_log: &Arc<AuditLog>, clock: &Clock) -> Result<QueueStack, String> {
+fn build_queue(store: Arc<dyn QueueStore>, env: &HashMap<String, String>, root: &Path, engine: &Arc<Engine>, access: &Arc<AccessService>, securitylog: &Arc<SecurityLog>, review_log: &Arc<AuditLog>, clock: &Clock, use_broker: bool) -> Result<QueueStack, String> {
     let extensions = Arc::new(Extensions::load(root).map_err(|e| format!("extension rules: {e}"))?);
     let dispatcher = Arc::new(Dispatcher { store: store.clone(), agents: agents_from_access(access.clone()), clock: clock.clone(), rng_seed: None, log: Some(securitylog.clone()) });
     let service = Arc::new(QueueService::new(store.clone(), dispatcher.clone(), access.clone(), securitylog.clone(), review_log.clone(), clock.clone()));
@@ -184,22 +188,50 @@ fn build_queue(store: Arc<dyn QueueStore>, env: &HashMap<String, String>, root: 
     let model: Arc<dyn cg_queue::explain::Model> = cg_queue::model::model_from_env(env, cg_queue::model::rulebook_rules(root)?)?.unwrap_or_else(|| Arc::new(NoModel));
     let explain = Arc::new(ExplainStep::new(store.clone(), model, default_guard(), breaker.clone(), clock.clone(), Arc::new(move || flow::routing_config(&*sc))));
     let runtime = Arc::new(Runtime { store: store.clone(), explain, clock: clock.clone(), max_retries: 3 });
-    Ok(QueueStack { store, dispatcher, service, intake, runtime, breaker, engine_fn: efn })
+    let broker: Option<Arc<dyn Broker>> = match env.get("REDIS_URL").map(String::as_str).filter(|s| use_broker && !s.is_empty()) {
+        Some(url) => {
+            let stream = env.get("CG_BROKER_STREAM").map(String::as_str).filter(|s| !s.is_empty()).unwrap_or(cg_redis::DEFAULT_STREAM);
+            Some(Arc::new(cg_redis::RedisBroker::lazy(url, stream, cg_redis::DEFAULT_GROUP)?))
+        }
+        None => None,
+    };
+    Ok(QueueStack { store, dispatcher, service, intake, runtime, breaker, engine_fn: efn, broker })
+}
+
+/// The consumer pool's settings from the environment. CG_WORKER_CONCURRENCY (default 4, 1 to 64) is how many claims are processed at the
+/// same moment, so also the most the AI model is ever asked at once; set it to the number of parallel slots the model server has.
+/// CG_BROKER_MIN_IDLE_SECONDS (default: the explanation ceiling plus 30) is how long a message may stay unacknowledged before another
+/// consumer takes it over; it is never allowed below the ceiling plus 10, or a slow but live consumer would have its message taken.
+pub fn pool_config(env: &HashMap<String, String>, deadline_seconds: f64, max_attempts: u32) -> PoolConfig {
+    let mut cfg = PoolConfig::production(deadline_seconds);
+    if let Some(n) = env.get("CG_WORKER_CONCURRENCY").and_then(|v| v.trim().parse::<usize>().ok()) {
+        cfg.concurrency = n.clamp(1, 64);
+    }
+    if let Some(s) = env.get("CG_BROKER_MIN_IDLE_SECONDS").and_then(|v| v.trim().parse::<f64>().ok()) {
+        cfg.min_idle_ms = (s.max(deadline_seconds + 10.0) * 1000.0) as u64;
+    }
+    cfg.max_attempts = max_attempts.max(1);
+    cfg
 }
 
 /// What the Celery worker and its scheduler do in production, on a thread: publish the outbox (processing runs inline), deal claims into
 /// inboxes, return lapsed leases and reconcile. The same functions and stores; only the clock tick is different. Exactly one instance
 /// should run against a database.
-pub fn start_workers(q: &QueueStack, stop: Arc<AtomicBool>) -> std::thread::JoinHandle<()> {
-    let (rt, dispatcher) = (q.runtime.clone(), q.dispatcher.clone());
+pub fn start_workers(q: &QueueStack, stop: Arc<AtomicBool>, env: &HashMap<String, String>) -> std::thread::JoinHandle<()> {
+    let (rt, dispatcher, broker) = (q.runtime.clone(), q.dispatcher.clone(), q.broker.clone());
+    let cfg = pool_config(env, q.runtime.explain.deadline_seconds, q.runtime.max_retries);
+    // a claim unfinished this long with an empty broker is a lost message (never less than two minutes, so a healthy claim is never re-sent)
+    let republish_after = env.get("CG_REPUBLISH_AFTER_SECONDS").and_then(|v| v.trim().parse::<f64>().ok()).unwrap_or(900.0).max(120.0);
     std::thread::Builder::new()
         .name("claimguard-worker".into())
         .spawn(move || {
             use cg_api::ops::run_job;
-            let every = [("relay", 1.5), ("deal", 2.0), ("expire", 20.0), ("reconcile", 120.0)];
-            let mut last = [f64::MIN; 4];
+            let every = [("relay", 1.5), ("deal", 2.0), ("expire", 20.0), ("reconcile", 120.0), ("republish", 300.0)];
+            let mut last = [f64::MIN; 5];
             let mono = std::time::Instant::now();
             let alive = std::env::var("CG_WORKER_ALIVE_FILE").ok().filter(|s| !s.is_empty());
+            // with a broker the claims are processed by the pool (at most `concurrency` at once); without one, inline in the relay sweep
+            let pool = broker.clone().map(|b| consumer::start(b, rt.clone(), cfg.clone(), stop.clone(), &format!("w{}-{}", std::process::id(), random_token(4))));
             while !stop.load(Ordering::SeqCst) {
                 if let Some(f) = &alive {
                     let _ = std::fs::write(f, b"alive"); // touched every tick so a container health check can tell the loop is running
@@ -215,8 +247,13 @@ pub fn start_workers(q: &QueueStack, stop: Arc<AtomicBool>) -> std::thread::Join
                     let _ = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| match *name {
                         "relay" => {
                             let publish = |id: &str, v: i64, h: &str| -> Result<(), String> {
-                                process(&rt, id, v, h);
-                                Ok(())
+                                match &broker {
+                                    Some(b) => b.publish(id, v, h),
+                                    None => {
+                                        process(&rt, id, v, h);
+                                        Ok(())
+                                    }
+                                }
                             };
                             run_job(store, clock, "relay", || flow::sweep(store, &publish, clock(), 300.0), |r| r.to_string());
                         }
@@ -226,12 +263,20 @@ pub fn start_workers(q: &QueueStack, stop: Arc<AtomicBool>) -> std::thread::Join
                         "expire" => {
                             run_job(store, clock, "expire", || dispatcher.expire(None), |n| format!("{n} returned"));
                         }
+                        "republish" => {
+                            if let Some(b) = &broker {
+                                run_job(store, clock, "republish", || flow::republish_lost(store, &**b, clock(), republish_after), |r| r.to_string());
+                            }
+                        }
                         _ => {
                             run_job(store, clock, "reconcile", || flow::reconcile(store, clock(), "system:worker").findings.len(), |n| format!("{n} findings"));
                         }
                     }));
                 }
                 std::thread::sleep(Duration::from_millis(250));
+            }
+            if let Some(p) = pool {
+                p.join();
             }
         })
         .expect("the worker thread starts")
@@ -322,4 +367,31 @@ pub async fn shutdown_signal() {
         }
     }
     let _ = tokio::signal::ctrl_c().await;
+}
+
+#[cfg(test)]
+mod pool_tests {
+    use super::*;
+
+    fn env(pairs: &[(&str, &str)]) -> HashMap<String, String> {
+        pairs.iter().map(|(k, v)| (k.to_string(), v.to_string())).collect()
+    }
+
+    #[test]
+    fn pool_settings_have_safe_defaults_and_limits() {
+        let d = pool_config(&env(&[]), 90.0, 3);
+        assert_eq!((d.concurrency, d.max_attempts, d.min_idle_ms), (4, 3, 120_000), "four at once, three tries, ceiling plus 30 s");
+        assert_eq!(pool_config(&env(&[("CG_WORKER_CONCURRENCY", "8")]), 90.0, 3).concurrency, 8);
+        assert_eq!(pool_config(&env(&[("CG_WORKER_CONCURRENCY", "0")]), 90.0, 3).concurrency, 1, "never zero threads");
+        assert_eq!(pool_config(&env(&[("CG_WORKER_CONCURRENCY", "100000")]), 90.0, 3).concurrency, 64, "never an absurd number");
+        assert_eq!(pool_config(&env(&[("CG_WORKER_CONCURRENCY", "lots")]), 90.0, 3).concurrency, 4, "nonsense is ignored");
+        assert_eq!(pool_config(&env(&[]), 90.0, 0).max_attempts, 1);
+    }
+
+    #[test]
+    fn a_takeover_can_never_come_before_the_explanation_ceiling_has_passed() {
+        let low = pool_config(&env(&[("CG_BROKER_MIN_IDLE_SECONDS", "1")]), 90.0, 3);
+        assert!(low.min_idle_ms >= 100_000, "a live consumer inside the 90 s ceiling must keep its message, got {}", low.min_idle_ms);
+        assert_eq!(pool_config(&env(&[("CG_BROKER_MIN_IDLE_SECONDS", "300")]), 90.0, 3).min_idle_ms, 300_000);
+    }
 }

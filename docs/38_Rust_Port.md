@@ -6,7 +6,7 @@
 1. **Same behaviour, checked by machine.** Every layer was compared with the Python build on the same inputs: the 15 rules on 10,600 claims, the 8 extension rules on 6,000 claims, the audit log, passwords, session tokens, authenticator codes and pseudonyms value by value, the AI step's prompts (181 of 181 byte-identical), and the HTTP API on 132 requests as four different roles. The only API difference left is explained in section 4.
 2. **Smaller and lighter.** The container image is 159 MB (Python: 362 MB), the server starts in 3 s instead of 5 and uses about 25 MB less memory; request speed is about the same (section 6).
 3. **Attacked, not just tested.** An 83-check black-box penetration test over real sockets, a 400,000-request fuzz of the API boundary, a mutation test of 51 security-rule breakages (all caught), a 50-check attack on the deployed Docker stack, a red team of the AI step with the real gemma3:4b, a browser-side check in Chrome and a dependency audit (`docs/39`); how to operate it is in `docs/40`. The pen test found two real weaknesses (slow-connection exhaustion and an oversized-header allowance); both are fixed and covered.
-4. **Not finished:** cloud model providers, a real Redis broker and the recheck route. Section 7 lists everything that is missing.
+4. **Not finished:** cloud model providers and the recheck route. The Redis Streams broker is built (section 9). Section 7 lists everything that is missing.
 
 ---
 
@@ -131,7 +131,7 @@ Most of a request here is opening a connection on Windows, not the work; the rul
 
 - **Cloud model providers.** Only an on-premises OpenAI-compatible server (Ollama) is supported, over plain HTTP on the private network. Sending even rule text to a cloud service is not wanted for a hospital.
 - **Recheck route.** Answers 501 in both builds; a correction is resubmitted as a new version of the claim.
-- **Redis.** The Rust worker needs no broker: the outbox in MongoDB is the queue and the relay marks a claim published only after processing. Redis stays in the Compose file for the health panel and future caching. Whether the mentor expects Redis to be a real broker is an open question.
+- **Redis.** Now a real broker (section 9). Without `REDIS_URL` the worker processes claims inline as before. Whether Redis Streams is acceptable in place of Celery or ARQ is an open question for the mentor.
 - **TLS inside the server.** Terminated by the proxy only (`--behind-proxy`).
 - **Not run on the target server yet.**
 
@@ -147,3 +147,29 @@ python rust/tools/pentest.py                                           # 83 chec
 python rust/tools/mutate.py                                            # about an hour; edits and restores source files
 python rust/tools/footprint.py
 ```
+
+## 9. The Redis Streams broker (built 2026-10-11)
+
+**What it is.** With `REDIS_URL` set, the worker no longer processes claims inside its own relay loop. The relay *publishes* a message ("run claim X, version V") to a Redis Stream, and a pool of consumer threads takes the messages and runs each claim up to `ready`. Without `REDIS_URL` (and always in the demo) the old behaviour is unchanged: the claim is processed inline in the relay sweep.
+
+**Why.** Inline, the explanation step (the AI model) was called for one claim at a time inside the relay tick, which also delayed dealing, lease expiry and reconciliation. Now the number of claims processed at the same moment is a setting (`CG_WORKER_CONCURRENCY`, default 4, 1 to 64), and it is also the most the model is ever asked at once. A burst waits in the stream, not in front of the model.
+
+**The guarantees**, each with a test (`rust/crates/cg-queue/src/consumer_tests.rs`, `broker.rs`; real Redis in `rust/crates/cg-redis`):
+- The outbox marker in MongoDB is cleared only after the message is in Redis, so a Redis outage leaves the markers and nothing is lost.
+- A message is acknowledged only after the claim was processed. A thread that panics leaves it pending; it comes back after `CG_BROKER_MIN_IDLE_SECONDS` (default: the 90 s explanation ceiling plus 30 s, never below the ceiling plus 10 s, or a slow but live consumer would have its message stolen and the model would be asked twice).
+- A consumer that died holding a message: another consumer takes it over (`XPENDING ... IDLE`, then `XCLAIM ... MINIDLE`, which refuses if someone else got there first and counts the delivery).
+- A message delivered more than three times is parked as a dead letter and acknowledged, so one poison claim cannot loop.
+- A forged or stale message (wrong hash, unknown claim, unknown version) changes nothing and is acknowledged.
+- The same claim published twice runs once inside a process (an in-flight set). Across two worker processes a duplicate can cost one extra model call; the result is the same, and the worker is meant to run as a single instance.
+- Redis down: the consumer threads back off (up to 5 s) and keep trying; they never stop. Redis returns, work continues.
+- The stream holds only unfinished work: acknowledging is `XACK` plus `XDEL`, so it needs no trimming (a trim could silently drop pending work).
+- **Lost messages are repaired.** If the stream is completely empty yet a claim has sat in a pipeline state for more than 15 minutes (`CG_REPUBLISH_AFTER_SECONDS`, never under two minutes), the worker publishes it again (job `republish`, every five minutes). It never does this while the stream still holds messages (a long backlog is not loss), so it cannot pile up copies. The Compose Redis now keeps an append-only file (about one second of messages can be lost in a crash) and the repair covers the rest.
+- The address and password never appear in an error, a log line or the health panel.
+
+**Where the model limit really is.** The routing configuration has `ai_per_minute` (default **30**) and `ai_daily_budget` (default 2000). They cap how many explanations are *requested* per minute; the rest keep the engine's own text. For a site at 200 claims a minute an administrator has to raise them (the limits are 600 and 100000). The pool size caps how many run *at once*; these cap how many run *per minute*. Both are needed.
+
+**Evidence.** Broker contract (6 behaviours) passes on the in-memory twin and on real Redis 7.4; 10 pool tests (a burst of 40 claims with pools of 1, 3 and 4 threads never shows the model more than that many at once and calls it exactly once per flagged claim; green claims never reach it; a dead consumer's message is finished; a poison message is parked after exactly three tries; forged, duplicate and lost messages; Redis outage); 3 repair tests; 2 settings tests. The two-process end to end (`rust/tools/e2e_split.py`, API and worker as separate processes on real MongoDB and Redis) passes with `REDIS_URL` set: Redis then shows the `cg-workers` group with the consumers, 25 messages read for 25 claims, 0 pending, stream length 0. Mutation test: 14 new mutants (acknowledging too early or on a panic, never reclaiming, ignoring the attempt limit, ignoring the cap, no duplicate guard, no takeover floor, reclaim not counted, a pending message handed to two consumers, acknowledging without removing, no self-healing of a vanished stream, republishing during a backlog, ignoring a claim's age), all killed, run with a real Redis (without one the Redis mutants would look alive because their tests skip).
+
+**Not measured.** Throughput. No load test was run (it was set aside by the owner); any claim about claims per minute on the target hardware (an RTX 3080 with 10 GB) is an estimate until one is.
+
+**Celery or ARQ.** The mentor named Celery or ARQ, which are Python libraries. This is the same pattern (broker, consumer group, acknowledgement after work, retries, dead letters, an outbox) built in Rust on Redis Streams. Whether that is acceptable is question 2 in `docs/42`.

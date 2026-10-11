@@ -13,7 +13,7 @@ ClaimGuard reads a health-insurance claim, checks it against the fifteen rules o
 | 2 | Add Qwen3 and MedGemma as comparison models | **Done for the 4B sizes** | `SPECS.md` 6a, `docs/figures/model_comparison.png`. MedGemma **27B was not tested** (too large for the 8 GB laptop GPU): say so before being asked. gemma3:4b is the model the project uses on premises |
 | 3 | Web app first, mobile second | **Done (web console)** | the reviewer console is served by the server itself (`src/access/ui`); the desktop window is the same console in a native frame; the mobile prototype is separate |
 | 4 | "Claims accepted as JSONL, with a confidence score" | **Unclear: ask** | what exists: a submit route/CLI accepting JSONL or a list, a triage receipt with a score and lane per claim, and a per-finding confidence kind. We do not know which of these the mentor meant (section 6, question 1) |
-| 5 | Task queue: Celery or ARQ | **Partly** | the Python build ran Celery on Redis. The Rust build has the same safe design (an outbox in the database, a relay, idempotent tasks, retries, dead letters, leases) but its worker processes claims in-process; **a Redis broker is not ported** (section 6, question 2) |
+| 5 | Task queue: Celery or ARQ | **Partly** | the Python build ran Celery on Redis. The Rust build has the same safe design (an outbox in the database, a relay, idempotent tasks, retries, dead letters, leases) **on a Redis Stream with a consumer group** (`docs/38` section 9): a pool of consumers, a hard cap on how many claims are processed (and so asked of the model) at once, takeover of a dead consumer's work, repair of lost messages. It is not Celery or ARQ, which are Python libraries (section 7, question 2) |
 | 6 | Respect Middle East data-protection law (PDPL) | **Mapped, two gaps** | `docs/41`: each obligation against what the system does. Not built: subject access/erasure and retention |
 | 7 | Near-production, not a proof of concept (K8s, Redis) | **Compose tested; Kubernetes written, not run** | `deploy/rust/` (50-check attack test, encrypted backup/restore tested end to end, runbook `docs/40`); `deploy/k8s/` (manifests with network policies and the restricted pod profile, structural test, **no cluster to apply them to**) |
 | 8 | Fully on premises | **Done by design** | local model (Ollama), no outside call in the deployed system, data network with no route out (`deploy_attack.py`), the Rust build refuses a cloud model provider |
@@ -26,7 +26,7 @@ ClaimGuard reads a health-insurance claim, checks it against the fifteen rules o
 | 35 | Rule correctness | F1 1.0 and status accuracy 1.0 on the three public splits, 0 false positives on valid claims (`docs/29`); the Rust engine identical to the Python one on 10,600 claims and the extension rules on 6,000 (`compare_engine.py`, `compare_extensions.py`) |
 | 20 | Grounded AI explanations | every AI sentence is checked against the engine's own fields; the model never sees claim values (placeholders are filled in afterwards); a real-model red team with gemma3:4b found and closed one hole (`model_redteam.py`, `docs/39` section 7) |
 | 15 | Human review and usability | the console (inbox, lease, decision with reason, senior sign-off for high severity, four-eyes), routing lanes by a severity-weighted score, feedback report; approvals panel for administrators |
-| 15 | Uncertainty and security | `docs/39` (rounds 1 to 4): 116-check black-box attack test, 75-mutant test of the security rules, 400,000-request fuzz, deployment attack, browser attack in Chrome, side-channel timing test, dependency audit; `docs/32` privacy note; `docs/41` |
+| 15 | Uncertainty and security | `docs/39` (rounds 1 to 4): 116-check black-box attack test, 89-mutant test of the security and queue rules, 400,000-request fuzz, deployment attack, browser attack in Chrome, side-channel timing test, dependency audit; `docs/32` privacy note; `docs/41` |
 | 10 | Audit and reproducibility | hash-chained, signed, encrypted-at-rest logs; an append-only mirror that refuses to follow an edited log; optional outside time stamp; replay of any dealing; `audit_guard_demo.py` shows a rewrite being caught |
 | 5 | Communication | `README.md` briefing, `SPECIFICATION.md`, this pack |
 
@@ -47,7 +47,6 @@ Have ready, in case of questions: `docs/39` (security results), `docs/40` (opera
 
 ## 5. What is not done (say it before being asked)
 - **Not run on the target virtual machine**, and no Kubernetes cluster was available to apply the manifests to.
-- **Redis broker** is not ported to Rust (section 2, point 5).
 - **Subject access and erasure, and a retention period** are designed, not built (`docs/41`).
 - **MedGemma 27B** was not tested; gemma3:4b is the model.
 - A **distributed denial-of-service**, the VM's firewall and a public certificate authority are untested; the system has not been attacked by anyone outside the team.
@@ -69,7 +68,7 @@ Have ready, in case of questions: `docs/39` (security results), `docs/40` (opera
 
 ## 7. Questions to ask the mentor
 1. **"Claims accepted as JSONL with a confidence score" (his point 4):** is the output a batch of accepted claims for the payer, each with a score? Or the input format?
-2. **Task queue:** he named Celery or ARQ (Python). The system is now Rust: is a Redis-backed queue with the same guarantees acceptable instead (and is the current outbox-in-the-database design enough to show)?
+2. **Task queue:** he named Celery or ARQ (Python). The system is now Rust, and the queue is built on Redis Streams with consumer groups, acknowledgement after work, retries, dead letters and an outbox in the database. Is that acceptable in place of Celery or ARQ?
 3. **May a trained model influence routing** (who reviews what, in what order), never the verdict?
 4. **May green claims ever skip a human?** (Today every claim goes to a person.)
 5. **"More than 15 rules":** which kinds? We built eight extension rules (E001 to E005, E101 to E103) and kept them apart from the official fifteen.

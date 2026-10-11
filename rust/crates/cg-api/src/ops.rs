@@ -528,7 +528,7 @@ const STUCK_LEASE_SECONDS: f64 = 180.0;
 const OLD_WAIT_SECONDS: f64 = 1800.0;
 
 /// The queue's share of the health report: store, broker, scheduled jobs, outbox, claim flow and the AI helper's circuit breaker.
-pub fn queue_probes(queue: Arc<QueueService>, breaker: Arc<CircuitBreaker>, model_name: String, redis_url: Option<String>, demo: bool, clock: Clock) -> Vec<Probe> {
+pub fn queue_probes(queue: Arc<QueueService>, breaker: Arc<CircuitBreaker>, model_name: String, broker: Option<Arc<dyn cg_queue::broker::Broker>>, redis_url: Option<String>, demo: bool, clock: Clock) -> Vec<Probe> {
     let store = queue.store.clone();
     let (s1, s2, s3, s4, s5) = (store.clone(), store.clone(), store.clone(), store.clone(), store);
     let (c1, c2, c3, c4) = (clock.clone(), clock.clone(), clock.clone(), clock);
@@ -538,6 +538,17 @@ pub fn queue_probes(queue: Arc<QueueService>, breaker: Arc<CircuitBreaker>, mode
         probe("broker", "Message broker (Redis)", "core", move || {
             if demo {
                 return res(OK, "in-process (demo mode, no broker)", json!({}));
+            }
+            if let Some(b) = &broker {
+                return match b.stats() {
+                    Ok(st) => {
+                        let waiting = st.length.saturating_sub(st.pending);
+                        let detail = format!("{} waiting, {} being processed by {} consumers, oldest in progress {} s", waiting, st.pending, st.consumers, st.oldest_pending_idle_ms / 1000);
+                        let status = if st.oldest_pending_idle_ms > 300_000 { DEGRADED } else { OK };
+                        res(status, detail, json!({"waiting": waiting, "in_progress": st.pending, "consumers": st.consumers, "oldest_in_progress_seconds": st.oldest_pending_idle_ms / 1000}))
+                    }
+                    Err(_) => res(DOWN, "the broker does not answer (claims wait in the outbox and nothing is lost)", json!({})),
+                };
             }
             match &redis_url {
                 None => res(UNKNOWN, "the broker is not configured in this process (claims are processed by the built-in worker)", json!({})),
