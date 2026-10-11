@@ -26,7 +26,7 @@ ClaimGuard reads a health-insurance claim, checks it against the fifteen rules o
 | 35 | Rule correctness | F1 1.0 and status accuracy 1.0 on the three public splits, 0 false positives on valid claims (`docs/29`); the Rust engine identical to the Python one on 10,600 claims and the extension rules on 6,000 (`compare_engine.py`, `compare_extensions.py`) |
 | 20 | Grounded AI explanations | every AI sentence is checked against the engine's own fields; the model never sees claim values (placeholders are filled in afterwards); a real-model red team with gemma3:4b found and closed one hole (`model_redteam.py`, `docs/39` section 7) |
 | 15 | Human review and usability | the console (inbox, lease, decision with reason, senior sign-off for high severity, four-eyes), routing lanes by a severity-weighted score, feedback report; approvals panel for administrators |
-| 15 | Uncertainty and security | `docs/39` (rounds 1 to 4): 116-check black-box attack test, 89-mutant test of the security and queue rules, 400,000-request fuzz, deployment attack, browser attack in Chrome, side-channel timing test, dependency audit; `docs/32` privacy note; `docs/41` |
+| 15 | Uncertainty and security | `docs/39` (rounds 1 to 4): 116-check black-box attack test, 93-mutant test of the security and queue rules, 400,000-request fuzz, deployment attack, browser attack in Chrome, side-channel timing test, dependency audit; `docs/32` privacy note; `docs/41` |
 | 10 | Audit and reproducibility | hash-chained, signed, encrypted-at-rest logs; an append-only mirror that refuses to follow an edited log; optional outside time stamp; replay of any dealing; `audit_guard_demo.py` shows a rewrite being caught |
 | 5 | Communication | `README.md` briefing, `SPECIFICATION.md`, this pack |
 

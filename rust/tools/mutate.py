@@ -105,6 +105,10 @@ M = [
     ('broker-redis-no-self-heal', 'cg-redis', 'cg-redis/src/lib.rs', 'Err(m) if m.contains("NOGROUP") => {', 'Err(m) if false => {'),
     ('broker-republish-ignores-backlog', 'cg-queue', 'cg-queue/src/flow.rs', 'Ok(st) if st.length > 0 => return', 'Ok(st) if false => return'),
     ('broker-republish-ignores-age', 'cg-queue', 'cg-queue/src/flow.rs', 'if now - doc["state_at"].as_f64().unwrap_or(now) <= older_than {', 'if false {'),
+    ('broker-deadletter-takes-claims-from-people', 'cg-queue', 'cg-queue/src/flow.rs', 'if !PIPELINE_STATES.contains(&state) || !states::allowed_from(state).contains(&"dead_lettered") {', 'if !states::allowed_from(state).contains(&"dead_lettered") {'),
+    ('broker-deadletter-ignores-in-flight-copy', 'cg-queue', 'cg-queue/src/consumer.rs', 'if in_flight.lock().unwrap_or_else(|p| p.into_inner()).contains(&key) {\n            return false;', 'if false {\n            return false;'),
+    ('broker-client-panic-ends-the-thread', 'cg-queue', 'cg-queue/src/consumer.rs', 'match guarded(|| broker.read(&consumer, cfg.block_ms)) {', 'match broker.read(&consumer, cfg.block_ms) {'),
+    ('broker-redis-credentials-not-masked', 'cg-redis', 'cg-redis/src/lib.rs', 'let msg = mask_credentials(&e.to_string().replace(&self.url, "<redis>"), &self.url);', 'let msg = e.to_string();'),
 ]
 
 

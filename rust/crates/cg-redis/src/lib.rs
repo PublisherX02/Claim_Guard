@@ -25,6 +25,30 @@ pub struct RedisBroker {
     idle: Mutex<Vec<redis::Connection>>,
 }
 
+/// Removes anything that looks like `scheme://user:password@` from a text, and the configured password wherever it appears alone.
+fn mask_credentials(text: &str, configured_url: &str) -> String {
+    let mut out = String::with_capacity(text.len());
+    let mut rest = text;
+    while let Some(at) = rest.find("://") {
+        let (head, tail) = rest.split_at(at + 3);
+        out.push_str(head);
+        let end = tail.find(|c: char| c.is_whitespace() || c == '/').unwrap_or(tail.len());
+        match tail[..end].rfind('@') {
+            Some(i) => {
+                out.push_str("<redacted>@");
+                rest = &tail[i + 1..];
+            }
+            None => rest = tail,
+        }
+    }
+    out.push_str(rest);
+    let password = configured_url.split("://").nth(1).and_then(|r| r.split('@').next().filter(|_| r.contains('@'))).and_then(|u| u.split_once(':')).map(|(_, p)| p);
+    match password {
+        Some(p) if !p.is_empty() => out.replace(p, "<redacted>"),
+        _ => out,
+    }
+}
+
 fn text(v: &Value) -> Option<String> {
     match v {
         Value::BulkString(b) => String::from_utf8(b.clone()).ok(),
@@ -77,7 +101,7 @@ impl RedisBroker {
     }
 
     fn clean(&self, op: &str, e: redis::RedisError) -> String {
-        let msg = e.to_string().replace(&self.url, "<redis>");
+        let msg = mask_credentials(&e.to_string().replace(&self.url, "<redis>"), &self.url);
         format!("redis {op} failed ({:?}): {}", e.kind(), msg.chars().take(160).collect::<String>())
     }
 
@@ -164,7 +188,12 @@ impl Broker for RedisBroker {
         for row in rows {
             let Value::Array(cols) = row else { continue };
             let (Some(id), Some(before)) = (cols.first().and_then(text), cols.get(3).and_then(int)) else { continue };
-            let claimed = self.with("reclaim", 0, |c| redis::cmd("XCLAIM").arg(&self.stream).arg(&self.group).arg(consumer).arg(min_idle_ms).arg(&id).query::<Value>(c))?;
+            let claimed = match self.with("reclaim", 0, |c| redis::cmd("XCLAIM").arg(&self.stream).arg(&self.group).arg(consumer).arg(min_idle_ms).arg(&id).query::<Value>(c)) {
+                Ok(v) => v,
+                // messages already taken over in this call are ours now: hand them back rather than leave them idle for another full period
+                Err(_) if !out.is_empty() => break,
+                Err(e) => return Err(e),
+            };
             let Value::Array(entries) = claimed else { continue };
             if let Some((cid, fields)) = entries.first().and_then(entry) {
                 match delivery(cid.clone(), &fields, (before.max(0) as u32).saturating_add(1)) {
@@ -287,6 +316,15 @@ mod tests {
         assert!(!err.contains("hunter2") && !err.contains("127.0.0.1:1"), "leaked: {err}");
         let bad = RedisBroker::connect("not a url", "s", "g").err().unwrap();
         assert!(!bad.contains("not a url") || bad.contains("not valid"));
+    }
+
+    #[test]
+    fn credentials_are_masked_wherever_they_appear_in_an_error_text() {
+        let b = RedisBroker::lazy("redis://:s3cr3tpw@127.0.0.1:1/0", "s", "g").unwrap();
+        let detail = "tried redis://:s3cr3tpw@127.0.0.1:1/0, then just s3cr3tpw, then rediss://user:other-pass@10.0.0.9:6379/1 and finally redis://10.0.0.9:6379";
+        let m = b.clean("op", redis::RedisError::from((redis::ErrorKind::Io, "boom", detail.to_string())));
+        assert!(!m.contains("s3cr3tpw") && !m.contains("other-pass"), "leaked: {m}");
+        assert!(m.contains("boom") || m.contains("tried"), "the message is still informative: {m}");
     }
 
     #[test]

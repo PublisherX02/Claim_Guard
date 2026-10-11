@@ -289,6 +289,100 @@ fn young_finished_and_unreachable_cases_are_left_alone() {
     assert!(r["skipped"].is_string());
 }
 
+fn late_delivery(id: &str, attempts: u32) -> Delivery {
+    Delivery { msg_id: "1-0".into(), claim_id: id.into(), version: 1, input_hash: format!("h-{id}"), attempts }
+}
+
+fn idle_pool_parts() -> (PoolStats, InFlight) {
+    (PoolStats::default(), Arc::new(Mutex::new(HashSet::new())))
+}
+
+#[test]
+fn dead_lettering_never_touches_a_finished_claim_and_never_repeats() {
+    let w = world(probe(1, false));
+    let (stats, in_flight) = idle_pool_parts();
+    // a claim that already finished: a late copy of its message past the attempt limit parks nothing and is simply acknowledged
+    let done = put_flagged(&w.store, 0);
+    assert_eq!(crate::flow::process(&w.rt, &done, 1, &format!("h-{done}")), "ready");
+    assert!(handle(&*w.broker, &w.rt, &fast(1), &stats, &in_flight, &late_delivery(&done, 4)));
+    assert_eq!(state_of(&w.store, &done), "ready");
+    assert!(w.store.dead_letters(10).unwrap().is_empty(), "no dead letter for a claim that finished");
+    // an unfinished claim: parked once; the same late message again (its acknowledgement failed) writes no second record
+    let stuck = put_flagged(&w.store, 1);
+    assert!(handle(&*w.broker, &w.rt, &fast(1), &stats, &in_flight, &late_delivery(&stuck, 4)));
+    assert!(handle(&*w.broker, &w.rt, &fast(1), &stats, &in_flight, &late_delivery(&stuck, 5)));
+    assert_eq!(state_of(&w.store, &stuck), "dead_lettered");
+    assert_eq!(w.store.dead_letters(10).unwrap().len(), 1, "one record for one parking");
+    assert_eq!(stats.dead_lettered.load(Ordering::SeqCst), 1);
+}
+
+#[test]
+fn a_late_message_never_takes_a_claim_out_of_a_reviewers_hands() {
+    let w = world(probe(1, false));
+    let (stats, in_flight) = idle_pool_parts();
+    let id = put_flagged(&w.store, 0);
+    assert_eq!(crate::flow::process(&w.rt, &id, 1, &format!("h-{id}")), "ready");
+    let mut lease = serde_json::Map::new();
+    lease.insert("lease".into(), json!({"badge_id": "CG-2002", "expires_at": 4_000_000_000.0}));
+    assert!(w.store.transition(&id, 1, "ready", "leased", "CG-2002", 2000.0, None, Some(lease), None).unwrap().is_some());
+    assert!(handle(&*w.broker, &w.rt, &fast(1), &stats, &in_flight, &late_delivery(&id, 9)), "acknowledged");
+    assert_eq!(state_of(&w.store, &id), "leased", "a reviewer holds this claim; a stale delivery must not park it");
+    assert!(w.store.dead_letters(10).unwrap().is_empty());
+}
+
+#[test]
+fn a_copy_past_the_attempt_limit_waits_while_another_copy_of_the_claim_is_being_worked_on() {
+    let w = world(probe(1, false));
+    let (stats, in_flight) = idle_pool_parts();
+    let id = put_flagged(&w.store, 0);
+    in_flight.lock().unwrap().insert((id.clone(), 1)); // another thread holds this claim
+    let acked = handle(&*w.broker, &w.rt, &fast(1), &stats, &in_flight, &late_delivery(&id, 4));
+    assert!(!acked, "left pending, not acknowledged");
+    assert_eq!(state_of(&w.store, &id), "triaged", "not parked while another thread may still finish it");
+    assert!(w.store.dead_letters(10).unwrap().is_empty());
+}
+
+/// A broker whose client panics once on the first read, like a bug in a driver would.
+struct PanicsOnFirstRead {
+    inner: MemoryBroker,
+    armed: AtomicBool,
+}
+
+impl Broker for PanicsOnFirstRead {
+    fn publish(&self, c: &str, v: i64, h: &str) -> crate::broker::BResult<()> {
+        self.inner.publish(c, v, h)
+    }
+    fn read(&self, consumer: &str, block_ms: u64) -> crate::broker::BResult<Option<Delivery>> {
+        if self.armed.swap(false, Ordering::SeqCst) {
+            panic!("the driver crashed");
+        }
+        self.inner.read(consumer, block_ms)
+    }
+    fn reclaim(&self, consumer: &str, min_idle_ms: u64, count: usize) -> crate::broker::BResult<Vec<Delivery>> {
+        self.inner.reclaim(consumer, min_idle_ms, count)
+    }
+    fn ack(&self, msg_id: &str) -> crate::broker::BResult<()> {
+        self.inner.ack(msg_id)
+    }
+    fn stats(&self) -> crate::broker::BResult<crate::broker::BrokerStats> {
+        self.inner.stats()
+    }
+}
+
+#[test]
+fn a_crash_inside_the_broker_client_does_not_end_the_consumer_threads() {
+    let w = world(probe(1, false));
+    let id = put_flagged(&w.store, 0);
+    let broker = Arc::new(PanicsOnFirstRead { inner: MemoryBroker::new(wall()), armed: AtomicBool::new(true) });
+    broker.publish(&id, 1, &format!("h-{id}")).unwrap();
+    let stop = Arc::new(AtomicBool::new(false));
+    let pool = start(broker.clone(), w.rt.clone(), fast(1), stop.clone(), "t"); // one thread: if it died there would be nobody left
+    wait_until("the claim is finished after the crash", || state_of(&w.store, &id) == "ready");
+    let stats = pool.stats.clone();
+    stop_and_join(pool, &stop);
+    assert!(stats.broker_errors.load(Ordering::SeqCst) >= 1, "the crash was counted as a broker failure");
+}
+
 #[test]
 fn setting_the_stop_flag_ends_every_thread() {
     let w = world(probe(1, false));

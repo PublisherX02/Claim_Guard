@@ -333,15 +333,22 @@ pub fn process(rt: &Runtime, claim_id: &str, version: i64, input_hash: &str) -> 
     }
 }
 
-/// Records one dead letter and parks the claim. The reason is the error kind only: its message could quote claim text.
-pub fn dead_letter(rt: &Runtime, claim_id: &str, version: i64, input_hash: &str, reason: &str, attempts: u32) {
+/// Parks a claim that is still in the pipeline and records one dead letter. The claim is moved first and the record is written only if this call moved it, so a claim
+/// that already finished (or was already parked by an earlier delivery whose acknowledgement failed) gets no record, and a repeat of this
+/// call writes nothing. The reason is the error kind only: its message could quote claim text. Returns whether it parked the claim.
+pub fn dead_letter(rt: &Runtime, claim_id: &str, version: i64, input_hash: &str, reason: &str, attempts: u32) -> bool {
     let now = (rt.clock)();
+    let Ok(Some(doc)) = rt.store.get(claim_id, Some(version)) else { return false };
+    let state = doc["state"].as_str().unwrap_or("");
+    // only a claim still in the pipeline can be parked here: one that is ready, leased or being countersigned is in a person's hands
+    if !PIPELINE_STATES.contains(&state) || !states::allowed_from(state).contains(&"dead_lettered") {
+        return false;
+    }
+    let moved = rt.store.transition(claim_id, version, state, "dead_lettered", "system:worker", now, Some(json!({"reason": reason, "attempts": attempts})), None, None);
+    if !matches!(moved, Ok(Some(_))) {
+        return false;
+    }
     let id = cg_access::settings::random_token(16);
     let _ = rt.store.add_dead_letter(&json!({"dead_id": id, "claim_id": claim_id, "version": version, "input_hash": input_hash, "reason": reason, "attempts": attempts, "at": now}));
-    if let Ok(Some(doc)) = rt.store.get(claim_id, Some(version)) {
-        let state = doc["state"].as_str().unwrap_or("");
-        if states::allowed_from(state).contains(&"dead_lettered") {
-            let _ = rt.store.transition(claim_id, version, state, "dead_lettered", "system:worker", now, Some(json!({"reason": reason, "attempts": attempts})), None, None);
-        }
-    }
+    true
 }

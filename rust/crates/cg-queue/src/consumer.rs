@@ -77,12 +77,19 @@ type InFlight = Arc<Mutex<HashSet<(String, i64)>>>;
 
 /// Handles one delivery. Returns true when the message was acknowledged.
 pub fn handle(broker: &dyn Broker, rt: &Runtime, cfg: &PoolConfig, stats: &PoolStats, in_flight: &InFlight, d: &Delivery) -> bool {
+    let key = (d.claim_id.clone(), d.version);
     if d.attempts > cfg.max_attempts {
-        flow::dead_letter(rt, &d.claim_id, d.version, &d.input_hash, "delivery_attempts_exceeded", d.attempts);
-        stats.dead_lettered.fetch_add(1, Ordering::SeqCst);
+        // another thread of this process is working on this very claim (a second copy of it): leave this message pending, it is judged again later
+        if in_flight.lock().unwrap_or_else(|p| p.into_inner()).contains(&key) {
+            return false;
+        }
+        if flow::dead_letter(rt, &d.claim_id, d.version, &d.input_hash, "delivery_attempts_exceeded", d.attempts) {
+            stats.dead_lettered.fetch_add(1, Ordering::SeqCst);
+        } else {
+            stats.duplicates_skipped.fetch_add(1, Ordering::SeqCst); // already finished or already parked: nothing to park
+        }
         return broker.ack(&d.msg_id).is_ok();
     }
-    let key = (d.claim_id.clone(), d.version);
     if !in_flight.lock().unwrap_or_else(|p| p.into_inner()).insert(key.clone()) {
         // the same claim is being run by another thread of this process: that run covers this message
         stats.duplicates_skipped.fetch_add(1, Ordering::SeqCst);
@@ -104,6 +111,11 @@ pub fn handle(broker: &dyn Broker, rt: &Runtime, cfg: &PoolConfig, stats: &PoolS
             false
         }
     }
+}
+
+/// A broker call behind a guard: a panic inside the client counts as a broker failure (backoff and retry), never as the end of the thread.
+fn guarded<T>(f: impl FnOnce() -> crate::broker::BResult<T>) -> crate::broker::BResult<T> {
+    std::panic::catch_unwind(std::panic::AssertUnwindSafe(f)).unwrap_or_else(|_| Err("the broker call panicked".into()))
 }
 
 /// `handle` behind a guard: nothing a delivery does may end a consumer thread.
@@ -139,7 +151,7 @@ pub fn start(broker: Arc<dyn Broker>, rt: Arc<Runtime>, cfg: PoolConfig, stop: A
                     let mut failed = false;
                     if last_reclaim.elapsed() >= Duration::from_millis(cfg.reclaim_every_ms) {
                         last_reclaim = std::time::Instant::now();
-                        match broker.reclaim(&consumer, cfg.min_idle_ms, 10) {
+                        match guarded(|| broker.reclaim(&consumer, cfg.min_idle_ms, 10)) {
                             Ok(taken) => {
                                 stats.reclaimed.fetch_add(taken.len() as u64, Ordering::SeqCst);
                                 for d in taken {
@@ -150,7 +162,7 @@ pub fn start(broker: Arc<dyn Broker>, rt: Arc<Runtime>, cfg: PoolConfig, stop: A
                         }
                     }
                     if !failed {
-                        match broker.read(&consumer, cfg.block_ms) {
+                        match guarded(|| broker.read(&consumer, cfg.block_ms)) {
                             Ok(Some(d)) => safely(&*broker, &rt, &cfg, &stats, &in_flight, &d),
                             Ok(None) => {}
                             Err(_) => failed = true,
