@@ -31,6 +31,7 @@ RESOLVING = review_workflow.RESOLVING
 GREEN_ACTIONS = ('verify_clear', 'escalate')
 CONFIG_FIELDS = frozenset(f.name for f in dataclasses.fields(rc.RoutingConfig)) - {'version'}
 LOG_VALUE_CHARS = 400
+MAX_SUBMIT = 25
 ROUNDS = {None: 1, 'countersign': 2, 'tiebreak': 3}
 
 
@@ -104,6 +105,7 @@ class QueueService:
     def __init__(self, store, dispatcher, access, securitylog, review_log, clock):
         self.store, self.dispatcher, self.access = store, dispatcher, access
         self.securitylog, self.review_log, self.clock = securitylog, review_log, clock
+        self.intake = None                                   # set by the wiring; only the submit route needs it
 
     # ---- permissions and ownership
     def _fresh(self, principal):
@@ -315,8 +317,41 @@ class QueueService:
         return {'claim_state': 'ready'}
 
     # ---- the administrator's side
+    TRACE_VERSION_FIELDS = ('state', 'state_at', 'escalated', 'decided_by', 'signoff', 'lease')
+
+    def trace(self, principal, claim_id):
+        """Everything that is on record about one claim, for an auditor: each stored version with its state history, the rule pack and
+        configuration it was triaged under, every decision, and the security-log entries that name it. No claim values are returned:
+        a trace says who did what and when, not what the claim contained."""
+        self._require(principal, 'audit.view')
+        latest = self.store.get(claim_id)
+        if latest is None:
+            raise NotFound(claim_id)
+        versions = []
+        for v in range(1, latest['version'] + 1):
+            doc = latest if v == latest['version'] else self.store.get(claim_id, v)
+            if doc is None:
+                continue
+            receipt = doc.get('receipt', {})
+            versions.append({
+                'version': doc['version'], 'input_hash': doc.get('input_hash'),
+                'receipt': {k: receipt.get(k) for k in ('lane', 'score', 'eligibility', 'config_version', 'rule_pack_hash', 'engine_version', 'facts_hash', 'degraded',
+                                                        'result_hash', 'created_at')},
+                **{k: doc.get(k) for k in self.TRACE_VERSION_FIELDS},
+                'events': doc.get('events', []), 'decisions': doc.get('decisions', []),
+                'findings': [{'rule_id': r.get('rule_id'), 'status': r.get('status'), 'severity': r.get('severity')} for r in doc.get('results', [])
+                             if r.get('status') in ('FAIL', 'UNABLE_TO_ASSESS')],
+                'explanation_sources': {rid: v.get('source') for rid, v in ((doc.get('explanation') or {}).get('findings') or {}).items()},
+            })
+        log = [r for r in self.securitylog.scan(50_000) if r['event'].get('claim_id') == claim_id]
+        return {'claim_id': claim_id, 'versions': versions, 'security_log': log[-200:]}
+
     def dashboard(self, principal):
         self._require(principal, 'queue.view')
+        return self.dashboard_snapshot()
+
+    def dashboard_snapshot(self):
+        """The dashboard numbers without a permission check: for the caller that already checked one (the API route, the health report)."""
         now = self.clock()
         cfg = self.routing_config()
         agents = [a for a in self.dispatcher.agents() if a.active and a.badge_id in cfg.on_shift]
@@ -341,6 +376,26 @@ class QueueService:
         return {'counts': self.store.counts(), 'waiting': waiting, 'awaiting_countersign': sum(1 for d in signed), 'oldest_waiting_seconds': oldest, 'on_shift': len(agents),
                 'on_shift_senior': len(senior), 'inbox_sizes': inboxes, 'shortages': shortages, 'config_version': cfg.version,
                 'slice_size': cfg.slice_size}
+
+    def submit_claims(self, principal, claims):
+        """Hand claims to intake (validate, run the engine, write the receipt). The outbox marker intake leaves is what the relay
+        sweep publishes to the workers, so this call does no processing itself. One claim failing never stops the others."""
+        self._require(principal, 'routing.manage')
+        if self.intake is None:
+            raise ValueError('this server was started without a claim intake')
+        if type(claims) is not list or not claims or len(claims) > MAX_SUBMIT:
+            raise ValueError(f'send between 1 and {MAX_SUBMIT} claims at a time')
+        self.access.record('queue_admin', actor=principal.badge, command='submit_http')
+        rows = []
+        for claim in claims:
+            claim_id = claim.get('claim_id') if isinstance(claim, dict) else None
+            try:
+                receipt = self.intake.submit(claim)
+            except ValueError as e:
+                rows.append({'claim_id': claim_id if isinstance(claim_id, str) else None, 'accepted': False, 'reason': str(e)[:200]})
+                continue
+            rows.append({'claim_id': claim_id, 'accepted': True, 'lane': receipt['lane'], 'score': receipt['score']})
+        return rows
 
     def get_config(self, principal):
         self._require(principal, 'routing.manage')

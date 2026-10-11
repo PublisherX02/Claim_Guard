@@ -1,0 +1,375 @@
+# ClaimGuard on Kubernetes, on premises (no cloud load balancer, no managed service). Same pieces and the same promises as deploy/rust/compose.yml:
+#   * one image (claimguard-rs) runs the API and the worker; the worker is exactly one pod
+#   * MongoDB and Redis are only reachable from the API and the worker (NetworkPolicy), and nothing in the data tier can call out
+#   * everything runs as a non-root user with a read-only root filesystem, no capabilities, and the "restricted" Pod Security profile
+# Apply order and the commands are in deploy/k8s/README.md. The secrets are NOT in this file: create them from your .env (see README).
+# Not yet applied to a cluster: checked by a structural test (tests/test_deploy_k8s.py); docs/40 section 9 lists what to run on the target.
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: claimguard
+  labels:
+    app.kubernetes.io/part-of: claimguard
+    pod-security.kubernetes.io/enforce: restricted
+    pod-security.kubernetes.io/enforce-version: latest
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: claimguard-settings
+  namespace: claimguard
+data:
+  CLAIMGUARD_ROOT: /app
+  CLAIMGUARD_DATA_DIR: /data
+  AUDIT_MIRROR_DIR: /mirror
+  DUAL_CONTROL: "true"
+  APPROVAL_TTL_SECONDS: "86400"
+  UNMASK_PER_HOUR: "60"
+  # the proxy in front is the ingress controller: trust the address it forwards (set to the controller's pod network, not "*", in production)
+  TRUSTED_PROXY_IPS: "*"
+  QUEUE_AI_PROVIDER: ""            # "ollama" to use the on-premises model below
+  OLLAMA_BASE_URL: http://ollama:11434
+  OLLAMA_MODEL: ""
+  QUEUE_AI_TWO_PASS: ""
+  TSA_URL: ""
+---
+# --- storage: one volume for the logs and settings both pods write; the worker is scheduled next to the API (podAffinity below) because a
+# --- ReadWriteOnce volume can be shared by pods on the same node. On a cluster with a ReadWriteMany class, set accessModes accordingly.
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: claimguard-data
+  namespace: claimguard
+spec:
+  accessModes: ["ReadWriteOnce"]
+  resources: { requests: { storage: 5Gi } }
+---
+# The audit mirror: give it a StorageClass that is append-only or object-lock if you have one (docs/39 section 6), and mount it on the worker only.
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: claimguard-audit-mirror
+  namespace: claimguard
+spec:
+  accessModes: ["ReadWriteOnce"]
+  resources: { requests: { storage: 5Gi } }
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: api
+  namespace: claimguard
+  labels: { app: api, tier: app }
+spec:
+  # One replica: the audit logs are files with file locks. More than one needs a ReadWriteMany volume whose locks you have tested, or the
+  # logs moved into the database (not built). The API is otherwise stateless: sessions are signed tokens, throttles live in MongoDB.
+  replicas: 1
+  strategy: { type: Recreate }
+  selector: { matchLabels: { app: api } }
+  template:
+    metadata:
+      labels: { app: api, tier: app }
+    spec:
+      automountServiceAccountToken: false
+      securityContext: { runAsNonRoot: true, runAsUser: 65532, runAsGroup: 65532, fsGroup: 65532, seccompProfile: { type: RuntimeDefault } }
+      containers:
+        - name: api
+          image: claimguard-rs:latest        # build and push to your own registry; pin by digest in production
+          imagePullPolicy: IfNotPresent
+          command: ["cg", "serve", "--host", "0.0.0.0", "--port", "8443", "--queue", "--behind-proxy"]
+          ports: [{ name: http, containerPort: 8443 }]
+          envFrom:
+            - configMapRef: { name: claimguard-settings }
+            - secretRef: { name: claimguard-secrets }
+          securityContext: { allowPrivilegeEscalation: false, readOnlyRootFilesystem: true, capabilities: { drop: ["ALL"] } }
+          resources: { requests: { cpu: 100m, memory: 128Mi }, limits: { cpu: "2", memory: 768Mi } }
+          readinessProbe: { httpGet: { path: /healthz, port: http }, periodSeconds: 10, failureThreshold: 3 }
+          livenessProbe: { exec: { command: ["cg", "health", "--port", "8443"] }, initialDelaySeconds: 20, periodSeconds: 15, timeoutSeconds: 4, failureThreshold: 5 }
+          volumeMounts:
+            - { name: data, mountPath: /data }
+            - { name: tmp, mountPath: /tmp }
+      volumes:
+        - { name: data, persistentVolumeClaim: { claimName: claimguard-data } }
+        - { name: tmp, emptyDir: { medium: Memory, sizeLimit: 64Mi } }
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: worker
+  namespace: claimguard
+  labels: { app: worker, tier: app }
+spec:
+  # Exactly one: the relay, deal, expire and reconcile loops must not be duplicated. Recreate (never two at once during an update).
+  replicas: 1
+  strategy: { type: Recreate }
+  selector: { matchLabels: { app: worker } }
+  template:
+    metadata:
+      labels: { app: worker, tier: app }
+    spec:
+      automountServiceAccountToken: false
+      securityContext: { runAsNonRoot: true, runAsUser: 65532, runAsGroup: 65532, fsGroup: 65532, seccompProfile: { type: RuntimeDefault } }
+      affinity:
+        podAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            - labelSelector: { matchLabels: { app: api } }
+              topologyKey: kubernetes.io/hostname
+      containers:
+        - name: worker
+          image: claimguard-rs:latest
+          imagePullPolicy: IfNotPresent
+          command: ["cg", "worker"]
+          envFrom:
+            - configMapRef: { name: claimguard-settings }
+            - secretRef: { name: claimguard-secrets }
+          securityContext: { allowPrivilegeEscalation: false, readOnlyRootFilesystem: true, capabilities: { drop: ["ALL"] } }
+          resources: { requests: { cpu: 100m, memory: 128Mi }, limits: { cpu: "2", memory: 768Mi } }
+          livenessProbe: { exec: { command: ["cg", "health", "--file", "/tmp/cg_worker_alive", "--max-age", "30"] }, initialDelaySeconds: 40, periodSeconds: 30, timeoutSeconds: 10, failureThreshold: 3 }
+          volumeMounts:
+            - { name: data, mountPath: /data }
+            - { name: mirror, mountPath: /mirror }
+            - { name: tmp, mountPath: /tmp }
+      volumes:
+        - { name: data, persistentVolumeClaim: { claimName: claimguard-data } }
+        - { name: mirror, persistentVolumeClaim: { claimName: claimguard-audit-mirror } }
+        - { name: tmp, emptyDir: { medium: Memory, sizeLimit: 64Mi } }
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: api
+  namespace: claimguard
+spec:
+  selector: { app: api }
+  ports: [{ name: http, port: 8443, targetPort: http }]
+---
+# --- MongoDB: the only store of record (users, claims, queue). A single member here; a replica set is the next step for high availability.
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: mongo
+  namespace: claimguard
+  labels: { app: mongo, tier: data }
+spec:
+  serviceName: mongo
+  replicas: 1
+  selector: { matchLabels: { app: mongo } }
+  template:
+    metadata:
+      labels: { app: mongo, tier: data }
+    spec:
+      automountServiceAccountToken: false
+      securityContext: { runAsNonRoot: true, runAsUser: 999, runAsGroup: 999, fsGroup: 999, seccompProfile: { type: RuntimeDefault } }
+      containers:
+        - name: mongo
+          image: mongo:7@sha256:1f995ad6fdb93244a1addab1b58f934a0bc2f5643c38e02f5e9d7f0c7d227a7b
+          args: ["mongod", "--auth", "--bind_ip_all"]
+          ports: [{ name: mongo, containerPort: 27017 }]
+          env:
+            - name: MONGO_INITDB_ROOT_USERNAME
+              valueFrom: { secretKeyRef: { name: claimguard-secrets, key: MONGO_ROOT_USER } }
+            - name: MONGO_INITDB_ROOT_PASSWORD
+              valueFrom: { secretKeyRef: { name: claimguard-secrets, key: MONGO_ROOT_PASSWORD } }
+          securityContext: { allowPrivilegeEscalation: false, capabilities: { drop: ["ALL"] } }
+          resources: { requests: { cpu: 200m, memory: 512Mi }, limits: { cpu: "2", memory: 2Gi } }
+          readinessProbe: { exec: { command: ["mongosh", "--quiet", "--eval", "db.runCommand({ping:1}).ok"] }, periodSeconds: 10, timeoutSeconds: 5, failureThreshold: 6 }
+          volumeMounts: [{ name: data, mountPath: /data/db }]
+  volumeClaimTemplates:
+    - metadata: { name: data }
+      spec:
+        accessModes: ["ReadWriteOnce"]
+        resources: { requests: { storage: 20Gi } }
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: mongo
+  namespace: claimguard
+spec:
+  clusterIP: None
+  selector: { app: mongo }
+  ports: [{ name: mongo, port: 27017 }]
+---
+# --- Redis: password protected, no persistence (a cache and a health signal; MongoDB holds the queue).
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: redis
+  namespace: claimguard
+  labels: { app: redis, tier: data }
+spec:
+  replicas: 1
+  selector: { matchLabels: { app: redis } }
+  template:
+    metadata:
+      labels: { app: redis, tier: data }
+    spec:
+      automountServiceAccountToken: false
+      securityContext: { runAsNonRoot: true, runAsUser: 999, runAsGroup: 999, seccompProfile: { type: RuntimeDefault } }
+      containers:
+        - name: redis
+          image: redis:7@sha256:4fa24486b8bcca8eec45ee0eb166edc674795e53a2b53d1a9ef263eecebaac85
+          command: ["sh", "-c", "exec redis-server --save '' --appendonly no --requirepass \"$REDIS_PASSWORD\""]
+          ports: [{ name: redis, containerPort: 6379 }]
+          env:
+            - name: REDIS_PASSWORD
+              valueFrom: { secretKeyRef: { name: claimguard-secrets, key: REDIS_PASSWORD } }
+          securityContext: { allowPrivilegeEscalation: false, readOnlyRootFilesystem: true, capabilities: { drop: ["ALL"] } }
+          resources: { requests: { cpu: 50m, memory: 64Mi }, limits: { cpu: "1", memory: 256Mi } }
+          readinessProbe: { exec: { command: ["sh", "-c", "redis-cli -a \"$REDIS_PASSWORD\" --no-auth-warning ping"] }, periodSeconds: 10, timeoutSeconds: 5 }
+          volumeMounts: [{ name: tmp, mountPath: /tmp }]
+      volumes: [{ name: tmp, emptyDir: { sizeLimit: 32Mi } }]
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: redis
+  namespace: claimguard
+spec:
+  selector: { app: redis }
+  ports: [{ name: redis, port: 6379 }]
+---
+# --- Optional on-premises model (apply only if you use the AI explanation step; set QUEUE_AI_PROVIDER=ollama and OLLAMA_MODEL above).
+# --- GPU: add the NVIDIA device plugin's resource request under resources.limits ("nvidia.com/gpu": 1) on a GPU node.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: ollama
+  namespace: claimguard
+  labels: { app: ollama, tier: data }
+spec:
+  replicas: 0            # scale to 1 to turn the model on: kubectl -n claimguard scale deploy/ollama --replicas=1
+  selector: { matchLabels: { app: ollama } }
+  template:
+    metadata:
+      labels: { app: ollama, tier: data }
+    spec:
+      automountServiceAccountToken: false
+      # the image runs as root by default; the "restricted" profile does not allow that, so it runs as 1000 with the models in /models
+      # (untested on a cluster: if your model server needs root, give it its own namespace with the "baseline" profile instead)
+      securityContext: { runAsNonRoot: true, runAsUser: 1000, runAsGroup: 1000, fsGroup: 1000, seccompProfile: { type: RuntimeDefault } }
+      containers:
+        - name: ollama
+          image: ollama/ollama:latest@sha256:b86366bb528bbf7f1424435d165028497a5b69bf6ddb4fa5a87102e2b79f44fb
+          ports: [{ name: ollama, containerPort: 11434 }]
+          env: [{ name: OLLAMA_MODELS, value: /models }, { name: HOME, value: /tmp }]
+          securityContext: { allowPrivilegeEscalation: false, capabilities: { drop: ["ALL"] } }
+          resources: { requests: { cpu: "1", memory: 4Gi }, limits: { cpu: "8", memory: 16Gi } }
+          volumeMounts: [{ name: models, mountPath: /models }, { name: tmp, mountPath: /tmp }]
+      volumes:
+        - { name: models, persistentVolumeClaim: { claimName: claimguard-models } }
+        - { name: tmp, emptyDir: { sizeLimit: 64Mi } }
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: claimguard-models
+  namespace: claimguard
+spec:
+  accessModes: ["ReadWriteOnce"]
+  resources: { requests: { storage: 30Gi } }
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: ollama
+  namespace: claimguard
+spec:
+  selector: { app: ollama }
+  ports: [{ name: ollama, port: 11434 }]
+---
+# --- Network policy: deny everything, then allow only what is listed. The data tier (mongo, redis, ollama) has no egress except DNS.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: default-deny
+  namespace: claimguard
+spec:
+  podSelector: {}
+  policyTypes: ["Ingress", "Egress"]
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-dns
+  namespace: claimguard
+spec:
+  podSelector: {}
+  policyTypes: ["Egress"]
+  egress:
+    - to: [{ namespaceSelector: { matchLabels: { kubernetes.io/metadata.name: kube-system } } }]
+      ports: [{ protocol: UDP, port: 53 }, { protocol: TCP, port: 53 }]
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: ingress-controller-to-api
+  namespace: claimguard
+spec:
+  podSelector: { matchLabels: { app: api } }
+  policyTypes: ["Ingress"]
+  ingress:
+    - from: [{ namespaceSelector: { matchLabels: { kubernetes.io/metadata.name: ingress-nginx } } }]
+      ports: [{ protocol: TCP, port: 8443 }]
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: app-to-data
+  namespace: claimguard
+spec:
+  podSelector: { matchLabels: { tier: app } }
+  policyTypes: ["Egress"]
+  egress:
+    - to: [{ podSelector: { matchLabels: { app: mongo } } }]
+      ports: [{ protocol: TCP, port: 27017 }]
+    - to: [{ podSelector: { matchLabels: { app: redis } } }]
+      ports: [{ protocol: TCP, port: 6379 }]
+    - to: [{ podSelector: { matchLabels: { app: ollama } } }]
+      ports: [{ protocol: TCP, port: 11434 }]
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: data-tier-only-from-app
+  namespace: claimguard
+spec:
+  podSelector: { matchLabels: { tier: data } }
+  policyTypes: ["Ingress"]
+  ingress:
+    - from: [{ podSelector: { matchLabels: { tier: app } } }]
+---
+# Optional: the one outside call, an RFC 3161 time-stamp request from the worker (a hash, never data). Uncomment and set the authority's address.
+# apiVersion: networking.k8s.io/v1
+# kind: NetworkPolicy
+# metadata: { name: worker-to-timestamp-authority, namespace: claimguard }
+# spec:
+#   podSelector: { matchLabels: { app: worker } }
+#   policyTypes: ["Egress"]
+#   egress: [{ to: [{ ipBlock: { cidr: 203.0.113.10/32 } }], ports: [{ protocol: TCP, port: 443 }] }]
+---
+# --- Ingress: TLS ends at the ingress controller (ingress-nginx NodePort or MetalLB on premises). The certificate comes from your internal
+# --- certificate authority (a Secret named claimguard-tls) or from cert-manager; the request size and timeouts mirror the Caddy settings.
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: claimguard
+  namespace: claimguard
+  annotations:
+    nginx.ingress.kubernetes.io/proxy-body-size: 100k
+    nginx.ingress.kubernetes.io/proxy-read-timeout: "60"
+    nginx.ingress.kubernetes.io/proxy-send-timeout: "30"
+    nginx.ingress.kubernetes.io/client-header-timeout: "10"
+    nginx.ingress.kubernetes.io/ssl-redirect: "true"
+    nginx.ingress.kubernetes.io/hsts: "true"
+    nginx.ingress.kubernetes.io/hsts-max-age: "31536000"
+spec:
+  ingressClassName: nginx
+  tls:
+    - hosts: ["claimguard.hospital.internal"]      # your host name
+      secretName: claimguard-tls
+  rules:
+    - host: claimguard.hospital.internal
+      http:
+        paths:
+          - { path: /, pathType: Prefix, backend: { service: { name: api, port: { number: 8443 } } } }

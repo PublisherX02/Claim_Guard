@@ -1,0 +1,10 @@
+corpus/claims.jsonl
+corpus/expected.txt
+results/raw/
+*/target/
+*/bin/
+*/obj/
+*/node_modules/
+*/out/
+*/lib/
+*/*.exe

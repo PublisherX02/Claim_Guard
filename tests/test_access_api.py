@@ -429,6 +429,12 @@ class HardeningTests(unittest.TestCase):
             self.assertEqual(h['referrer-policy'], 'no-referrer')
             self.assertEqual(h['content-security-policy'], "default-src 'none'")
 
+    def test_verify_treats_a_review_log_with_no_decisions_yet_as_intact(self):
+        c = self.w.login_client(4)
+        self.assertFalse(self.w.review_log.path.exists())
+        body = c.get(f'{API}/audit/verify').json()
+        self.assertEqual(body['review'], {'ok': True, 'events': 0})
+
     def test_oversized_bodies_are_refused(self):
         c = self.w.client()
         big = {'badge_id': 'CG-2002', 'password': 'x' * 70_000, 'totp': '123456'}

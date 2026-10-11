@@ -60,6 +60,7 @@ class MongoQueueStore:
         self._deals = self.raw_db['deals']
         self._dead = self.raw_db['dead_letters']
         self._cache = self.raw_db['cache']
+        self._jobs = self.raw_db['jobs']
         self._counters = self.raw_db['counters']
 
     def close(self):
@@ -76,6 +77,7 @@ class MongoQueueStore:
         self._configs.create_index('version', unique=True)
         self._dead.create_index('dead_id', unique=True)
         self._cache.create_index('key', unique=True)
+        self._jobs.create_index('name', unique=True)
         self._cache.create_index('expires_at', expireAfterSeconds=0)
         self._counters.create_index([('counter', 1), ('window', 1)], unique=True)
         self._counters.create_index('expires_at', expireAfterSeconds=0)
@@ -299,6 +301,20 @@ class MongoQueueStore:
     def cache_put(self, key, text):
         check_text(key, 'key'); check_text(text, 'text')
         self._cache.replace_one({'key': key}, {'key': key, 'text': text, 'expires_at': _now() + CACHE_TTL}, upsert=True)
+
+    @_guarded
+    def record_job(self, name, now, ok, detail=''):
+        check_text(name, 'name'); check_number(now, 'now')
+        if not name or type(ok) is not bool or not isinstance(detail, str) or len(detail) > 200:
+            raise ValueError('ok must be a boolean and detail short text')
+        update = {'$set': {'at': now, 'ok': ok, 'detail': detail}, '$inc': {'runs': 1, 'failures': 0 if ok else 1}}
+        if ok:
+            update['$set']['last_ok_at'] = now
+        self._jobs.update_one({'name': name}, update, upsert=True)
+
+    @_guarded
+    def jobs(self):
+        return [{'last_ok_at': None, **j} for j in self._jobs.find({}, NO_ID).sort('name', 1)]
 
     @_guarded
     def bump(self, counter, window_key, limit):

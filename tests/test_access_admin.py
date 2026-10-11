@@ -178,6 +178,26 @@ class BootstrapAndServeTests(unittest.TestCase):
         self.assertEqual(code, 2)
         self.assertIn('TLS', out.getvalue())
 
+    def test_behind_proxy_listens_publicly_without_tls_and_reads_forwarded_addresses(self):
+        calls = []
+        out = io.StringIO()
+        code = serve_access.main(['--host', '0.0.0.0', '--behind-proxy'], env={**GOOD_ENV, 'TRUSTED_PROXY_IPS': '172.20.0.5'}, out=out,
+                                 run=lambda app, **kw: calls.append(kw), store=store.MemoryStore(), data_dir=self.tmp.name,
+                                 claims_path=ROOT / 'data' / 'stress' / 'claims.jsonl')
+        self.assertEqual(code, 0, out.getvalue())
+        self.assertEqual((calls[0]['host'], calls[0]['proxy_headers'], calls[0]['forwarded_allow_ips']), ('0.0.0.0', True, '172.20.0.5'))
+
+    def test_without_behind_proxy_no_forwarded_header_is_trusted(self):
+        calls = []
+        serve_access.main(['--dev'], env=dict(DEV_ENV), out=io.StringIO(), run=lambda app, **kw: calls.append(kw), data_dir=self.tmp.name,
+                          claims_path=ROOT / 'data' / 'stress' / 'claims.jsonl')
+        self.assertNotIn('proxy_headers', calls[0])
+
+    def test_behind_proxy_is_refused_in_dev_mode(self):
+        out = io.StringIO()
+        code = serve_access.main(['--dev', '--behind-proxy'], env=dict(DEV_ENV), out=out, run=lambda *a, **k: self.fail('must not start'))
+        self.assertEqual(code, 2)
+
     def test_serve_starts_with_safe_server_options(self):
         calls = []
         out = io.StringIO()

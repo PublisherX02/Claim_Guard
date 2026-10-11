@@ -54,15 +54,24 @@ def open_queue_store(settings, env, dev):
     raise access_config.ConfigError('MONGO_URI is required for the work queue')
 
 
+def rulebook_rules():
+    from engine_core import config as engine_config
+    return {r['rule_id']: r for r in engine_config(Path(__file__).resolve().parents[2])['rules']}
+
+
 def build_queue(stack, env=None, dev=False, queue_store=None, engine=None, clock=time.time, model=None, guard=None, rng_seed=None):
     env = env or {}
     store = queue_store or open_queue_store(stack.settings, env, dev)
     review_log = AuditLog(stack.data_dir / 'review_audit.jsonl')
     engine = engine or default_engine()
+    if model is None:
+        from . import model_adapter
+        model = model_adapter.model_from_env(env, rulebook_rules)
     dispatcher = Dispatcher(store, agents_from_access(stack.service), clock, rng_seed=rng_seed, securitylog=stack.securitylog)
     service = QueueService(store, dispatcher, stack.service, stack.securitylog, review_log, clock)
     from yara_engine import engine_code_hash, pack_hash
     intake = Intake(store, engine, stack.securitylog, clock, pack_hash(), engine_code_hash(), history=StoreHistory(store))
+    service.intake = intake
     step = explain.ExplainStep(store, model or explain.no_model, guard or explain.default_guard, CircuitBreaker(clock), clock,
                                random.Random(), service.routing_config, explain.deterministic_text,
                                model_name=getattr(model, 'name', 'none') if model else 'none')

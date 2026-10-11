@@ -1,0 +1,15 @@
+# Known advisories that were looked at and judged NOT reachable from ClaimGuard. Every entry says why; anything new still fails the audit.
+# Re-check each one whenever yara-x is upgraded (all of them arrive through it): `cargo audit` must then pass without this list.
+[advisories]
+ignore = [
+    # wasmtime 45.0.3, pulled in by yara-x 1.21.0 (the latest release at the time of writing) to run compiled rule conditions.
+    # ClaimGuard compiles two fixed rule packs generated from files in the repository (rules/core.yar, rules/extensions/catalogue.json);
+    # no rule, module or WebAssembly code from a user, a claim or the network is ever loaded.
+    "RUSTSEC-2026-0222",  # type indices mixed between engines: needs a module or type passed between engines; yara-x passes none
+    "RUSTSEC-2026-0269",  # WASI filesystem sandbox escape: the WASI crate (wasmtime-wasi) is not in the dependency tree at all
+    "RUSTSEC-2026-0316",  # component-model dynamic record lifting: yara-x uses core modules only, never the component model
+    "RUSTSEC-2026-0327",  # component-model async-lifted callback: same, component model unused
+    # rsa 0.9.10 (Marvin timing attack on PRIVATE-key operations, no fix released). ClaimGuard only VERIFIES signatures with public keys
+    # (the RFC 3161 timestamp check, and inside yara-x for its optional crypto module); it holds and uses no RSA private key.
+    "RUSTSEC-2023-0071",
+]

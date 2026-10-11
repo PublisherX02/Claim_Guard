@@ -22,7 +22,8 @@ from fastapi.responses import JSONResponse
 from pydantic import BaseModel, ConfigDict, Field
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
-from . import masking, permissions
+from . import masking, ops, permissions
+from .ui import UI_CSP, UI_PREFIX
 from .service import AuthError, DuplicateUser, Forbidden
 
 API = '/api/v1'
@@ -111,7 +112,10 @@ class SecurityHeaders:
         async def send_with_headers(message):
             if message['type'] == 'http.response.start':
                 names = {n for n, _ in _SECURITY_HEADERS}
-                message = {**message, 'headers': [h for h in message.get('headers', []) if h[0].lower() not in names] + _SECURITY_HEADERS}
+                headers = _SECURITY_HEADERS
+                if scope.get('path', '').startswith(UI_PREFIX):          # the console's own files: scripts and styles from this origin only
+                    headers = [(n, UI_CSP.encode() if n == b'content-security-policy' else v) for n, v in headers]
+                message = {**message, 'headers': [h for h in message.get('headers', []) if h[0].lower() not in names] + headers}
             await send(message)
         await self.app(scope, receive, send_with_headers)
 
@@ -208,10 +212,12 @@ def _client_ip(request):
 
 
 # ---- the application --------------------------------------------------------------------------------------------------
-def create_app(service, claims, review_log, securitylog, settings, clock=time.time, queue=None):
+def create_app(service, claims, review_log, securitylog, settings, clock=time.time, queue=None, ui=False, metrics=None, extra_probes=()):
     app = FastAPI(title='ClaimGuard reviewer API', docs_url=None, redoc_url=None, openapi_url=None)
+    metrics = metrics or ops.Metrics(clock)
     app.add_middleware(RequestGuard)
     app.add_middleware(SecurityHeaders)
+    app.add_middleware(ops.MetricsLayer, metrics=metrics)            # outermost: it times every request and sees the final status
     throttle = _LoginThrottle(clock)
 
     @app.exception_handler(ApiError)
@@ -396,22 +402,52 @@ def create_app(service, claims, review_log, securitylog, settings, clock=time.ti
         raise ApiError(501, 'not_implemented')
 
     # ---- audit
+    def verify_logs():
+        security = securitylog.verify()
+        try:
+            if not review_log.path.exists():                       # nothing decided yet: an empty log is intact, not a failure
+                review = {'ok': True, 'events': 0}
+            else:
+                _, count = verify_with_anchor(review_log.path, strict=False)
+                review = {'ok': True, 'events': count}
+        except (ValueError, OSError) as e:
+            review = {'ok': False, 'error': str(e)[:300]}
+        return {'security': security, 'review': review}
+
+    audit_status = ops.AuditStatus(verify_logs, clock)
+
     @app.get(f'{API}/audit/events')
     def audit_events(request: Request, limit: int = Query(100, ge=1, le=1000), offset: int = Query(0, ge=0),
+                     event_type: str | None = Query(None, max_length=40), badge: str | None = Query(None, max_length=64),
+                     claim_id: str | None = Query(None, max_length=80), since: float | None = Query(None, ge=0, le=4e9),
+                     until: float | None = Query(None, ge=0, le=4e9), newest_first: bool = False,
                      principal: Any = Depends(need('audit.view'))):
+        if event_type is not None and event_type not in ops.EVENT_TYPES_KNOWN:
+            raise ApiError(422, 'invalid_request')
         run(lambda: service.record('audit_read', badge_id=principal.badge), request, principal)
-        return {'events': securitylog.events(limit=limit, offset=offset)}
+        if not (event_type or badge or claim_id or since is not None or until is not None or newest_first):
+            return {'events': securitylog.events(limit=limit, offset=offset)}
+        rows = ops.matching(securitylog.scan(ops.MAX_SCAN_ROWS), event_type, badge, claim_id, since, until)
+        if newest_first:
+            rows = rows[::-1]
+        return {'events': rows[offset:offset + limit], 'matched': len(rows)}
 
     @app.get(f'{API}/audit/verify')
     def audit_verify(request: Request, principal: Any = Depends(need('audit.verify'))):
-        security = securitylog.verify()
-        try:
-            _, count = verify_with_anchor(review_log.path, strict=False)
-            review = {'ok': True, 'events': count}
-        except (ValueError, OSError) as e:
-            review = {'ok': False, 'error': str(e)[:300]}
+        result = audit_status.refresh()
+        security, review = result['security'], result['review']
         run(lambda: service.record('audit_verify', badge_id=principal.badge, ok=bool(security['ok'] and review['ok'])), request, principal)
         return {'security': security, 'review': review}
+
+    @app.get(f'{API}/ops/audit/summary')
+    def audit_overview(request: Request, hours: int = Query(24, ge=1, le=168), principal: Any = Depends(need('audit.view'))):
+        run(lambda: service.record('audit_read', badge_id=principal.badge), request, principal)
+        return ops.audit_summary(securitylog.scan(ops.MAX_SCAN_ROWS), clock(), hours)
+
+    @app.get(f'{API}/ops/health')
+    def health_report(request: Request, principal: Any = Depends(need('queue.view'))):
+        probes = ops.access_probes(service, securitylog, audit_status, securitylog.path.parent, metrics, clock) + list(extra_probes)
+        return ops.build_report(probes, metrics, clock)
 
     # ---- users
     @app.get(f'{API}/users')
@@ -444,6 +480,10 @@ def create_app(service, claims, review_log, securitylog, settings, clock=time.ti
     @app.post(API + '/users/{badge_id}/reset-totp')
     def users_reset_totp(badge_id: str, request: Request, principal: Any = Depends(need('users.manage'))):
         return {'provisioning_uri': run(lambda: service.reset_totp(principal, badge_id), request, principal)}
+
+    if ui:
+        from . import ui as console
+        console.install(app)
 
     if queue is not None:
         from workqueue import api as queue_api

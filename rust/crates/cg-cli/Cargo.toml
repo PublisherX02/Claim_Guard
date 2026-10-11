@@ -1,0 +1,23 @@
+[package]
+name = "cg-cli"
+version.workspace = true
+edition.workspace = true
+
+[[bin]]
+name = "cg"
+path = "src/main.rs"
+
+[dependencies]
+cg-core = { path = "../cg-core" }
+cg-engine = { path = "../cg-engine" }
+cg-audit = { path = "../cg-audit" }
+cg-access = { path = "../cg-access" }
+serde.workspace = true
+serde_json.workspace = true
+cg-api = { path = "../cg-api" }
+cg-queue = { path = "../cg-queue" }
+cg-redis = { path = "../cg-redis" }
+cg-mongo = { path = "../cg-mongo" }
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "net", "signal", "time"] }
+rpassword = "7"
+cg-timestamp = { path = "../cg-timestamp" }

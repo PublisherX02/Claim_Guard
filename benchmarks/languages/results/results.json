@@ -1,0 +1,1662 @@
+{
+ "_machine": {
+  "cpus": 16,
+  "os": "Windows-10-10.0.26200-SP0",
+  "cpu": "Intel64 Family 6 Model 154 Stepping 3, GenuineIntel",
+  "ram_gb": 15.7,
+  "claims": 20000,
+  "note": "loadgen and server share this machine"
+ },
+ "rust": {
+  "label": "Rust",
+  "build_s": 88.63025180005934,
+  "artifact_bytes": 1604595,
+  "version": "rustc 1.99",
+  "mismatches": 0,
+  "batch": {
+   "read_ms": 15.6543,
+   "parse_ms": 130.55620000000002,
+   "eval_1t_ms": 41.9705,
+   "eval_mt_ms": 6.2582,
+   "peak_rss_bytes": 100888576,
+   "process_wall_s": 0.6103037000866607
+  },
+  "batch_runs": [
+   {
+    "claims": 20000,
+    "eval_1t_ms": 44.619,
+    "eval_mt_ms": 6.787299999999999,
+    "lang": "rust",
+    "mismatches": 0,
+    "parse_ms": 138.4741,
+    "read_ms": 18.4653,
+    "threads": 16,
+    "version": "rustc 1.99",
+    "peak_rss_bytes": 100888576,
+    "process_wall_s": 0.6502876000013202
+   },
+   {
+    "claims": 20000,
+    "eval_1t_ms": 40.2625,
+    "eval_mt_ms": 5.8001,
+    "lang": "rust",
+    "mismatches": 0,
+    "parse_ms": 157.3553,
+    "read_ms": 15.6543,
+    "threads": 16,
+    "version": "rustc 1.99",
+    "peak_rss_bytes": 100921344,
+    "process_wall_s": 0.6030871999682859
+   },
+   {
+    "claims": 20000,
+    "eval_1t_ms": 42.425,
+    "eval_mt_ms": 6.2582,
+    "lang": "rust",
+    "mismatches": 0,
+    "parse_ms": 130.0951,
+    "read_ms": 15.1136,
+    "threads": 16,
+    "version": "rustc 1.99",
+    "peak_rss_bytes": 100728832,
+    "process_wall_s": 0.6249656999716535
+   },
+   {
+    "claims": 20000,
+    "eval_1t_ms": 41.9705,
+    "eval_mt_ms": 6.3795,
+    "lang": "rust",
+    "mismatches": 0,
+    "parse_ms": 130.55620000000002,
+    "read_ms": 15.429699999999999,
+    "threads": 16,
+    "version": "rustc 1.99",
+    "peak_rss_bytes": 100864000,
+    "process_wall_s": 0.6103037000866607
+   },
+   {
+    "claims": 20000,
+    "eval_1t_ms": 41.3025,
+    "eval_mt_ms": 5.920100000000001,
+    "lang": "rust",
+    "mismatches": 0,
+    "parse_ms": 127.1311,
+    "read_ms": 18.0208,
+    "threads": 16,
+    "version": "rustc 1.99",
+    "peak_rss_bytes": 100888576,
+    "process_wall_s": 0.5998966000042856
+   }
+  ],
+  "http": {
+   "cold_start_s": 0.5256451000459492,
+   "levels": [
+    {
+     "conc": 1,
+     "errors": 0,
+     "first_error": "",
+     "max_ms": 5.38,
+     "mismatches": 0,
+     "p50_ms": 0,
+     "p95_ms": 0.727,
+     "p99_ms": 1.046,
+     "requests": 27506,
+     "rps": 3438.0985087844565,
+     "seconds": 8.0003525,
+     "server_rss_bytes": 6246400,
+     "server_cpu_s": 6.328125,
+     "server_cores_used": 0.6283465395381834,
+     "rps_min": 3399.5756442641446,
+     "rps_max": 8950.642507060878
+    },
+    {
+     "conc": 16,
+     "errors": 0,
+     "first_error": "",
+     "max_ms": 10.526,
+     "mismatches": 0,
+     "p50_ms": 0.533,
+     "p95_ms": 1.79,
+     "p99_ms": 3.649,
+     "requests": 195689,
+     "rps": 24449.51300941509,
+     "seconds": 8.0037995,
+     "server_rss_bytes": 7667712,
+     "server_cpu_s": 39.25,
+     "server_cores_used": 3.891592893223972,
+     "rps_min": 23723.846110406186,
+     "rps_max": 52727.78238496986
+    },
+    {
+     "conc": 64,
+     "errors": 0,
+     "first_error": "",
+     "max_ms": 22.124,
+     "mismatches": 0,
+     "p50_ms": 2.021,
+     "p95_ms": 5.367,
+     "p99_ms": 10.67,
+     "requests": 217797,
+     "rps": 27202.745831527704,
+     "seconds": 8.0064344,
+     "server_rss_bytes": 7577600,
+     "server_cpu_s": 39.296875,
+     "server_cores_used": 3.886881507158992,
+     "rps_min": 24916.043034973645,
+     "rps_max": 60510.656038467176
+    },
+    {
+     "conc": 256,
+     "errors": 0,
+     "first_error": "",
+     "max_ms": 68.867,
+     "mismatches": 0,
+     "p50_ms": 8.558,
+     "p95_ms": 22.698,
+     "p99_ms": 41.667,
+     "requests": 207014,
+     "rps": 25845.88097206102,
+     "seconds": 8.0095548,
+     "server_rss_bytes": 8216576,
+     "server_cpu_s": 40.015625,
+     "server_cores_used": 3.95138020844582,
+     "rps_min": 25511.67256717671,
+     "rps_max": 60765.22264704995
+    }
+   ],
+   "probe": {
+    "alive_after": true,
+    "cases": [
+     {
+      "case": "empty body",
+      "ms": 6.437,
+      "status": 400
+     },
+     {
+      "case": "not json",
+      "ms": 1.069,
+      "status": 400
+     },
+     {
+      "case": "truncated json",
+      "ms": 0.506,
+      "status": 400
+     },
+     {
+      "case": "json array instead of object",
+      "ms": 0.924,
+      "status": 400
+     },
+     {
+      "case": "json null",
+      "ms": 0.667,
+      "status": 400
+     },
+     {
+      "case": "empty object",
+      "ms": 0,
+      "status": 400
+     },
+     {
+      "case": "quantity is a string",
+      "ms": 1.064,
+      "status": 400
+     },
+     {
+      "case": "unit_price is an object",
+      "ms": 0,
+      "status": 400
+     },
+     {
+      "case": "lines is a string",
+      "ms": 0.615,
+      "status": 400
+     },
+     {
+      "case": "lines is empty",
+      "ms": 0,
+      "status": 200
+     },
+     {
+      "case": "policy_id is a number",
+      "ms": 0,
+      "status": 400
+     },
+     {
+      "case": "coverage is null",
+      "ms": 0.642,
+      "status": 400
+     },
+     {
+      "case": "authorizations is null",
+      "ms": 0,
+      "status": 400
+     },
+     {
+      "case": "huge number",
+      "ms": 0.509,
+      "status": 400
+     },
+     {
+      "case": "negative zero and exponent",
+      "ms": 0,
+      "status": 200
+     },
+     {
+      "case": "nested 20000 deep",
+      "ms": 0.525,
+      "status": 400
+     },
+     {
+      "case": "nul bytes",
+      "ms": 0,
+      "status": 400
+     },
+     {
+      "case": "invalid utf-8",
+      "ms": 0,
+      "status": 400
+     },
+     {
+      "case": "unicode whitespace id",
+      "ms": 0.51,
+      "status": 200
+     },
+     {
+      "case": "duplicate keys",
+      "ms": 0,
+      "status": 400
+     },
+     {
+      "case": "2 MB body",
+      "ms": 3.7,
+      "status": 413
+     },
+     {
+      "case": "10000 lines",
+      "ms": 1.702,
+      "status": 413
+     }
+    ]
+   },
+   "passes": 3
+  }
+ },
+ "go": {
+  "label": "Go",
+  "build_s": 16.54764410003554,
+  "artifact_bytes": 10052608,
+  "version": "go1.27.0",
+  "mismatches": 0,
+  "batch": {
+   "read_ms": 21.848,
+   "parse_ms": 340.049,
+   "eval_1t_ms": 82.271,
+   "eval_mt_ms": 21.607,
+   "peak_rss_bytes": 132337664,
+   "process_wall_s": 1.2615463000256568
+  },
+  "batch_runs": [
+   {
+    "claims": 20000,
+    "eval_1t_ms": 79.834,
+    "eval_mt_ms": 22.682,
+    "lang": "go",
+    "mismatches": 0,
+    "parse_ms": 340.049,
+    "read_ms": 25.186,
+    "threads": 16,
+    "version": "go1.27.0",
+    "peak_rss_bytes": 132337664,
+    "process_wall_s": 1.3479821999790147
+   },
+   {
+    "claims": 20000,
+    "eval_1t_ms": 82.271,
+    "eval_mt_ms": 21.259,
+    "lang": "go",
+    "mismatches": 0,
+    "parse_ms": 332.767,
+    "read_ms": 20.91,
+    "threads": 16,
+    "version": "go1.27.0",
+    "peak_rss_bytes": 129630208,
+    "process_wall_s": 1.250233499915339
+   },
+   {
+    "claims": 20000,
+    "eval_1t_ms": 77.123,
+    "eval_mt_ms": 21.585,
+    "lang": "go",
+    "mismatches": 0,
+    "parse_ms": 349.56,
+    "read_ms": 22,
+    "threads": 16,
+    "version": "go1.27.0",
+    "peak_rss_bytes": 163360768,
+    "process_wall_s": 1.2764393000397831
+   },
+   {
+    "claims": 20000,
+    "eval_1t_ms": 83.643,
+    "eval_mt_ms": 21.947,
+    "lang": "go",
+    "mismatches": 0,
+    "parse_ms": 340.146,
+    "read_ms": 21.848,
+    "threads": 16,
+    "version": "go1.27.0",
+    "peak_rss_bytes": 162390016,
+    "process_wall_s": 1.2615463000256568
+   },
+   {
+    "claims": 20000,
+    "eval_1t_ms": 82.819,
+    "eval_mt_ms": 21.607,
+    "lang": "go",
+    "mismatches": 0,
+    "parse_ms": 312.785,
+    "read_ms": 20.942,
+    "threads": 16,
+    "version": "go1.27.0",
+    "peak_rss_bytes": 130772992,
+    "process_wall_s": 1.257864399929531
+   }
+  ],
+  "http": {
+   "cold_start_s": 0.5361303999088705,
+   "levels": [
+    {
+     "conc": 1,
+     "errors": 0,
+     "first_error": "",
+     "max_ms": 4.381,
+     "mismatches": 0,
+     "p50_ms": 0,
+     "p95_ms": 0.602,
+     "p99_ms": 0.805,
+     "requests": 34838,
+     "rps": 4354.660729455046,
+     "seconds": 8.000164,
+     "server_rss_bytes": 18268160,
+     "server_cpu_s": 10.109375,
+     "server_cores_used": 1.0037463001562579,
+     "rps_min": 2625.8591226580697,
+     "rps_max": 4706.742305858754
+    },
+    {
+     "conc": 16,
+     "errors": 0,
+     "first_error": "",
+     "max_ms": 9.937,
+     "mismatches": 0,
+     "p50_ms": 0.752,
+     "p95_ms": 2.304,
+     "p99_ms": 3.41,
+     "requests": 134709,
+     "rps": 16834.185404454212,
+     "seconds": 8.0021098,
+     "server_rss_bytes": 21790720,
+     "server_cpu_s": 44.34375,
+     "server_cores_used": 4.39363410514323,
+     "rps_min": 12450.988242375557,
+     "rps_max": 21141.18066729614
+    },
+    {
+     "conc": 64,
+     "errors": 0,
+     "first_error": "",
+     "max_ms": 45.482,
+     "mismatches": 0,
+     "p50_ms": 3.624,
+     "p95_ms": 10.698,
+     "p99_ms": 15.839,
+     "requests": 114722,
+     "rps": 14330.890316398232,
+     "seconds": 8.0052249,
+     "server_rss_bytes": 23318528,
+     "server_cpu_s": 43.09375,
+     "server_cores_used": 4.270879470623029,
+     "rps_min": 14175.500778944292,
+     "rps_max": 25889.628445824033
+    },
+    {
+     "conc": 256,
+     "errors": 0,
+     "first_error": "",
+     "max_ms": 263.534,
+     "mismatches": 0,
+     "p50_ms": 5.015,
+     "p95_ms": 51.737,
+     "p99_ms": 84.822,
+     "requests": 151406,
+     "rps": 18897.27605686941,
+     "seconds": 8.0120542,
+     "server_rss_bytes": 32759808,
+     "server_cpu_s": 45.890625,
+     "server_cores_used": 4.524782222060259,
+     "rps_min": 18577.95920412565,
+     "rps_max": 38782.41047574366
+    }
+   ],
+   "probe": {
+    "alive_after": true,
+    "cases": [
+     {
+      "case": "empty body",
+      "ms": 5.891,
+      "status": 400
+     },
+     {
+      "case": "not json",
+      "ms": 1.307,
+      "status": 400
+     },
+     {
+      "case": "truncated json",
+      "ms": 1.057,
+      "status": 400
+     },
+     {
+      "case": "json array instead of object",
+      "ms": 0.798,
+      "status": 400
+     },
+     {
+      "case": "json null",
+      "ms": 0.723,
+      "status": 200
+     },
+     {
+      "case": "empty object",
+      "ms": 0.625,
+      "status": 200
+     },
+     {
+      "case": "quantity is a string",
+      "ms": 1.147,
+      "status": 400
+     },
+     {
+      "case": "unit_price is an object",
+      "ms": 0.789,
+      "status": 400
+     },
+     {
+      "case": "lines is a string",
+      "ms": 0.793,
+      "status": 400
+     },
+     {
+      "case": "lines is empty",
+      "ms": 0.757,
+      "status": 200
+     },
+     {
+      "case": "policy_id is a number",
+      "ms": 0.669,
+      "status": 400
+     },
+     {
+      "case": "coverage is null",
+      "ms": 0.697,
+      "status": 200
+     },
+     {
+      "case": "authorizations is null",
+      "ms": 1.255,
+      "status": 200
+     },
+     {
+      "case": "huge number",
+      "ms": 0.675,
+      "status": 200
+     },
+     {
+      "case": "negative zero and exponent",
+      "ms": 1.2,
+      "status": 200
+     },
+     {
+      "case": "nested 20000 deep",
+      "ms": 9.528,
+      "status": 400
+     },
+     {
+      "case": "nul bytes",
+      "ms": 0.528,
+      "status": 400
+     },
+     {
+      "case": "invalid utf-8",
+      "ms": 0.71,
+      "status": 200
+     },
+     {
+      "case": "unicode whitespace id",
+      "ms": 1.15,
+      "status": 200
+     },
+     {
+      "case": "duplicate keys",
+      "ms": 0.66,
+      "status": 200
+     },
+     {
+      "case": "2 MB body",
+      "ms": 9.694,
+      "status": 400
+     },
+     {
+      "case": "10000 lines",
+      "ms": 8.36,
+      "status": 400
+     }
+    ]
+   },
+   "passes": 3
+  }
+ },
+ "java": {
+  "label": "Java",
+  "build_s": 1.208444399992004,
+  "artifact_bytes": 2359980,
+  "version": "27",
+  "mismatches": 0,
+  "batch": {
+   "read_ms": 133.5546,
+   "parse_ms": 400.5342,
+   "eval_1t_ms": 59.6784,
+   "eval_mt_ms": 12.3153,
+   "peak_rss_bytes": 336695296,
+   "process_wall_s": 1.950488799950108
+  },
+  "batch_runs": [
+   {
+    "lang": "java",
+    "version": "27",
+    "claims": 20000,
+    "mismatches": 0,
+    "threads": 16,
+    "read_ms": 126.1945,
+    "parse_ms": 400.5342,
+    "eval_1t_ms": 59.6784,
+    "eval_mt_ms": 12.188,
+    "peak_rss_bytes": 336695296,
+    "process_wall_s": 1.950488799950108
+   },
+   {
+    "lang": "java",
+    "version": "27",
+    "claims": 20000,
+    "mismatches": 0,
+    "threads": 16,
+    "read_ms": 134.4737,
+    "parse_ms": 488.517,
+    "eval_1t_ms": 67.3166,
+    "eval_mt_ms": 14.3431,
+    "peak_rss_bytes": 526393344,
+    "process_wall_s": 2.1360050999792293
+   },
+   {
+    "lang": "java",
+    "version": "27",
+    "claims": 20000,
+    "mismatches": 0,
+    "threads": 16,
+    "read_ms": 147.0113,
+    "parse_ms": 475.9363,
+    "eval_1t_ms": 71.1592,
+    "eval_mt_ms": 12.3153,
+    "peak_rss_bytes": 560615424,
+    "process_wall_s": 2.2200735000660643
+   },
+   {
+    "lang": "java",
+    "version": "27",
+    "claims": 20000,
+    "mismatches": 0,
+    "threads": 16,
+    "read_ms": 133.5546,
+    "parse_ms": 363.4463,
+    "eval_1t_ms": 55.9331,
+    "eval_mt_ms": 20.9942,
+    "peak_rss_bytes": 333164544,
+    "process_wall_s": 1.920784099958837
+   },
+   {
+    "lang": "java",
+    "version": "27",
+    "claims": 20000,
+    "mismatches": 0,
+    "threads": 16,
+    "read_ms": 116.4793,
+    "parse_ms": 388.1824,
+    "eval_1t_ms": 48.8998,
+    "eval_mt_ms": 12.1682,
+    "peak_rss_bytes": 331853824,
+    "process_wall_s": 1.903443800052628
+   }
+  ],
+  "http": {
+   "cold_start_s": 1.231448799953796,
+   "levels": [
+    {
+     "conc": 1,
+     "errors": 0,
+     "first_error": "",
+     "max_ms": 7.043,
+     "mismatches": 0,
+     "p50_ms": 0.547,
+     "p95_ms": 1.025,
+     "p99_ms": 1.41,
+     "requests": 18050,
+     "rps": 2256.137023938526,
+     "seconds": 8.0004006,
+     "server_rss_bytes": 104243200,
+     "server_cpu_s": 13.890625,
+     "server_cores_used": 1.379636793836788,
+     "rps_min": 2248.6997138573047,
+     "rps_max": 2309.3721473844907
+    },
+    {
+     "conc": 16,
+     "errors": 0,
+     "first_error": "",
+     "max_ms": 10.159,
+     "mismatches": 0,
+     "p50_ms": 0.638,
+     "p95_ms": 2.217,
+     "p99_ms": 3.296,
+     "requests": 158939,
+     "rps": 19859.621803647857,
+     "seconds": 8.0031232,
+     "server_rss_bytes": 244768768,
+     "server_cpu_s": 42.953125,
+     "server_cores_used": 4.255802776078667,
+     "rps_min": 18006.586077489603,
+     "rps_max": 20083.39047977016
+    },
+    {
+     "conc": 64,
+     "errors": 0,
+     "first_error": "",
+     "max_ms": 31.04,
+     "mismatches": 0,
+     "p50_ms": 2.279,
+     "p95_ms": 6.749,
+     "p99_ms": 11.577,
+     "requests": 183902,
+     "rps": 22957.38054218252,
+     "seconds": 8.0105829,
+     "server_rss_bytes": 297074688,
+     "server_cpu_s": 42.390625,
+     "server_cores_used": 4.193616695274063,
+     "rps_min": 21941.00707067272,
+     "rps_max": 23103.445488523295
+    },
+    {
+     "conc": 256,
+     "errors": 0,
+     "first_error": "",
+     "max_ms": 109.465,
+     "mismatches": 0,
+     "p50_ms": 8.6,
+     "p95_ms": 26.079,
+     "p99_ms": 43.866,
+     "requests": 191612,
+     "rps": 23899.949899312796,
+     "seconds": 8.0172553,
+     "server_rss_bytes": 699891712,
+     "server_cpu_s": 41.53125,
+     "server_cores_used": 4.098295583655584,
+     "rps_min": 20452.86120142302,
+     "rps_max": 24666.113752794525
+    }
+   ],
+   "probe": {
+    "alive_after": true,
+    "cases": [
+     {
+      "case": "empty body",
+      "ms": 3.333,
+      "status": 400
+     },
+     {
+      "case": "not json",
+      "ms": 4.036,
+      "status": 400
+     },
+     {
+      "case": "truncated json",
+      "ms": 3.318,
+      "status": 400
+     },
+     {
+      "case": "json array instead of object",
+      "ms": 0.521,
+      "status": 400
+     },
+     {
+      "case": "json null",
+      "ms": 2.922,
+      "status": 400
+     },
+     {
+      "case": "empty object",
+      "ms": 1.651,
+      "status": 200
+     },
+     {
+      "case": "quantity is a string",
+      "ms": 0.523,
+      "status": 400
+     },
+     {
+      "case": "unit_price is an object",
+      "ms": 1.523,
+      "status": 400
+     },
+     {
+      "case": "lines is a string",
+      "ms": 1.696,
+      "status": 400
+     },
+     {
+      "case": "lines is empty",
+      "ms": 1.204,
+      "status": 200
+     },
+     {
+      "case": "policy_id is a number",
+      "ms": 1.747,
+      "status": 200
+     },
+     {
+      "case": "coverage is null",
+      "ms": 1.1,
+      "status": 400
+     },
+     {
+      "case": "authorizations is null",
+      "ms": 2.452,
+      "status": 200
+     },
+     {
+      "case": "huge number",
+      "ms": 3.035,
+      "status": 200
+     },
+     {
+      "case": "negative zero and exponent",
+      "ms": 0.542,
+      "status": 200
+     },
+     {
+      "case": "nested 20000 deep",
+      "ms": 0.995,
+      "status": 400
+     },
+     {
+      "case": "nul bytes",
+      "ms": 2.076,
+      "status": 400
+     },
+     {
+      "case": "invalid utf-8",
+      "ms": 0.528,
+      "status": 400
+     },
+     {
+      "case": "unicode whitespace id",
+      "ms": 3.111,
+      "status": 200
+     },
+     {
+      "case": "duplicate keys",
+      "ms": 1.595,
+      "status": 200
+     },
+     {
+      "case": "2 MB body",
+      "error": "Post \"http://127.0.0.1:9103/evaluate\": readfrom tcp 127.0.0.1:65213->127.0.0.1:9103: write tcp 127.0.0.1:65213->127.0.0.1:9103: wsasend: An existing connection was forcibly closed by the remote host.",
+      "ms": 5.004,
+      "status": "transport-error"
+     },
+     {
+      "case": "10000 lines",
+      "ms": 3.99,
+      "status": 413
+     }
+    ]
+   },
+   "passes": 3
+  }
+ },
+ "csharp": {
+  "label": "C# (.NET)",
+  "build_s": 4.413569400086999,
+  "artifact_bytes": 220531,
+  "version": "dotnet 10.0.10",
+  "mismatches": 0,
+  "batch": {
+   "read_ms": 105.3498,
+   "parse_ms": 644.0129,
+   "eval_1t_ms": 60.7423,
+   "eval_mt_ms": 15.9573,
+   "peak_rss_bytes": 207179776,
+   "process_wall_s": 1.9164521000348032
+  },
+  "batch_runs": [
+   {
+    "lang": "csharp",
+    "version": "dotnet 10.0.10",
+    "claims": 20000,
+    "mismatches": 0,
+    "threads": 16,
+    "read_ms": 79.0614,
+    "parse_ms": 659.4759,
+    "eval_1t_ms": 58.2319,
+    "eval_mt_ms": 15.9573,
+    "peak_rss_bytes": 206671872,
+    "process_wall_s": 1.9254523999989033
+   },
+   {
+    "lang": "csharp",
+    "version": "dotnet 10.0.10",
+    "claims": 20000,
+    "mismatches": 0,
+    "threads": 16,
+    "read_ms": 99.8337,
+    "parse_ms": 559.4842,
+    "eval_1t_ms": 60.7423,
+    "eval_mt_ms": 10.4747,
+    "peak_rss_bytes": 207179776,
+    "process_wall_s": 1.8758409000001848
+   },
+   {
+    "lang": "csharp",
+    "version": "dotnet 10.0.10",
+    "claims": 20000,
+    "mismatches": 0,
+    "threads": 16,
+    "read_ms": 119.7077,
+    "parse_ms": 618.2513,
+    "eval_1t_ms": 58.4904,
+    "eval_mt_ms": 16.3246,
+    "peak_rss_bytes": 206848000,
+    "process_wall_s": 1.8384159000124782
+   },
+   {
+    "lang": "csharp",
+    "version": "dotnet 10.0.10",
+    "claims": 20000,
+    "mismatches": 0,
+    "threads": 16,
+    "read_ms": 105.3498,
+    "parse_ms": 660.1449,
+    "eval_1t_ms": 63.807,
+    "eval_mt_ms": 16.774,
+    "peak_rss_bytes": 216428544,
+    "process_wall_s": 1.9164521000348032
+   },
+   {
+    "lang": "csharp",
+    "version": "dotnet 10.0.10",
+    "claims": 20000,
+    "mismatches": 0,
+    "threads": 16,
+    "read_ms": 130.5546,
+    "parse_ms": 644.0129,
+    "eval_1t_ms": 67.4751,
+    "eval_mt_ms": 12.2958,
+    "peak_rss_bytes": 215891968,
+    "process_wall_s": 1.921865800046362
+   }
+  ],
+  "http": {
+   "cold_start_s": 0.6403506000060588,
+   "levels": [
+    {
+     "conc": 1,
+     "errors": 0,
+     "first_error": "",
+     "max_ms": 11.135,
+     "mismatches": 0,
+     "p50_ms": 0.544,
+     "p95_ms": 0.819,
+     "p99_ms": 1.12,
+     "requests": 19897,
+     "rps": 2487.0144832938986,
+     "seconds": 8.0003555,
+     "server_rss_bytes": 60727296,
+     "server_cpu_s": 10.59375,
+     "server_cores_used": 1.0524682716850318,
+     "rps_min": 2458.8950359181545,
+     "rps_max": 2649.4293727586887
+    },
+    {
+     "conc": 16,
+     "errors": 0,
+     "first_error": "",
+     "max_ms": 138.001,
+     "mismatches": 0,
+     "p50_ms": 0.645,
+     "p95_ms": 1.542,
+     "p99_ms": 2.515,
+     "requests": 170869,
+     "rps": 21349.87368677579,
+     "seconds": 8.0032792,
+     "server_rss_bytes": 61603840,
+     "server_cpu_s": 37.8125,
+     "server_cores_used": 3.7482146231155284,
+     "rps_min": 21052.503220370065,
+     "rps_max": 22212.001726770915
+    },
+    {
+     "conc": 64,
+     "errors": 0,
+     "first_error": "",
+     "max_ms": 162.102,
+     "mismatches": 0,
+     "p50_ms": 2.239,
+     "p95_ms": 5.565,
+     "p99_ms": 10.374,
+     "requests": 200888,
+     "rps": 25095.353360871413,
+     "seconds": 8.0049879,
+     "server_rss_bytes": 68866048,
+     "server_cpu_s": 38.84375,
+     "server_cores_used": 3.8381797812113043,
+     "rps_min": 22525.755773421584,
+     "rps_max": 27405.28195526442
+    },
+    {
+     "conc": 256,
+     "errors": 0,
+     "first_error": "",
+     "max_ms": 87.998,
+     "mismatches": 0,
+     "p50_ms": 7.716,
+     "p95_ms": 23.103,
+     "p99_ms": 40.757,
+     "requests": 215810,
+     "rps": 26948.981672894282,
+     "seconds": 8.0080948,
+     "server_rss_bytes": 70799360,
+     "server_cpu_s": 40.9375,
+     "server_cores_used": 4.0369560435352065,
+     "rps_min": 26295.50569717854,
+     "rps_max": 27160.25279687453
+    }
+   ],
+   "probe": {
+    "alive_after": true,
+    "cases": [
+     {
+      "case": "empty body",
+      "ms": 9.079,
+      "status": 400
+     },
+     {
+      "case": "not json",
+      "ms": 11.488,
+      "status": 400
+     },
+     {
+      "case": "truncated json",
+      "ms": 3.247,
+      "status": 400
+     },
+     {
+      "case": "json array instead of object",
+      "ms": 1.167,
+      "status": 400
+     },
+     {
+      "case": "json null",
+      "ms": 0,
+      "status": 400
+     },
+     {
+      "case": "empty object",
+      "ms": 0.512,
+      "status": 200
+     },
+     {
+      "case": "quantity is a string",
+      "ms": 3.537,
+      "status": 400
+     },
+     {
+      "case": "unit_price is an object",
+      "ms": 0.511,
+      "status": 400
+     },
+     {
+      "case": "lines is a string",
+      "ms": 0,
+      "status": 400
+     },
+     {
+      "case": "lines is empty",
+      "ms": 0.67,
+      "status": 200
+     },
+     {
+      "case": "policy_id is a number",
+      "ms": 0.673,
+      "status": 400
+     },
+     {
+      "case": "coverage is null",
+      "ms": 3.31,
+      "status": 400
+     },
+     {
+      "case": "authorizations is null",
+      "ms": 1.776,
+      "status": 200
+     },
+     {
+      "case": "huge number",
+      "ms": 0,
+      "status": 400
+     },
+     {
+      "case": "negative zero and exponent",
+      "ms": 0.588,
+      "status": 200
+     },
+     {
+      "case": "nested 20000 deep",
+      "ms": 1.573,
+      "status": 400
+     },
+     {
+      "case": "nul bytes",
+      "ms": 1.12,
+      "status": 400
+     },
+     {
+      "case": "invalid utf-8",
+      "ms": 1.712,
+      "status": 400
+     },
+     {
+      "case": "unicode whitespace id",
+      "ms": 0.641,
+      "status": 200
+     },
+     {
+      "case": "duplicate keys",
+      "ms": 0.509,
+      "status": 200
+     },
+     {
+      "case": "2 MB body",
+      "ms": 11.898,
+      "status": 413
+     },
+     {
+      "case": "10000 lines",
+      "ms": 3.285,
+      "status": 413
+     }
+    ]
+   },
+   "passes": 3
+  }
+ },
+ "node": {
+  "label": "TypeScript (Node)",
+  "build_s": 0.0,
+  "artifact_bytes": 15825,
+  "version": "v24.13.0",
+  "mismatches": 0,
+  "batch": {
+   "read_ms": 65.10909999999998,
+   "parse_ms": 1094.4451,
+   "eval_1t_ms": 272.0868999999998,
+   "eval_mt_ms": 113.9960000000001,
+   "peak_rss_bytes": 1074102272,
+   "process_wall_s": 6.414284500060603
+  },
+  "batch_runs": [
+   {
+    "lang": "node",
+    "version": "v24.13.0",
+    "claims": 20000,
+    "mismatches": 0,
+    "threads": 16,
+    "read_ms": 69.57679999999999,
+    "parse_ms": 1216.0472,
+    "eval_1t_ms": 382.5289,
+    "eval_mt_ms": 121.89930000000004,
+    "peak_rss_bytes": 1074102272,
+    "process_wall_s": 6.917938199942
+   },
+   {
+    "lang": "node",
+    "version": "v24.13.0",
+    "claims": 20000,
+    "mismatches": 0,
+    "threads": 16,
+    "read_ms": 65.10909999999998,
+    "parse_ms": 1094.4451,
+    "eval_1t_ms": 272.0868999999998,
+    "eval_mt_ms": 115.89449999999943,
+    "peak_rss_bytes": 1055485952,
+    "process_wall_s": 6.414284500060603
+   },
+   {
+    "lang": "node",
+    "version": "v24.13.0",
+    "claims": 20000,
+    "mismatches": 0,
+    "threads": 16,
+    "read_ms": 65.19999999999999,
+    "parse_ms": 1117.0922,
+    "eval_1t_ms": 292.45059999999967,
+    "eval_mt_ms": 113.9960000000001,
+    "peak_rss_bytes": 1056518144,
+    "process_wall_s": 6.5054717999883
+   },
+   {
+    "lang": "node",
+    "version": "v24.13.0",
+    "claims": 20000,
+    "mismatches": 0,
+    "threads": 16,
+    "read_ms": 60.58330000000001,
+    "parse_ms": 1041.9166,
+    "eval_1t_ms": 235.16370000000006,
+    "eval_mt_ms": 50.15650000000005,
+    "peak_rss_bytes": 1082560512,
+    "process_wall_s": 4.358291300013661
+   },
+   {
+    "lang": "node",
+    "version": "v24.13.0",
+    "claims": 20000,
+    "mismatches": 0,
+    "threads": 16,
+    "read_ms": 62.9469,
+    "parse_ms": 1032.9661,
+    "eval_1t_ms": 209.47800000000007,
+    "eval_mt_ms": 51.21340000000009,
+    "peak_rss_bytes": 1075126272,
+    "process_wall_s": 4.167052499949932
+   }
+  ],
+  "http": {
+   "cold_start_s": 1.1222044000169262,
+   "levels": [
+    {
+     "conc": 1,
+     "errors": 0,
+     "first_error": "",
+     "max_ms": 6.536,
+     "mismatches": 0,
+     "p50_ms": 0.57,
+     "p95_ms": 1.328,
+     "p99_ms": 2.091,
+     "requests": 13779,
+     "rps": 1722.2387063343774,
+     "seconds": 8.0006331,
+     "server_rss_bytes": 1083826176,
+     "server_cpu_s": 8.828125,
+     "server_cores_used": 0.8768869626572084,
+     "rps_min": 1668.0582359691052,
+     "rps_max": 4268.36938789673
+    },
+    {
+     "conc": 16,
+     "errors": 0,
+     "first_error": "",
+     "max_ms": 37.09,
+     "mismatches": 0,
+     "p50_ms": 1.611,
+     "p95_ms": 4.021,
+     "p99_ms": 6.078,
+     "requests": 74155,
+     "rps": 9265.46890994429,
+     "seconds": 8.0033726,
+     "server_rss_bytes": 1153159168,
+     "server_cpu_s": 57.3125,
+     "server_cores_used": 5.6861235587721755,
+     "rps_min": 9115.942607894509,
+     "rps_max": 27822.909468395595
+    },
+    {
+     "conc": 64,
+     "errors": 0,
+     "first_error": "",
+     "max_ms": 90.837,
+     "mismatches": 0,
+     "p50_ms": 4.623,
+     "p95_ms": 16.415,
+     "p99_ms": 35.264,
+     "requests": 80461,
+     "rps": 10048.158127819876,
+     "seconds": 8.0075372,
+     "server_rss_bytes": 1224933376,
+     "server_cpu_s": 59.796875,
+     "server_cores_used": 5.923781750499666,
+     "rps_min": 9436.167326421713,
+     "rps_max": 28088.327755453574
+    },
+    {
+     "conc": 256,
+     "errors": 0,
+     "first_error": "",
+     "max_ms": 275.011,
+     "mismatches": 0,
+     "p50_ms": 21.003,
+     "p95_ms": 44.981,
+     "p99_ms": 205.506,
+     "requests": 84643,
+     "rps": 10559.233434807247,
+     "seconds": 8.0160175,
+     "server_rss_bytes": 1251930112,
+     "server_cpu_s": 58.09375,
+     "server_cores_used": 5.7308188832333125,
+     "rps_min": 9817.308846884369,
+     "rps_max": 31594.150106778452
+    }
+   ],
+   "probe": {
+    "alive_after": true,
+    "cases": [
+     {
+      "case": "empty body",
+      "ms": 4.814,
+      "status": 400
+     },
+     {
+      "case": "not json",
+      "ms": 1.048,
+      "status": 400
+     },
+     {
+      "case": "truncated json",
+      "ms": 1.118,
+      "status": 400
+     },
+     {
+      "case": "json array instead of object",
+      "ms": 1.024,
+      "status": 400
+     },
+     {
+      "case": "json null",
+      "ms": 0,
+      "status": 400
+     },
+     {
+      "case": "empty object",
+      "ms": 1.005,
+      "status": 400
+     },
+     {
+      "case": "quantity is a string",
+      "ms": 0.335,
+      "status": 400
+     },
+     {
+      "case": "unit_price is an object",
+      "ms": 1.509,
+      "status": 400
+     },
+     {
+      "case": "lines is a string",
+      "ms": 0,
+      "status": 200
+     },
+     {
+      "case": "lines is empty",
+      "ms": 0,
+      "status": 200
+     },
+     {
+      "case": "policy_id is a number",
+      "ms": 2.614,
+      "status": 200
+     },
+     {
+      "case": "coverage is null",
+      "ms": 1.105,
+      "status": 400
+     },
+     {
+      "case": "authorizations is null",
+      "ms": 0.812,
+      "status": 200
+     },
+     {
+      "case": "huge number",
+      "ms": 1.012,
+      "status": 200
+     },
+     {
+      "case": "negative zero and exponent",
+      "ms": 0.505,
+      "status": 400
+     },
+     {
+      "case": "nested 20000 deep",
+      "ms": 9.062,
+      "status": 400
+     },
+     {
+      "case": "nul bytes",
+      "ms": 1.068,
+      "status": 400
+     },
+     {
+      "case": "invalid utf-8",
+      "ms": 0.504,
+      "status": 400
+     },
+     {
+      "case": "unicode whitespace id",
+      "ms": 0.893,
+      "status": 200
+     },
+     {
+      "case": "duplicate keys",
+      "ms": 0.503,
+      "status": 400
+     },
+     {
+      "case": "2 MB body",
+      "error": "Post \"http://127.0.0.1:9105/evaluate\": readfrom tcp 127.0.0.1:57238->127.0.0.1:9105: write tcp 127.0.0.1:57238->127.0.0.1:9105: wsasend: An existing connection was forcibly closed by the remote host.",
+      "ms": 4.559,
+      "status": "transport-error"
+     },
+     {
+      "case": "10000 lines",
+      "ms": 5.712,
+      "status": 413
+     }
+    ]
+   },
+   "passes": 3
+  }
+ },
+ "python": {
+  "label": "Python (current)",
+  "build_s": 0.0,
+  "artifact_bytes": 3173,
+  "version": "3.10.11",
+  "mismatches": 0,
+  "batch": {
+   "read_ms": 62.02599999960512,
+   "parse_ms": 433.7234999984503,
+   "eval_1t_ms": 3491.905100061558,
+   "eval_mt_ms": 203.30749999266118,
+   "peak_rss_bytes": 696147968,
+   "process_wall_s": 30.14483200001996
+  },
+  "batch_runs": [
+   {
+    "lang": "python",
+    "version": "3.10.11",
+    "claims": 20000,
+    "mismatches": 0,
+    "threads": 16,
+    "read_ms": 62.02599999960512,
+    "parse_ms": 408.17349997814745,
+    "eval_1t_ms": 1427.9339000349864,
+    "eval_mt_ms": 219.2397000035271,
+    "peak_rss_bytes": 696045568,
+    "process_wall_s": 21.23463959991932
+   },
+   {
+    "lang": "python",
+    "version": "3.10.11",
+    "claims": 20000,
+    "mismatches": 0,
+    "threads": 16,
+    "read_ms": 54.05500007327646,
+    "parse_ms": 409.78139999788254,
+    "eval_1t_ms": 3757.4087999528274,
+    "eval_mt_ms": 199.66559996828437,
+    "peak_rss_bytes": 696147968,
+    "process_wall_s": 31.86404000001494
+   },
+   {
+    "lang": "python",
+    "version": "3.10.11",
+    "claims": 20000,
+    "mismatches": 0,
+    "threads": 16,
+    "read_ms": 53.53830009698868,
+    "parse_ms": 433.7234999984503,
+    "eval_1t_ms": 3686.37990008574,
+    "eval_mt_ms": 211.48539998102933,
+    "peak_rss_bytes": 696221696,
+    "process_wall_s": 31.194198100012727
+   },
+   {
+    "lang": "python",
+    "version": "3.10.11",
+    "claims": 20000,
+    "mismatches": 0,
+    "threads": 16,
+    "read_ms": 74.37319995369762,
+    "parse_ms": 467.8894999669865,
+    "eval_1t_ms": 3478.4850000869483,
+    "eval_mt_ms": 193.86320002377033,
+    "peak_rss_bytes": 696324096,
+    "process_wall_s": 30.14483200001996
+   },
+   {
+    "lang": "python",
+    "version": "3.10.11",
+    "claims": 20000,
+    "mismatches": 0,
+    "threads": 16,
+    "read_ms": 68.3927999343723,
+    "parse_ms": 538.7915000319481,
+    "eval_1t_ms": 3491.905100061558,
+    "eval_mt_ms": 203.30749999266118,
+    "peak_rss_bytes": 696016896,
+    "process_wall_s": 30.08815389999654
+   }
+  ],
+  "http": {
+   "cold_start_s": 2.2237810000078753,
+   "levels": [
+    {
+     "conc": 1,
+     "errors": 0,
+     "first_error": "",
+     "max_ms": 12.307,
+     "mismatches": 0,
+     "p50_ms": 1.532,
+     "p95_ms": 2.634,
+     "p99_ms": 3.299,
+     "requests": 5153,
+     "rps": 644.0160727314984,
+     "seconds": 8.0013531,
+     "server_rss_bytes": 739860480,
+     "server_cpu_s": 11.65625,
+     "server_cores_used": 1.1559152311400809,
+     "rps_min": 638.0933505698117,
+     "rps_max": 1698.2874593244658
+    },
+    {
+     "conc": 16,
+     "errors": 0,
+     "first_error": "",
+     "max_ms": 20.36,
+     "mismatches": 0,
+     "p50_ms": 3.554,
+     "p95_ms": 7.7,
+     "p99_ms": 10.896,
+     "requests": 33303,
+     "rps": 4161.672120694415,
+     "seconds": 8.0023123,
+     "server_rss_bytes": 753012736,
+     "server_cpu_s": 63.484375,
+     "server_cores_used": 6.294339914428476,
+     "rps_min": 4131.149804246806,
+     "rps_max": 9677.370293688698
+    },
+    {
+     "conc": 64,
+     "errors": 0,
+     "first_error": "",
+     "max_ms": 89.253,
+     "mismatches": 0,
+     "p50_ms": 13.644,
+     "p95_ms": 26.216,
+     "p99_ms": 41.636,
+     "requests": 36354,
+     "rps": 4538.503290402401,
+     "seconds": 8.0101297,
+     "server_rss_bytes": 754601984,
+     "server_cpu_s": 64.421875,
+     "server_cores_used": 6.382223510519019,
+     "rps_min": 4290.845578797555,
+     "rps_max": 8726.040199955038
+    },
+    {
+     "conc": 256,
+     "errors": 0,
+     "first_error": "",
+     "max_ms": 280.014,
+     "mismatches": 0,
+     "p50_ms": 50.647,
+     "p95_ms": 97.322,
+     "p99_ms": 218.395,
+     "requests": 38503,
+     "rps": 4785.893805785812,
+     "seconds": 8.0451012,
+     "server_rss_bytes": 758550528,
+     "server_cpu_s": 64.6875,
+     "server_cores_used": 6.358114921880241,
+     "rps_min": 4627.334720685568,
+     "rps_max": 7191.85696396382
+    }
+   ],
+   "probe": {
+    "alive_after": true,
+    "cases": [
+     {
+      "case": "empty body",
+      "ms": 4.42,
+      "status": 400
+     },
+     {
+      "case": "not json",
+      "ms": 0.912,
+      "status": 400
+     },
+     {
+      "case": "truncated json",
+      "ms": 0.97,
+      "status": 400
+     },
+     {
+      "case": "json array instead of object",
+      "ms": 0.509,
+      "status": 400
+     },
+     {
+      "case": "json null",
+      "ms": 1.261,
+      "status": 400
+     },
+     {
+      "case": "empty object",
+      "ms": 0.511,
+      "status": 400
+     },
+     {
+      "case": "quantity is a string",
+      "ms": 1.575,
+      "status": 200
+     },
+     {
+      "case": "unit_price is an object",
+      "ms": 1.286,
+      "status": 200
+     },
+     {
+      "case": "lines is a string",
+      "ms": 0.512,
+      "status": 400
+     },
+     {
+      "case": "lines is empty",
+      "ms": 1.559,
+      "status": 200
+     },
+     {
+      "case": "policy_id is a number",
+      "ms": 1.707,
+      "status": 200
+     },
+     {
+      "case": "coverage is null",
+      "ms": 0.514,
+      "status": 400
+     },
+     {
+      "case": "authorizations is null",
+      "ms": 2.002,
+      "status": 200
+     },
+     {
+      "case": "huge number",
+      "ms": 2.278,
+      "status": 200
+     },
+     {
+      "case": "negative zero and exponent",
+      "ms": 0.521,
+      "status": 400
+     },
+     {
+      "case": "nested 20000 deep",
+      "ms": 1.939,
+      "status": 400
+     },
+     {
+      "case": "nul bytes",
+      "ms": 0.514,
+      "status": 400
+     },
+     {
+      "case": "invalid utf-8",
+      "ms": 1.022,
+      "status": 400
+     },
+     {
+      "case": "unicode whitespace id",
+      "ms": 2.4,
+      "status": 200
+     },
+     {
+      "case": "duplicate keys",
+      "ms": 1.066,
+      "status": 400
+     },
+     {
+      "case": "2 MB body",
+      "ms": 11.314,
+      "status": 413
+     },
+     {
+      "case": "10000 lines",
+      "ms": 10.299,
+      "status": 413
+     }
+    ]
+   },
+   "passes": 3
+  }
+ }
+}

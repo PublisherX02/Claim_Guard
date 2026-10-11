@@ -141,14 +141,15 @@ jobs:
           python-version: '3.10'
           enable-cache: true
           activate-environment: true
-      - name: Install pinned dependencies
-        run: uv pip install -r requirements.txt
+      - name: Install pinned dependencies (the dev set, because the fuzz suites use hypothesis)
+        run: uv pip install -r requirements-dev.txt
       - name: Adversarial suites (OWASP mapping, red-team findings, hostile input, prompt injection, audit tampering)
         env:
           FEATHERLESS_API_KEY: ''
         run: |
           python -m unittest -v tests.test_security_owasp tests.test_redteam_findings tests.test_garbled_output_guard \
-            tests.test_stress_ingest tests.test_stress_ai_boundary tests.test_stress_review_page
+            tests.test_stress_ingest tests.test_stress_ai_boundary tests.test_stress_review_page \
+            tests.test_injection_owasp_llm01 tests.test_fuzz_injection tests.test_timestamp_anchor
       - name: Static analysis (bandit, medium severity and above fails the build)
         run: |
           uv pip install bandit==1.9.4

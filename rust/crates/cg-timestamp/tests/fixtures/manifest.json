@@ -1,0 +1,219 @@
+[
+ {
+  "name": "good",
+  "file": "good.tsr",
+  "head": "abababababababababababababababababababababababababababababababab",
+  "count": 7,
+  "nonce": 12345,
+  "ca": "ca.pem",
+  "python_says": "ok",
+  "info": {
+   "gen_time": "2026-10-09T19:33:51+00:00",
+   "tsa_subject": "CN=Test TSA",
+   "serial": "1"
+  },
+  "desc": "a valid token"
+ },
+ {
+  "name": "good_two_cas",
+  "file": "good_two_cas.tsr",
+  "head": "abababababababababababababababababababababababababababababababab",
+  "count": 7,
+  "nonce": 12345,
+  "ca": "two_cas.pem",
+  "python_says": "ok",
+  "info": {
+   "gen_time": "2026-10-09T19:33:51+00:00",
+   "tsa_subject": "CN=Test TSA",
+   "serial": "1"
+  },
+  "desc": "the issuer is one of two trusted CAs"
+ },
+ {
+  "name": "other_head",
+  "file": "other_head.tsr",
+  "head": "cdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcd",
+  "count": 7,
+  "nonce": 12345,
+  "ca": "ca.pem",
+  "python_says": "the token stamps a different head or count than the one claimed",
+  "info": null,
+  "desc": "claimed head differs from the stamped one"
+ },
+ {
+  "name": "other_count",
+  "file": "other_count.tsr",
+  "head": "abababababababababababababababababababababababababababababababab",
+  "count": 8,
+  "nonce": 12345,
+  "ca": "ca.pem",
+  "python_says": "the token stamps a different head or count than the one claimed",
+  "info": null,
+  "desc": "claimed count differs"
+ },
+ {
+  "name": "wrong_nonce_claimed",
+  "file": "wrong_nonce_claimed.tsr",
+  "head": "abababababababababababababababababababababababababababababababab",
+  "count": 7,
+  "nonce": 999,
+  "ca": "ca.pem",
+  "python_says": "the token nonce does not match the request",
+  "info": null,
+  "desc": "the caller expects another nonce"
+ },
+ {
+  "name": "nonce_override",
+  "file": "nonce_override.tsr",
+  "head": "abababababababababababababababababababababababababababababababab",
+  "count": 7,
+  "nonce": 12345,
+  "ca": "ca.pem",
+  "python_says": "the token nonce does not match the request",
+  "info": null,
+  "desc": "the TSA answered with another nonce"
+ },
+ {
+  "name": "tampered_imprint",
+  "file": "tampered_imprint.tsr",
+  "head": "abababababababababababababababababababababababababababababababab",
+  "count": 7,
+  "nonce": 12345,
+  "ca": "ca.pem",
+  "python_says": "the token stamps a different head or count than the one claimed",
+  "info": null,
+  "desc": "the TSA stamped some other digest"
+ },
+ {
+  "name": "tampered_signature",
+  "file": "tampered_signature.tsr",
+  "head": "abababababababababababababababababababababababababababababababab",
+  "count": 7,
+  "nonce": 12345,
+  "ca": "ca.pem",
+  "python_says": "the token signature does not verify",
+  "info": null,
+  "desc": "a flipped signature byte"
+ },
+ {
+  "name": "untrusted_issuer",
+  "file": "untrusted_issuer.tsr",
+  "head": "abababababababababababababababababababababababababababababababab",
+  "count": 7,
+  "nonce": 12345,
+  "ca": "other_ca.pem",
+  "python_says": "the signer certificate was not issued by a trusted CA",
+  "info": null,
+  "desc": "the signer was not issued by the trusted CA"
+ },
+ {
+  "name": "refused",
+  "file": "refused.tsr",
+  "head": "abababababababababababababababababababababababababababababababab",
+  "count": 7,
+  "nonce": 12345,
+  "ca": "ca.pem",
+  "python_says": "TSA refused the request (PKIStatus 2)",
+  "info": null,
+  "desc": "PKIStatus rejection"
+ },
+ {
+  "name": "garbage",
+  "file": "garbage.tsr",
+  "head": "abababababababababababababababababababababababababababababababab",
+  "count": 7,
+  "nonce": 12345,
+  "ca": "ca.pem",
+  "python_says": "not a TimeStampResp: ",
+  "info": null,
+  "desc": "garbage bytes"
+ },
+ {
+  "name": "trailing_bytes",
+  "file": "trailing_bytes.tsr",
+  "head": "abababababababababababababababababababababababababababababababab",
+  "count": 7,
+  "nonce": 12345,
+  "ca": "ca.pem",
+  "python_says": "trailing bytes after the response",
+  "info": null,
+  "desc": "bytes after the response"
+ },
+ {
+  "name": "no_eku",
+  "file": "no_eku.tsr",
+  "head": "abababababababababababababababababababababababababababababababab",
+  "count": 7,
+  "nonce": 12345,
+  "ca": "ca.pem",
+  "python_says": "the signer certificate has no extended key usage",
+  "info": null,
+  "desc": "signer certificate has no extended key usage"
+ },
+ {
+  "name": "eku_not_critical",
+  "file": "eku_not_critical.tsr",
+  "head": "abababababababababababababababababababababababababababababababab",
+  "count": 7,
+  "nonce": 12345,
+  "ca": "ca.pem",
+  "python_says": "the signer certificate is not a critical timeStamping certificate",
+  "info": null,
+  "desc": "timeStamping usage not marked critical"
+ },
+ {
+  "name": "not_valid_at_stamp_time",
+  "file": "not_valid_at_stamp_time.tsr",
+  "head": "abababababababababababababababababababababababababababababababab",
+  "count": 7,
+  "nonce": 12345,
+  "ca": "ca.pem",
+  "python_says": "the signer certificate was not valid at the stamped time",
+  "info": null,
+  "desc": "stamped after the signer certificate expired"
+ },
+ {
+  "name": "bitflip_0",
+  "file": "bitflip_0.tsr",
+  "head": "abababababababababababababababababababababababababababababababab",
+  "count": 7,
+  "nonce": 12345,
+  "ca": "ca.pem",
+  "python_says": "the token signature does not verify",
+  "info": null,
+  "desc": "byte 328 of 1314 flipped"
+ },
+ {
+  "name": "bitflip_1",
+  "file": "bitflip_1.tsr",
+  "head": "abababababababababababababababababababababababababababababababab",
+  "count": 7,
+  "nonce": 12345,
+  "ca": "ca.pem",
+  "python_says": "the signer certificate was not issued by a trusted CA",
+  "info": null,
+  "desc": "byte 657 of 1314 flipped"
+ },
+ {
+  "name": "bitflip_2",
+  "file": "bitflip_2.tsr",
+  "head": "abababababababababababababababababababababababababababababababab",
+  "count": 7,
+  "nonce": 12345,
+  "ca": "ca.pem",
+  "python_says": "the token signature does not verify",
+  "info": null,
+  "desc": "byte 985 of 1314 flipped"
+ },
+ {
+  "name": "bitflip_3",
+  "file": "bitflip_3.tsr",
+  "head": "abababababababababababababababababababababababababababababababab",
+  "count": 7,
+  "nonce": 12345,
+  "ca": "ca.pem",
+  "python_says": "the token signature does not verify",
+  "info": null,
+  "desc": "byte 1309 of 1314 flipped"
+ }
+]

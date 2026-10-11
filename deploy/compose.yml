@@ -1,0 +1,103 @@
+# ClaimGuard on one machine: TLS proxy, API + console, queue worker, MongoDB, Redis (and, optionally, a local model).
+# Only the proxy publishes ports (80 and 443). The API, MongoDB and Redis are reachable on the private network only.
+#
+#   cp deploy/env.production.example .env      # then fill it in, or run deploy/install.sh which does it for you
+#   docker compose -f deploy/compose.yml --env-file .env up -d --build
+#   docker compose -f deploy/compose.yml --env-file .env --profile ai up -d     # also start the local model server
+name: claimguard
+
+x-app: &app
+  build: { context: .., dockerfile: deploy/Dockerfile }
+  image: claimguard:latest
+  restart: unless-stopped
+  environment: &appenv
+    JWT_SECRET: ${JWT_SECRET:?set JWT_SECRET in .env}
+    FERNET_KEY: ${FERNET_KEY:?set FERNET_KEY in .env}
+    AUDIT_ANCHOR_KEY: ${AUDIT_ANCHOR_KEY:?set AUDIT_ANCHOR_KEY in .env}
+    PII_KEY: ${PII_KEY:?set PII_KEY in .env}
+    MONGO_URI: mongodb://${MONGO_ROOT_USER:?set MONGO_ROOT_USER in .env}:${MONGO_ROOT_PASSWORD:?set MONGO_ROOT_PASSWORD in .env}@mongo:27017/?authSource=admin
+    REDIS_URL: redis://redis:6379/0
+    QUEUE_AI_PROVIDER: ${QUEUE_AI_PROVIDER:-}
+    QUEUE_AI_TWO_PASS: ${QUEUE_AI_TWO_PASS:-}
+    OLLAMA_BASE_URL: ${OLLAMA_BASE_URL:-http://ollama:11434}
+    OLLAMA_MODEL: ${OLLAMA_MODEL:-}
+    FEATHERLESS_API_KEY: ${FEATHERLESS_API_KEY:-}
+    TRUSTED_PROXY_IPS: ${TRUSTED_PROXY_IPS:-*}
+  volumes:
+    - claimguard_data:/data
+  depends_on:
+    mongo: { condition: service_healthy }
+    redis: { condition: service_healthy }
+  security_opt: ["no-new-privileges:true"]
+  cap_drop: [ALL]
+  read_only: true
+  tmpfs: [/tmp]
+
+services:
+  proxy:
+    image: caddy:2
+    restart: unless-stopped
+    ports: ["80:80", "443:443"]
+    environment:
+      CG_SITE: ${CG_SITE:?set CG_SITE in .env (a domain name, or an address for an internal certificate)}
+    volumes:
+      - ./${CADDYFILE:-Caddyfile.internal}:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    depends_on: [api]
+
+  api:
+    <<: *app
+    command: ["python", "scripts/serve_access.py", "--host", "0.0.0.0", "--port", "8443", "--queue", "--behind-proxy"]
+    expose: ["8443"]
+
+  worker:
+    <<: *app
+    # Celery worker plus its scheduler (relay, deal, expire, reconcile). Exactly one instance: the scheduler must not be duplicated.
+    command: ["celery", "-A", "workqueue.celery_app", "worker", "--beat", "--loglevel=info", "--concurrency=2",
+              "--schedule=/tmp/celerybeat-schedule"]
+    healthcheck:
+      test: ["CMD", "celery", "-A", "workqueue.celery_app", "inspect", "ping", "-d", "celery@$$HOSTNAME", "--timeout", "5"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+
+  mongo:
+    image: mongo:7
+    restart: unless-stopped
+    environment:
+      MONGO_INITDB_ROOT_USERNAME: ${MONGO_ROOT_USER}
+      MONGO_INITDB_ROOT_PASSWORD: ${MONGO_ROOT_PASSWORD}
+    command: ["mongod", "--auth", "--bind_ip_all"]
+    volumes: [mongo_data:/data/db]
+    healthcheck:
+      test: ["CMD", "mongosh", "--quiet", "--eval", "db.runCommand({ping:1}).ok"]
+      interval: 10s
+      timeout: 5s
+      retries: 6
+
+  redis:
+    image: redis:7
+    restart: unless-stopped
+    command: ["redis-server", "--save", "", "--appendonly", "no"]     # broker only: the truth lives in MongoDB
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 6
+
+  ollama:                       # optional, on-premises model for the explanation drafts; start with --profile ai
+    profiles: ["ai"]
+    image: ollama/ollama:latest
+    restart: unless-stopped
+    volumes: [ollama_data:/root/.ollama]
+    # GPU: uncomment on a host with the NVIDIA container toolkit
+    # deploy: { resources: { reservations: { devices: [{ driver: nvidia, count: all, capabilities: [gpu] }] } } }
+
+volumes:
+  claimguard_data:
+  mongo_data:
+  caddy_data:
+  caddy_config:
+  ollama_data:

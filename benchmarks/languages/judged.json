@@ -1,0 +1,26 @@
+{
+ "_note": "Two inputs of the ranking are judgements, not measurements. Each carries its reason so it can be challenged. Change a score or a weight, run make_report.py, and the ranking and every graph follow.",
+ "bug_resistance": {
+  "rust":   {"score": 9, "reason": "No null (Option), ownership rules out use-after-free and data races at compile time, matches must be exhaustive. What is left is logic bugs, explicit unwrap panics and release-mode integer overflow."},
+  "go":     {"score": 6, "reason": "Memory safe with a simple type system, but nil pointers and nil maps panic at run time, data races are possible (found by the -race tool, not the compiler), and an error value is easy to ignore."},
+  "csharp": {"score": 7, "reason": "Memory safe; nullable reference types make the compiler warn about null, but they are warnings and the probe still found one unguarded null path that returned a 500. Data races are possible."},
+  "java":   {"score": 6, "reason": "Memory safe and very mature tooling, but null is everywhere (the probe crashed the handler on a null body until it was guarded) and data races are possible. Static analysers (NullAway, SpotBugs) narrow the gap but are extras."},
+  "node":   {"score": 5, "reason": "TypeScript types are erased at run time, so untrusted JSON is not protected by them; null and undefined both exist. One thread per process removes most data races, and the npm dependency tree is large."},
+  "python": {"score": 4, "reason": "Dynamic typing means type and attribute mistakes show up only when that line runs. The project already offsets this with 1,700+ tests, an independent oracle, fuzzing and mutation testing; that is effort spent, not a property of the language."}
+ },
+ "delivery_fit": {
+  "python": {"score": 10, "reason": "All of the system exists in Python: the engine, 1,736 tests, the queue (Celery), the API (FastAPI), MongoDB access, the rule pack (YARA-X bindings). Nothing to rewrite."},
+  "node":   {"score": 4, "reason": "The team reads JavaScript from the console, and Mongo and queue libraries exist, but every module, test and the YARA-X integration would be rewritten."},
+  "go":     {"score": 4, "reason": "Quick to learn and to deploy, strong stdlib and queue/Mongo libraries; everything is still a rewrite, and the YARA-X bindings are not first-class."},
+  "csharp": {"score": 3, "reason": "Excellent platform and tooling; a full rewrite, a new runtime to install on the on-premises server, and nobody on the team has shipped in it."},
+  "java":   {"score": 3, "reason": "Excellent ecosystem; a full rewrite, a heavier runtime and slower start, and nobody on the team has shipped in it."},
+  "rust":   {"score": 3, "reason": "YARA-X itself is written in Rust, so the rule engine could be used natively; but the steepest learning curve of the six, a full rewrite, and the weakest fit with a deadline measured in days."}
+ },
+ "profiles": {
+  "balanced":          {"Raw speed": 10, "Traffic handling": 15, "Tail latency": 5, "Memory and CPU efficiency": 10, "All-cores batch throughput": 10, "Correct and clean under traffic": 15, "Bug resistance by design": 20, "Delivery fit for this project": 15},
+  "performance first": {"Raw speed": 25, "Traffic handling": 25, "Tail latency": 10, "Memory and CPU efficiency": 15, "All-cores batch throughput": 15, "Correct and clean under traffic": 5, "Bug resistance by design": 5, "Delivery fit for this project": 0},
+  "safety first":      {"Raw speed": 5, "Traffic handling": 10, "Tail latency": 5, "Memory and CPU efficiency": 5, "All-cores batch throughput": 5, "Correct and clean under traffic": 30, "Bug resistance by design": 35, "Delivery fit for this project": 5},
+  "delivery first":    {"Raw speed": 5, "Traffic handling": 10, "Tail latency": 5, "Memory and CPU efficiency": 5, "All-cores batch throughput": 5, "Correct and clean under traffic": 10, "Bug resistance by design": 10, "Delivery fit for this project": 50}
+ },
+ "profile_notes": {"balanced": "all eight criteria", "performance first": "speed and traffic only", "safety first": "bugs and clean behaviour", "delivery first": "what we can ship soon"}
+}

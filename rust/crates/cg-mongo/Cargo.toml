@@ -1,0 +1,21 @@
+[package]
+name = "cg-mongo"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+cg-core = { path = "../cg-core" }
+cg-access = { path = "../cg-access" }
+cg-queue = { path = "../cg-queue" }
+num-traits.workspace = true
+mongodb = { version = "3", default-features = false, features = ["sync", "rustls-tls", "compat-3-0-0"] }
+serde_json.workspace = true
+thiserror.workspace = true
+sha2.workspace = true
+hmac = "0.12"
+base64 = "0.22"
+fernet = { version = "0.2", default-features = false, features = ["rustcrypto"] }
+tokio = { version = "1", features = ["rt-multi-thread"] }
+
+[dev-dependencies]
+rand = "0.8"

@@ -1,0 +1,30 @@
+[package]
+name = "cg-api"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+cg-core = { path = "../cg-core" }
+cg-audit = { path = "../cg-audit" }
+cg-access = { path = "../cg-access" }
+cg-engine = { path = "../cg-engine" }
+cg-queue = { path = "../cg-queue" }
+cg-timestamp = { path = "../cg-timestamp" }
+serde.workspace = true
+serde_json.workspace = true
+thiserror.workspace = true
+sha2.workspace = true
+hex.workspace = true
+subtle = "2"
+url = "2"
+axum = { version = "0.8", default-features = false, features = ["http1", "tokio"] }
+hyper = { version = "1", default-features = false, features = ["http1", "server"] }
+hyper-util = { version = "0.1", default-features = false, features = ["tokio", "server", "http1", "service"] }
+tower = { version = "0.5", default-features = false, features = ["util"] }
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "net", "signal", "time"] }
+rustls = { version = "0.23", default-features = false, features = ["ring", "std"], optional = true }
+
+[dev-dependencies]
+tempfile = "3"
+rand = "0.8"
+rand_chacha = "0.3"

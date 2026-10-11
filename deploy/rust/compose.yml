@@ -1,0 +1,156 @@
+# ClaimGuard (Rust build) on one machine: TLS proxy, API + console, queue worker, MongoDB, Redis (and, optionally, a local model).
+# Only the proxy publishes ports (80 and 443). The API, MongoDB and Redis are reachable on the private network only.
+#
+#   cp deploy/env.production.example .env      # then fill it in, or run deploy/install.sh which does it for you
+#   docker compose -f deploy/rust/compose.yml --env-file .env up -d --build
+#   docker compose -f deploy/rust/compose.yml --env-file .env --profile ai up -d     # also start the local model server
+name: claimguard
+
+x-app: &app
+  build: { context: ../.., dockerfile: deploy/rust/Dockerfile }
+  image: claimguard-rs:latest
+  restart: unless-stopped
+  environment: &appenv
+    JWT_SECRET: ${JWT_SECRET:?set JWT_SECRET in .env}
+    FERNET_KEY: ${FERNET_KEY:?set FERNET_KEY in .env}
+    DATA_KEY: ${DATA_KEY:-}          # empty: the data key is derived from FERNET_KEY (then FERNET_KEY can never change); set it to keep the two apart
+    DATA_KEY_PREVIOUS: ${DATA_KEY_PREVIOUS:-}   # older data keys, comma separated: keeps audit-log rows written under them readable after `cg rotate-key`
+    DUAL_CONTROL: ${DUAL_CONTROL:-true}          # resetting an authenticator and changing administrators need a second administrator
+    APPROVAL_TTL_SECONDS: ${APPROVAL_TTL_SECONDS:-86400}
+    AUDIT_ANCHOR_KEY: ${AUDIT_ANCHOR_KEY:?set AUDIT_ANCHOR_KEY in .env}
+    PII_KEY: ${PII_KEY:?set PII_KEY in .env}
+    MONGO_URI: mongodb://${MONGO_ROOT_USER:?set MONGO_ROOT_USER in .env}:${MONGO_ROOT_PASSWORD:?set MONGO_ROOT_PASSWORD in .env}@mongo:27017/?authSource=admin
+    REDIS_URL: redis://:${REDIS_PASSWORD:?set REDIS_PASSWORD in .env}@redis:6379/0   # the worker's message broker (Redis Streams); empty = claims are processed inline
+    CG_WORKER_CONCURRENCY: ${CG_WORKER_CONCURRENCY:-4}   # claims processed at once = the most the model is ever asked at once; keep equal to OLLAMA_NUM_PARALLEL
+    CG_BROKER_MIN_IDLE_SECONDS: ${CG_BROKER_MIN_IDLE_SECONDS:-}   # empty: the explanation ceiling plus 30 s before another consumer takes a message over
+    QUEUE_AI_PROVIDER: ${QUEUE_AI_PROVIDER:-}
+    QUEUE_AI_TWO_PASS: ${QUEUE_AI_TWO_PASS:-}
+    OLLAMA_BASE_URL: ${OLLAMA_BASE_URL:-http://ollama:11434}
+    OLLAMA_MODEL: ${OLLAMA_MODEL:-}
+    FEATHERLESS_API_KEY: ${FEATHERLESS_API_KEY:-}
+    TRUSTED_PROXY_IPS: ${TRUSTED_PROXY_IPS:-*}
+    # audit protection (docs/39): a second, append-only copy of both logs on its own volume (only the worker mounts it), and an optional
+    # RFC 3161 timestamp authority; the API reads these two only to know which checks the health panel should expect
+    AUDIT_MIRROR_DIR: ${AUDIT_MIRROR_DIR:-/mirror}
+    TSA_URL: ${TSA_URL:-}
+    TSA_CA_FILE: ${TSA_CA_FILE:-}
+  volumes:
+    - claimguard_data:/data
+  depends_on:
+    mongo: { condition: service_healthy }
+    redis: { condition: service_healthy }
+  security_opt: ["no-new-privileges:true"]
+  cap_drop: [ALL]
+  read_only: true
+  tmpfs: [/tmp]
+  mem_limit: 768m         # measured at about 70 MB; a runaway cannot take the machine with it
+  pids_limit: 256
+  cpus: 2.0
+
+services:
+  proxy:
+    image: caddy:2@sha256:f2a1290d0463aad60660d4ec134943f183ee2a5f6c3eb7bf32dd984f2f020772
+    restart: unless-stopped
+    networks: [edge]
+    mem_limit: 128m
+    pids_limit: 128
+    ports: ["80:80", "443:443"]
+    environment:
+      CG_SITE: ${CG_SITE:?set CG_SITE in .env (a domain name, or an address for an internal certificate)}
+    volumes:
+      - ../${CADDYFILE:-Caddyfile.internal}:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    depends_on: [api]
+
+  api:
+    <<: *app
+    networks: [edge, data]
+    command: ["cg", "serve", "--host", "0.0.0.0", "--port", "8443", "--queue", "--behind-proxy"]
+    expose: ["8443"]
+
+  worker:
+    <<: *app
+    networks: [data, egress]       # egress only for the optional external timestamp authority (TSA_URL)
+    # The relay, deal, expire and reconcile loops. Exactly one instance: the loops must not be duplicated.
+    command: ["cg", "worker"]
+    volumes:
+      - claimguard_data:/data
+      - audit_mirror:/mirror
+    healthcheck:
+      test: ["CMD", "cg", "health", "--file", "/tmp/cg_worker_alive", "--max-age", "30"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+
+  mongo:
+    image: mongo:7@sha256:1f995ad6fdb93244a1addab1b58f934a0bc2f5643c38e02f5e9d7f0c7d227a7b
+    restart: unless-stopped
+    environment:
+      MONGO_INITDB_ROOT_USERNAME: ${MONGO_ROOT_USER}
+      MONGO_INITDB_ROOT_PASSWORD: ${MONGO_ROOT_PASSWORD}
+    # Without a cap MongoDB sizes its cache at half of the machine's RAM minus 1 GB (about 5.5 GB on a 12 GB server) and leaves little for the
+    # rest. 1 GB holds the recently used claims comfortably; older ones are read from disk. Raise MONGO_CACHE_GB on a bigger machine.
+    command: ["mongod", "--auth", "--bind_ip_all", "--wiredTigerCacheSizeGB", "${MONGO_CACHE_GB:-1}"]
+    mem_limit: 2g              # the cache plus connections and indexes; about 0.5 GB was measured when nearly empty
+    pids_limit: 512
+    networks: [data]
+    volumes: [mongo_data:/data/db]
+    healthcheck:
+      test: ["CMD", "mongosh", "--quiet", "--eval", "db.runCommand({ping:1}).ok"]
+      interval: 10s
+      timeout: 5s
+      retries: 6
+
+  redis:
+    image: redis:7@sha256:4fa24486b8bcca8eec45ee0eb166edc674795e53a2b53d1a9ef263eecebaac85
+    restart: unless-stopped
+    environment:
+      REDIS_PASSWORD: ${REDIS_PASSWORD:?set REDIS_PASSWORD in .env}
+    # The worker's message broker (Redis Streams). The truth lives in MongoDB (the outbox and the claim state); Redis only carries "run this
+    # claim" messages. The append-only file keeps them over a restart (at most about one second of messages can be lost in a crash), and the
+    # worker re-publishes claims whose message was lost anyway (docs/38 section 7).
+    command: ["sh", "-c", "exec redis-server --save \"\" --appendonly yes --appendfsync everysec --maxmemory 200mb --maxmemory-policy noeviction --requirepass \"$$REDIS_PASSWORD\""]
+    # the stream holds only unfinished work (about 150 bytes a message), so 200 MB is a backlog of over a million; noeviction means that at the
+    # limit a publish fails and the claim waits safely in the outbox, instead of Redis silently dropping messages
+    mem_limit: 320m
+    pids_limit: 64
+    networks: [data]
+    volumes: [redis_data:/data]
+    healthcheck:
+      test: ["CMD-SHELL", "redis-cli -a \"$$REDIS_PASSWORD\" --no-auth-warning ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 6
+
+  ollama:                       # optional, on-premises model for the explanation drafts; start with --profile ai
+    profiles: ["ai"]
+    image: ollama/ollama:latest@sha256:b86366bb528bbf7f1424435d165028497a5b69bf6ddb4fa5a87102e2b79f44fb
+    restart: unless-stopped
+    networks: [data]
+    volumes: [ollama_data:/root/.ollama]
+    mem_limit: 5g              # host memory only; the model itself sits in the graphics card's memory
+    pids_limit: 512
+    environment:
+      OLLAMA_NUM_PARALLEL: ${CG_WORKER_CONCURRENCY:-4}   # parallel slots, the same number as the worker's pool
+      OLLAMA_MAX_QUEUE: 64
+    # GPU: uncomment on a host with the NVIDIA container toolkit
+    # deploy: { resources: { reservations: { devices: [{ driver: nvidia, count: all, capabilities: [gpu] }] } } }
+
+# The proxy is the only thing on the edge with the outside world; the database, the cache and the model are on a network with no route out
+# (internal), so a compromised proxy cannot reach MongoDB and a compromised database cannot call out.
+networks:
+  edge: {}
+  data:
+    internal: true
+  egress: {}
+
+volumes:
+  audit_mirror:
+  claimguard_data:
+  mongo_data:
+  redis_data:
+  caddy_data:
+  caddy_config:
+  ollama_data:

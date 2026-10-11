@@ -66,9 +66,9 @@ backups and controlled exports would combine, and to say which we implemented.
 | Separate log for logins, lockouts, unmasks, decisions, deals | **Built** | `access/securitylog.py`, `SPECS 10d` |
 | Append-only database privileges (INSERT-only role) | **Not built.** Designed: a MongoDB role with `insert` on the log collection only | `docs/16` |
 | Retention-locked (WORM) storage | **Not built.** A local JSONL file is not immutable and we do not call it that | `docs/16` |
-| Independent trusted timestamp, for example RFC 3161 | **Not built.** Designed: publish the head hash to a timestamp authority on a schedule, and keep the token beside the anchor. Left out because verifying a token needs an ASN.1/CMS library and a live authority, and the suite promises no network | `docs/16` |
+| Independent trusted timestamp (RFC 3161) | **Built, off by default** (2026-10-08). `scripts/timestamp_log.py stamp` sends the SHA-256 of `"<head>\|<count>"` to a Time-Stamp Authority and saves the token in `<log>.head.tsr`; the log writer never touches the network, so an outage cannot block an append (the previous token stays, the verifier reports the newer events as unstamped). `verify_audit.py --tsa-ca ca.pem` checks the token and reports its state apart from the chain: `none`, `unverified` (no CA supplied), `current`, `stale` (valid, but N newer events are not yet stamped) or `invalid` (a log rewritten after stamping is `invalid`); `--require-timestamp` makes anything but `current` fail. Checked: granted status, message imprint, nonce, CMS signature, a signer certificate issued directly by a CA **you** supply, valid at the stamped time, critical `timeStamping` usage. Certificates inside the token are never trusted on their own. Tests use a local authority with its own throwaway CA and no network. **Not done:** a live authority was never contacted, no real TSA's token format variants (for example SHA-384 or ECDSA-signed tokens: ECDSA is coded but untested, other digests are refused), and no intermediate-CA chains (only direct issuance is accepted) | `src/timestamp_anchor.py`, `tests/test_timestamp_anchor.py` (25 tests) |
 | Off-host backups, controlled exports | **Not built** | n/a |
-| Key custody (anchor key and Fernet key outside the writer's reach) | **Partly.** Keys come from the environment; development generates them into a git-ignored file | `access/bootstrap.py` |
+| Key custody (anchor key and Fernet key outside the writer's reach) | **Partly.** Keys come from the environment; development generates them into a git-ignored file. The timestamp check is only as good as the CA file the verifier is given: keep it apart from the log writer, and choose the authority yourself | `access/bootstrap.py` |
 
 Said plainly: the log is tamper-**evident** against anyone who cannot rewrite the chain, the anchor and the key together. It is not
 tamper-proof against someone who controls all three, which is what the unbuilt rows are for.
@@ -79,7 +79,18 @@ The model can only add words. It never sets a status, a rule id, a citation or t
 deterministic finding. Layers, each tested in `tests/test_injection_owasp_llm01.py`:
 
 1. Claim data: hostile text in any free-text field, or split across two fields, changes no verdict.
-2. The prompt: untrusted text is fenced as data, bounded, and never in the instruction part.
+2. The prompt: untrusted text is fenced as data, bounded, and never in the instruction part. **Gap found and closed 2026-10-08:** the
+   earlier battery only tested the one channel that was labelled untrusted (the supporting note). Claim values also reach the prompt
+   through each finding's evidence, which sits *above* that fence: a probe over the first 200 development claims, calling the rule engine
+   directly, put a hostile string into 48 rule and field combinations (22 fields, all 15 rules: an attachment's text, `claim_id`,
+   `line_id`, `service_code` and others) and it landed in the "validated finding" part of the prompt unlabelled. Ingestion's format
+   checks (dates, for example) would refuse some of those fields before the engine runs, so 48 is an upper bound; the id and text
+   fields the schema leaves free are reachable. It was always inside a JSON string and bounded, and the reply guards and the
+   fixed verdict still applied, but nothing told the model it was data. The prompt now carries `EVIDENCE_FENCE` before the finding,
+   and `IndirectInjectionTests` check, for six claim fields and every payload, that the string stays below the label, never reaches the
+   instructions or the schema, and that two halves of a payload split across fields are never joined. **Side effect:** the prompt text
+   changed, so its hash differs from the frozen experiments' runs; their stored results were not re-run, and whether the extra sentence
+   changes answer quality has not been measured.
 3. The reply: approval or payment language, text in another alphabet (Arabic, Chinese, Russian and homoglyphs), garbled text, and now
    **invisible characters** (zero-width space and joiners, bidirectional controls, line and paragraph separators, variation
    selectors, tag characters, soft hyphen, combining grapheme joiner) are rejected. The last was an open limit in the earlier

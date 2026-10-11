@@ -19,6 +19,10 @@ class VerifyBody(_Body):
     action: Literal['verify_clear', 'escalate']
 
 
+class SubmitBody(_Body):
+    claims: list[dict] = Field(min_length=1, max_length=25)
+
+
 class ConfigBody(_Body):
     expected_version: int = Field(ge=0)
     points: dict[str, dict[str, int]] | None = None
@@ -68,9 +72,17 @@ def install(app, queue, need, principal_dep, run):
     def dashboard(request: Request, principal: Any = Depends(need('queue.view'))):
         return go(lambda: queue.dashboard(principal), request, principal)
 
+    @app.get(API + '/ops/trace/{claim_id}')
+    def trace(claim_id: str, request: Request, principal: Any = Depends(need('audit.view'))):
+        return go(lambda: queue.trace(principal, claim_id), request, principal)
+
     @app.get(f'{API}/queue/feedback')
     def feedback_report(request: Request, principal: Any = Depends(need('queue.view'))):
         return go(lambda: feedback.report(queue.store), request, principal)
+
+    @app.post(f'{API}/queue/submit')
+    def submit(body: SubmitBody, request: Request, principal: Any = Depends(need('routing.manage'))):
+        return {'results': go(lambda: queue.submit_claims(principal, body.claims), request, principal)}
 
     @app.get(f'{API}/queue/config')
     def get_config(request: Request, principal: Any = Depends(need('routing.manage'))):
