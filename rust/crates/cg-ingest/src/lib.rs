@@ -7,7 +7,10 @@
 //! This is the Rust port of `src/ingest.py`; `rust/tools/compare_ingest.py` checks the two against each other.
 
 pub mod csvfmt;
+pub mod document;
+pub mod extract;
 pub mod fhir;
+pub mod gate;
 pub mod jsonl;
 pub mod pyfmt;
 

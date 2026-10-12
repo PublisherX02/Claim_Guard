@@ -30,6 +30,7 @@ fn main() {
         Some("audit-append") => audit_append(&args),
         Some("xcheck") => xcheck(),
         Some("ingest") => std::process::exit(ingest_cmd::ingest(&args[2..])),
+        Some("ingest-doc") => std::process::exit(ingest_cmd::ingest_doc(&args[2..])),
         Some("extensions") => extensions(&args),
         Some("model-check") => std::process::exit(model_check()),
         Some("timestamp") => std::process::exit(timestamp(&args[2..])),
