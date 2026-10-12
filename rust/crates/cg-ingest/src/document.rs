@@ -26,8 +26,8 @@ impl ReaderConfig {
         }
         let token = env.get("DOCUMENT_READER_TOKEN").map(|s| s.trim().to_string()).filter(|s| !s.is_empty()).ok_or("DOCUMENT_READER_TOKEN is required with DOCUMENT_READER_URL")?;
         let engine = env.get("DOCUMENT_READER_ENGINE").map(|s| s.trim().to_lowercase()).filter(|s| !s.is_empty()).unwrap_or_else(|| "auto".into());
-        if !["auto", "tesseract", "vlm"].contains(&engine.as_str()) {
-            return Err("DOCUMENT_READER_ENGINE must be auto, tesseract or vlm".into());
+        if !["auto", "tesseract", "vlm", "both"].contains(&engine.as_str()) {
+            return Err("DOCUMENT_READER_ENGINE must be auto, tesseract, vlm or both".into());
         }
         let langs = env.get("DOCUMENT_READER_LANGS").map(|s| s.trim().to_lowercase()).filter(|s| !s.is_empty()).unwrap_or_else(|| "eng".into());
         let timeout = env.get("DOCUMENT_READER_TIMEOUT").and_then(|s| s.trim().parse::<u64>().ok()).filter(|n| (5..=900).contains(n)).unwrap_or(300);

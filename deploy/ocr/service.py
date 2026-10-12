@@ -148,8 +148,24 @@ def pages_of(body, ctype):
     raise Reject(415, 'unsupported content type')
 
 
+PREPROCESS = os.environ.get('OCR_PREPROCESS', 'none')    # none | grey | up | grey+up
+
+
+def prepare_for_tesseract(img):
+    """Optional preparation (OCR_PREPROCESS): `grey` = grey and stretched contrast, `up` = upscale a page narrower than 1800 pixels (never beyond a width of
+    2400), `grey+up` = both. Nothing is cropped or rotated, so word positions stay meaningful. What helps was measured, not assumed (docs/45)."""
+    from PIL import ImageOps
+    if 'grey' in PREPROCESS:
+        img = ImageOps.autocontrast(img.convert('L'), cutoff=1)
+    if 'up' in PREPROCESS and img.width < 1800:
+        factor = min(2.0, 2400 / img.width)
+        img = img.resize((int(img.width * factor), int(img.height * factor)), Image.LANCZOS)
+    return img
+
+
 def run_tesseract(img, langs):
     """text and per-word confidence from the TSV output; the text keeps line breaks."""
+    img = prepare_for_tesseract(img)
     with tempfile.TemporaryDirectory(prefix='cgocr_') as d:
         src = os.path.join(d, 'page.png')
         img.save(src, 'PNG')

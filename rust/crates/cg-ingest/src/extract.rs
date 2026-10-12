@@ -508,8 +508,9 @@ fn is_num_token(t: &str) -> bool {
 struct Row {
     line_id: Option<String>,
     service_code: String,
-    date: String,
+    date: Option<String>,
     modifier: Option<String>,
+    /// quantity, unit price and net amount as printed; empty when the row shows only two numbers (which cell is blank cannot be told from the text)
     nums: Vec<String>,
     auth: Option<String>,
     evidence: String,
@@ -517,21 +518,26 @@ struct Row {
 
 fn parse_row(line: &str, catalog: &Catalog) -> Option<Row> {
     let toks: Vec<&str> = line.split_whitespace().collect();
-    if toks.len() < 5 {
+    if toks.len() < 4 {
         return None;
     }
-    let date_idx = toks.iter().position(|t| matches!(read_date(t), Some(DateRead::Iso(_)) | Some(DateRead::Ambiguous(_)) | Some(DateRead::Invalid(_))) && t.chars().any(|c| c.is_ascii_digit()))?;
-    let code_idx = (0..date_idx).rev().find(|&i| catalog.services.contains(toks[i]) || code_token().is_match(toks[i]))?;
-    let nums: Vec<String> = toks[date_idx + 1..].iter().filter(|t| is_num_token(t)).map(|t| t.trim_matches(|c: char| ",;()".contains(c)).to_string()).collect();
-    if nums.len() < 3 {
+    let is_date = |t: &str| read_date(t).is_some() && t.chars().any(|c| c.is_ascii_digit());
+    let is_authish = |t: &str| t.to_uppercase().starts_with("AUTH");
+    let code_idx = toks.iter().position(|t| catalog.services.contains(*t)).or_else(|| toks.iter().position(|t| code_token().is_match(t) && !is_authish(t) && !is_date(t)))?;
+    let after = &toks[code_idx + 1..];
+    let num_pos: Vec<usize> = (0..after.len()).filter(|&i| is_num_token(after[i])).collect();
+    if num_pos.len() < 2 {
         return None;
     }
-    let between: Vec<&str> = toks[date_idx + 1..].iter().copied().take_while(|t| !is_num_token(t)).collect();
+    // a row with no date cell is still a row: its date is empty (the claim is missing it), not a reason to lose the line
+    let date_pos = after.iter().take(num_pos[0]).position(|t| is_date(t));
+    let between = &after[date_pos.map(|i| i + 1).unwrap_or(0)..num_pos[0]];
     let modifier = between.first().map(|m| m.trim_matches(|c: char| c == '-' || c == '.').to_string()).filter(|m| !m.is_empty());
-    let after_nums = toks.iter().rposition(|t| is_num_token(t)).map(|i| i + 1).unwrap_or(toks.len());
-    let auth = toks.get(after_nums).map(|t| t.trim().to_string()).filter(|t| !t.is_empty() && *t != "-" && *t != "—");
+    let last_num = *num_pos.last()?;
+    let auth = after.get(last_num + 1).map(|t| t.trim().to_string()).filter(|t| !t.is_empty() && *t != "-" && *t != "\u{2014}");
     let line_id = if code_idx >= 1 { Some(toks[..code_idx].join(" ")) } else { None };
-    Some(Row { line_id, service_code: toks[code_idx].to_string(), date: toks[date_idx].to_string(), modifier, nums: nums[..3].to_vec(), auth, evidence: line.to_string() })
+    let nums: Vec<String> = if num_pos.len() >= 3 { num_pos[..3].iter().map(|&i| after[i].trim_matches(|c: char| ",;()".contains(c)).to_string()).collect() } else { vec![] };
+    Some(Row { line_id, service_code: toks[code_idx].to_string(), date: date_pos.map(|i| after[i].to_string()), modifier, nums, auth, evidence: line.to_string() })
 }
 
 fn parse_table(lines: &[String], catalog: &Catalog, c: &mut Collector) -> Vec<Value> {
@@ -564,7 +570,7 @@ fn parse_table(lines: &[String], catalog: &Catalog, c: &mut Collector) -> Vec<Va
         obj.insert("line_id".into(), json!(id));
         c.fields.push(Field { path: format!("lines[{idx}].line_id"), value: json!(id), method: "table", evidence: row.evidence.chars().take(160).collect(), confidence: None, notes: vec![] });
         obj.insert("service_code".into(), json!(row.service_code));
-        match read_date(&row.date) {
+        match row.date.as_deref().and_then(read_date) {
             Some(DateRead::Iso(d)) => {
                 obj.insert("service_date".into(), json!(d));
             }
@@ -577,6 +583,12 @@ fn parse_table(lines: &[String], catalog: &Catalog, c: &mut Collector) -> Vec<Va
             }
         }
         obj.insert("modifier".into(), row.modifier.clone().map(Value::String).unwrap_or(Value::Null));
+        if row.nums.is_empty() {
+            c.warnings.push(format!("lines[{idx}]: only two numbers were found on the row, so quantity, unit price and net amount were not assigned (which cell is blank cannot be told from the text)"));
+            for key in ["quantity", "unit_price", "net_amount"] {
+                obj.insert(key.into(), Value::Null);
+            }
+        }
         for (col, text) in order.iter().zip(row.nums.iter()) {
             let key = match col {
                 NumCol::Qty => "quantity",
@@ -599,7 +611,7 @@ fn parse_table(lines: &[String], catalog: &Catalog, c: &mut Collector) -> Vec<Va
             }
             let raw = match k.as_str() {
                 "service_code" => row.service_code.clone(),
-                "service_date" => row.date.clone(),
+                "service_date" => row.date.clone().unwrap_or_default(),
                 "authorization_id" => row.auth.clone().unwrap_or_default(),
                 "modifier" => row.modifier.clone().unwrap_or_default(),
                 _ => v.to_string().trim_matches('"').to_string(),
@@ -1065,5 +1077,27 @@ mod tests {
         let c = d.claim.as_ref().unwrap();
         assert_eq!(c["member_id"], "MEM-9");
         assert!(d.fields.iter().find(|f| f.path == "member_id").unwrap().notes.iter().any(|n| n.contains("second reader only")));
+    }
+
+    #[test]
+    fn a_line_with_a_blank_date_keeps_its_place_and_the_lines_after_it_stay_aligned() {
+        let text = "Claim ID: CG-1 Submitted: 2026-05-29\nPatient ID: PAT-1\nLine Service Date Mod Qty Unit price Amount Auth\nL1 SVC-IMAGE - 1 1510.00 1510.00 AUTH-CG-1-1\nL2 SVC-LAB 2026-04-14 - 2 80.00 160.00 -\nTotal amount: 1670.00 SAR\n";
+        let d = extract(&page(text), "ab12cd34ef56aa", &catalog());
+        let c = d.claim.unwrap();
+        let rows = c["lines"].as_array().unwrap();
+        assert_eq!(rows.len(), 2, "{:?}", d.warnings);
+        assert_eq!((rows[0]["line_id"].as_str(), rows[0]["service_code"].as_str(), rows[0]["service_date"].clone(), rows[0]["authorization_id"].as_str()), (Some("L1"), Some("SVC-IMAGE"), Value::Null, Some("AUTH-CG-1-1")));
+        assert_eq!((rows[0]["quantity"].clone(), rows[0]["unit_price"].clone()), (json!(1), json!(1510)));
+        assert_eq!((rows[1]["line_id"].as_str(), rows[1]["service_date"].as_str(), rows[1]["quantity"].clone()), (Some("L2"), Some("2026-04-14"), json!(2)));
+    }
+
+    #[test]
+    fn a_row_with_only_two_numbers_is_kept_but_its_numbers_are_not_guessed() {
+        let text = "Claim ID: CG-1\nPatient ID: PAT-1\nL1 SVC-LAB 2026-04-14 - 1 140.00 AUTH-X\nTotal amount: 140.00 SAR\n";
+        let d = extract(&page(text), "ab12cd34ef56aa", &catalog());
+        let c = d.claim.unwrap();
+        assert_eq!(c["lines"][0]["service_code"], "SVC-LAB");
+        assert_eq!((c["lines"][0]["quantity"].clone(), c["lines"][0]["unit_price"].clone(), c["lines"][0]["net_amount"].clone()), (Value::Null, Value::Null, Value::Null));
+        assert!(d.warnings.iter().any(|w| w.starts_with("lines[0]") && w.contains("only two numbers")), "{:?}", d.warnings);
     }
 }

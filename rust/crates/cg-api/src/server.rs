@@ -1,6 +1,6 @@
 //! The thin axum adapter: bytes in, `Api::handle` on a blocking thread, bytes out. No rule lives here.
 
-use crate::{Api, ApiRequest, ApiResponse, MAX_BODY_BYTES};
+use crate::{body_limit, Api, ApiRequest, ApiResponse};
 use axum::body::{Body, Bytes};
 use axum::extract::{ConnectInfo, Request, State};
 use axum::http::{HeaderName, HeaderValue, Response, StatusCode};
@@ -191,7 +191,7 @@ async fn dispatch(State(app): State<App>, ConnectInfo(peer): ConnectInfo<SocketA
         let client = client_of(&peer, &headers, app.behind_proxy);
         return events(app, headers, parts.uri.query().unwrap_or("").to_string(), client).await;
     }
-    let bytes: Bytes = match axum::body::to_bytes(body, MAX_BODY_BYTES + 1).await {
+    let bytes: Bytes = match axum::body::to_bytes(body, body_limit(parts.uri.path()) + 1).await {
         Ok(b) => b,
         Err(_) => return plain(413, "payload_too_large"),
     };

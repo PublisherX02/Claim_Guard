@@ -11,6 +11,7 @@
 //! * bodies are small, JSON only, strictly typed with unknown fields refused, and errors never echo input or internals.
 
 pub mod claimstore;
+pub mod import;
 pub mod ops;
 pub mod server;
 
@@ -35,6 +36,14 @@ pub const API: &str = "/api/v1";
 pub const SESSION_COOKIE: &str = "cg_session";
 pub const CSRF_COOKIE: &str = "cg_csrf";
 pub const MAX_BODY_BYTES: usize = 65_536;
+/// The import routes take whole files (a scanned page, a FHIR export): a larger body, on those two paths only.
+pub const MAX_UPLOAD_BYTES: usize = 16 * 1024 * 1024;
+pub const IMPORT_FILE_PATH: &str = "/api/v1/queue/import/file";
+pub const IMPORT_CSV_PATH: &str = "/api/v1/queue/import/csv";
+
+pub fn body_limit(path: &str) -> usize {
+    if path == IMPORT_FILE_PATH || path == IMPORT_CSV_PATH { MAX_UPLOAD_BYTES } else { MAX_BODY_BYTES }
+}
 /// Failed sign-ins one client address may make, over all badges, in one window. (Per badge the service allows far fewer: PAIR_LIMIT.)
 pub const LOGIN_FAILURE_LIMIT: i64 = 100;
 pub const LOGIN_FAILURE_WINDOW: f64 = 900.0;
@@ -112,6 +121,8 @@ pub struct Api {
     pub metrics: Arc<Metrics>,
     probes: Vec<Probe>,
     audit_status: Arc<AuditStatus>,
+    import: Option<import::ImportParts>,
+    doc_slots: import::DocumentSlots,
     ui_files: BTreeMap<&'static str, (&'static [u8], &'static str)>,
 }
 
@@ -127,6 +138,8 @@ pub struct ApiParts {
     /// Probes of the queue side (see `ops::queue_probes`); the access-side probes are added here.
     pub extra_probes: Vec<Probe>,
     pub data_dir: PathBuf,
+    /// The document reader and the catalogue for importing claims from files; None keeps the import routes to the plain text formats.
+    pub import: Option<import::ImportParts>,
 }
 
 // ---- request bodies: strict types, unknown fields refused ----------------------------------------------------------------------------
@@ -293,6 +306,8 @@ impl Api {
             metrics,
             probes,
             audit_status,
+            import: p.import,
+            doc_slots: import::DocumentSlots::default(),
             ui_files: claimstore::ui_files(),
         }
     }
@@ -343,13 +358,14 @@ impl Api {
         if cl.is_some_and(|v| v.is_empty() || !v.bytes().all(|b| b.is_ascii_digit())) {
             return reply(400, "bad_request");
         }
-        if cl.and_then(|v| v.parse::<usize>().ok()).is_some_and(|n| n > MAX_BODY_BYTES) || req.body.len() > MAX_BODY_BYTES {
+        let limit = body_limit(&req.path);
+        if cl.and_then(|v| v.parse::<usize>().ok()).is_some_and(|n| n > limit) || req.body.len() > limit {
             return reply(413, "payload_too_large");
         }
         if ["POST", "PUT", "PATCH"].contains(&req.method.as_str()) {
             let has_body = cl.is_some_and(|v| v != "0") || req.headers.contains_key("transfer-encoding") || !req.body.is_empty();
             let ctype = req.headers.get("content-type").map(|c| c.split(';').next().unwrap_or("").trim().to_lowercase()).unwrap_or_default();
-            if has_body && ctype != "application/json" {
+            if has_body && ctype != "application/json" && req.path != IMPORT_FILE_PATH {
                 return reply(415, "unsupported_media_type");
             }
         }
@@ -482,6 +498,8 @@ impl Api {
             ["work", "claims", id, "verify"] if self.queue.is_some() => if m == "POST" { self.work_verify(req, id) } else { Err(wrong()) },
             ["queue", "dashboard"] if self.queue.is_some() => if m == "GET" { self.q_dashboard(req) } else { Err(wrong()) },
             ["queue", "feedback"] if self.queue.is_some() => if m == "GET" { self.q_feedback(req) } else { Err(wrong()) },
+            ["queue", "import", "file"] => if m == "POST" { self.import_file(req) } else { Err(wrong()) },
+            ["queue", "import", "csv"] => if m == "POST" { self.import_csv(req) } else { Err(wrong()) },
             ["queue", "submit"] if self.queue.is_some() => if m == "POST" { self.q_submit(req) } else { Err(wrong()) },
             ["queue", "config"] if self.queue.is_some() => match m { "GET" => self.q_get_config(req), "PATCH" => self.q_patch_config(req), _ => Err(wrong()) },
             _ => Err(ApiError::new(404, "not_found")),
