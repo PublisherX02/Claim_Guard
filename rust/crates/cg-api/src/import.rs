@@ -120,6 +120,17 @@ impl Api {
         })))
     }
 
+    /// Is this (edited) claim acceptable to the transport contract? The same check every claim passes at intake; it changes nothing.
+    pub(crate) fn import_validate(&self, req: &ApiRequest) -> R {
+        self.need(req, "routing.manage")?;
+        let body: Value = serde_json::from_slice(&req.body).map_err(|_| ApiError::new(422, "invalid_request"))?;
+        let claim = body.get("claim").filter(|c| c.is_object()).ok_or_else(|| ApiError::new(422, "invalid_request"))?;
+        Ok(match cg_core::transport::validate(claim) {
+            Ok(()) => ApiResponse::json(200, &json!({"valid": true, "error": null})),
+            Err(e) => ApiResponse::json(200, &json!({"valid": false, "error": e})),
+        })
+    }
+
     pub(crate) fn import_csv(&self, req: &ApiRequest) -> R {
         let p = self.need(req, "routing.manage")?;
         let body: Value = serde_json::from_slice(&req.body).map_err(|_| ApiError::new(422, "invalid_request"))?;

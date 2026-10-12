@@ -19,6 +19,15 @@
 			flush_interval -1
 		}
 	}
+	# importing files: a scanned page or a FHIR export is larger than any other request, so these two paths (and only these) may carry up to 17 MB;
+	# the application checks the real size and kind of what arrives (docs/45)
+	@upload path /api/v1/queue/import/file /api/v1/queue/import/csv
+	handle @upload {
+		request_body {
+			max_size 17MB
+		}
+		reverse_proxy api:8443
+	}
 	handle {
 		encode zstd gzip
 		# no request the application accepts is larger than this; refuse anything bigger here, with a clean 413, before it is forwarded

@@ -500,6 +500,7 @@ impl Api {
             ["queue", "feedback"] if self.queue.is_some() => if m == "GET" { self.q_feedback(req) } else { Err(wrong()) },
             ["queue", "import", "file"] => if m == "POST" { self.import_file(req) } else { Err(wrong()) },
             ["queue", "import", "csv"] => if m == "POST" { self.import_csv(req) } else { Err(wrong()) },
+            ["queue", "import", "validate"] => if m == "POST" { self.import_validate(req) } else { Err(wrong()) },
             ["queue", "submit"] if self.queue.is_some() => if m == "POST" { self.q_submit(req) } else { Err(wrong()) },
             ["queue", "config"] if self.queue.is_some() => match m { "GET" => self.q_get_config(req), "PATCH" => self.q_patch_config(req), _ => Err(wrong()) },
             _ => Err(ApiError::new(404, "not_found")),
