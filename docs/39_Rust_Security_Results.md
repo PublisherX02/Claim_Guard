@@ -163,6 +163,8 @@ It brings the Compose stack up with throw-away secrets and attacks it: TLS 1.0 a
 
 Also added at the proxy: read-header and read-body timeouts, a header size cap, and HSTS.
 
+*Since written:* a host firewall script (`deploy/rust/firewall.sh`, docs/40 section 10) tested in containers, with an outside port check; still not run on the target.
+
 *Not tested:* the target machine's own firewall, its operating system and its Docker daemon; a certificate from a public authority (the test uses the proxy's internal one); that backups are encrypted.
 
 ### 7.2 A real language model: `cg model-check` and `rust/tools/model_redteam.py`

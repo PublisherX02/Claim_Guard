@@ -3,6 +3,7 @@
 #   bash deploy/rust/install.sh claims.example.org public      # a real domain: Let's Encrypt certificate
 #   bash deploy/rust/install.sh 203.0.113.10 internal          # an IP address or internal name: private-CA certificate
 #   bash deploy/rust/install.sh 203.0.113.10 internal ai       # also host gemma3:4b on this machine (Ollama) for the AI explanation drafts
+#   CG_SSH_FROM=203.0.113.7/32 bash deploy/rust/install.sh ...    # also set up the host firewall: SSH only from that address, web 80/443 for all
 #   (the model is overridable: CG_MODEL=gemma3:12b bash deploy/install.sh ... ai)
 # It writes .env with freshly generated secrets (only if .env does not exist), builds and starts the stack, waits until it is healthy,
 # then asks you to create the first administrator. Nothing secret is printed.
@@ -61,6 +62,14 @@ if [ "$AI" = "ai" ]; then
   $COMPOSE exec -T ollama ollama pull "$MODEL_IN_ENV"
   echo "checking that the model answers in the required shape (about 3 minutes)..."
   $COMPOSE exec -T worker cg model-check || echo "WARNING: not every rule produced an accepted draft; claims whose draft is rejected keep the engine's own explanation. Details above."
+fi
+
+if [ -n "${CG_SSH_FROM:-}" ]; then
+  echo "applying the host firewall (SSH only from $CG_SSH_FROM; web ports 80 and 443 open)..."
+  SUDO=""; [ "$(id -u)" = 0 ] || SUDO="sudo -E"
+  $SUDO bash deploy/rust/firewall.sh apply && $SUDO bash deploy/rust/firewall.sh persist
+else
+  echo "NOTE: no host firewall was set up (CG_SSH_FROM is not set). Docker-published ports bypass ufw; see docs/40 section 10 and deploy/rust/firewall.sh."
 fi
 
 echo
