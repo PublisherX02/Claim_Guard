@@ -523,6 +523,7 @@ dependencies = [
  "cg-audit",
  "cg-core",
  "cg-engine",
+ "cg-ingest",
  "cg-mongo",
  "cg-queue",
  "cg-redis",
@@ -563,6 +564,19 @@ dependencies = [
  "sha2 0.10.9",
  "thiserror 1.0.69",
  "yara-x",
+]
+
+[[package]]
+name = "cg-ingest"
+version = "0.1.0"
+dependencies = [
+ "cg-core",
+ "hex",
+ "num-bigint",
+ "num-traits",
+ "serde",
+ "serde_json",
+ "sha2 0.10.9",
 ]
 
 [[package]]

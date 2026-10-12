@@ -13,6 +13,7 @@ use std::io::{BufRead, BufReader, Write};
 use std::path::PathBuf;
 
 mod boot;
+mod ingest_cmd;
 mod selfcheck;
 mod serve;
 mod tools;
@@ -28,6 +29,7 @@ fn main() {
         Some("audit-verify") => audit_verify(&args),
         Some("audit-append") => audit_append(&args),
         Some("xcheck") => xcheck(),
+        Some("ingest") => std::process::exit(ingest_cmd::ingest(&args[2..])),
         Some("extensions") => extensions(&args),
         Some("model-check") => std::process::exit(model_check()),
         Some("timestamp") => std::process::exit(timestamp(&args[2..])),
