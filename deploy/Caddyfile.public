@@ -12,14 +12,23 @@
 }
 
 {$CG_SITE} {
-	encode zstd gzip
-	# no request the application accepts is larger than this; refuse anything bigger here, with a clean 413, before it is forwarded
-	request_body {
-		max_size 100KB
+	# live updates (server-sent events): never compressed (a compressor can hold small messages back) and flushed at once
+	@events path /api/v1/work/events
+	handle @events {
+		reverse_proxy api:8443 {
+			flush_interval -1
+		}
+	}
+	handle {
+		encode zstd gzip
+		# no request the application accepts is larger than this; refuse anything bigger here, with a clean 413, before it is forwarded
+		request_body {
+			max_size 100KB
+		}
+		reverse_proxy api:8443
 	}
 	header {
 		-Server
 		Strict-Transport-Security "max-age=31536000"
 	}
-	reverse_proxy api:8443
 }

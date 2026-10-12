@@ -303,6 +303,16 @@ impl Api {
 
     // ---- the layers around every request ------------------------------------------------------------------------------
     pub fn handle(&self, req: ApiRequest) -> ApiResponse {
+        self.handle_with(req, true)
+    }
+
+    /// The same layers, but not counted in the traffic figures: the live-update stream asks the same question every few seconds on behalf of
+    /// each open console, and those internal checks would drown the real traffic in the health panel.
+    pub fn handle_quiet(&self, req: ApiRequest) -> ApiResponse {
+        self.handle_with(req, false)
+    }
+
+    fn handle_with(&self, req: ApiRequest, record: bool) -> ApiResponse {
         let started = std::time::Instant::now();
         let mut resp = self.guarded(&req);
         let headers: Vec<(&str, &str)> = vec![
@@ -320,7 +330,9 @@ impl Api {
         }
         let csp = if req.path.starts_with(UI_PREFIX) { UI_CSP } else { "default-src 'none'" };
         resp.headers.push(("content-security-policy".into(), csp.into()));
-        self.metrics.record(&req.method, &req.path, resp.status, started.elapsed().as_secs_f64());
+        if record {
+            self.metrics.record(&req.method, &req.path, resp.status, started.elapsed().as_secs_f64());
+        }
         resp
     }
 
@@ -463,6 +475,7 @@ impl Api {
             ["approvals", id, "reject"] => if m == "POST" { self.approvals_reject(req, id) } else { Err(wrong()) },
             ["approvals", id, "cancel"] => if m == "POST" { self.approvals_cancel(req, id) } else { Err(wrong()) },
             ["work", "inbox"] if self.queue.is_some() => if m == "GET" { self.work_inbox(req) } else { Err(wrong()) },
+            ["work", "changes"] if self.queue.is_some() => if m == "GET" { self.work_changes(req) } else { Err(wrong()) },
             ["work", "next"] if self.queue.is_some() => if m == "POST" { self.work_next(req) } else { Err(wrong()) },
             ["work", "heartbeat"] if self.queue.is_some() => if m == "POST" { self.work_heartbeat(req) } else { Err(wrong()) },
             ["work", "claims", id, "findings", rule, "decision"] if self.queue.is_some() => if m == "POST" { self.work_decide(req, id, rule) } else { Err(wrong()) },
@@ -829,6 +842,39 @@ impl Api {
         let p = self.need(req, "claims.decide")?;
         let claims = self.queue()?.inbox(&p).map_err(|e| self.qerr(e, req, &p))?;
         Ok(ApiResponse::json(200, &json!({"claims": claims})))
+    }
+
+    /// A fingerprint of what the caller's open page shows, for the live-update stream (server.rs): it changes when the caller's own inbox
+    /// changes (`topics=inbox`) or when the queue overview's counts change (`topics=queue`, needs queue.view). It carries no claim data,
+    /// only a hash, so the stream can never show anyone more than they could already read; the page re-reads the real data through the
+    /// ordinary authenticated routes. Times that grow every second (waiting times, lease clocks) are left out on purpose.
+    fn work_changes(&self, req: &ApiRequest) -> R {
+        use sha2::{Digest, Sha256};
+        let p = self.principal(req)?;
+        let q = self.queue()?;
+        let topics = query(req).get("topics").cloned().unwrap_or_else(|| "inbox".into());
+        let want: Vec<&str> = topics.split(',').collect();
+        if want.is_empty() || want.len() > 2 || want.iter().any(|t| !["inbox", "queue"].contains(t)) || (want.len() == 2 && want[0] == want[1]) {
+            return Err(invalid());
+        }
+        let mut h = Sha256::new();
+        if want.contains(&"inbox") {
+            let docs = q.inbox(&p).map_err(|e| self.qerr(e, req, &p))?;
+            h.update(b"inbox");
+            for d in &docs {
+                h.update(d["claim_id"].as_str().unwrap_or("").as_bytes());
+                h.update(d["signoff_stage"].as_str().unwrap_or("").as_bytes());
+                h.update(b",");
+            }
+        }
+        if want.contains(&"queue") {
+            let d = q.dashboard(&p).map_err(|e| self.qerr(e, req, &p))?;
+            let stable = json!({"counts": d["counts"], "waiting": d["waiting"], "countersign": d["awaiting_countersign"], "on_shift": d["on_shift"],
+                                "inbox_sizes": d["inbox_sizes"], "shortages": d["shortages"], "config_version": d["config_version"]});
+            h.update(b"queue");
+            h.update(stable.to_string().as_bytes());
+        }
+        Ok(ApiResponse::json(200, &json!({"signature": hex::encode(h.finalize()), "topics": want})))
     }
 
     fn work_next(&self, req: &ApiRequest) -> R {

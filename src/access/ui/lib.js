@@ -118,7 +118,22 @@
 
   // ---- timers owned by the current page are cleared on every navigation
   CG.every = function (ms, fn) { CG.state.timers.push(setInterval(fn, ms)); };
-  CG.stopTimers = function () { CG.state.timers.forEach(clearInterval); CG.state.timers = []; };
+  CG.stopTimers = function () {
+    CG.state.timers.forEach(clearInterval); CG.state.timers = [];
+    (CG.state.streams || []).forEach(function (s) { s.close(); }); CG.state.streams = [];
+  };
+
+  // ---- live updates: the server only says "changed" (no claim data); the page then re-reads through the usual routes. The timers stay as
+  // the fallback, so a proxy that buffers the stream, or a browser without EventSource, only makes the page slower to notice, never wrong.
+  CG.live = function (topics, onChange) {
+    if (!window.EventSource) return;
+    var es = new EventSource('/api/v1/work/events?topics=' + encodeURIComponent(topics)), pending = null, seenHello = false;
+    function poke() { if (!pending) pending = setTimeout(function () { pending = null; onChange(); }, 300); }
+    es.addEventListener('hello', function () { if (seenHello) poke(); seenHello = true; });   // after a reconnect, read once: changes during the gap were not announced
+    es.addEventListener('changed', poke);
+    es.addEventListener('end', function () { es.close(); });
+    (CG.state.streams = CG.state.streams || []).push({ close: function () { es.close(); if (pending) clearTimeout(pending); } });
+  };
 
   CG.has = function (perm) { return !!(CG.state.me && CG.state.me.permissions.indexOf(perm) >= 0); };
 

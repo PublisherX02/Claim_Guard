@@ -198,6 +198,7 @@
     root.appendChild(status); root.appendChild(list);
     load();
     CG.every(20000, load);
+    CG.live('inbox', load);
     CG.every(60000, function () { CG.api('POST', '/work/heartbeat').catch(function () {}); });
   };
 
