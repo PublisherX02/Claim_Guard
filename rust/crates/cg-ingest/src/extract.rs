@@ -841,11 +841,41 @@ fn assemble(s: Scan, sha: &str, catalog: &Catalog) -> Draft {
 
 /// Turn the pages a reader returned into a draft. `sha` is the hash of the uploaded file (it names the draft's attachment and its note). When the reader
 /// gave a second reading of a page (`second_text`), both readings are used and compared.
+/// Characters that are invisible or reorder how text looks: bidi overrides and isolates, LRM/RLM, zero-width space and joiners, the BOM, and the Unicode Tags
+/// block (used to hide a whole message that a person never sees but a reader or a model still decodes). Same set as the Attijari mail pipeline's
+/// `unicode_sanitize.py`. Legitimate claim text has no use for any of them.
+fn is_hidden_char(c: char) -> bool {
+    matches!(c, '\u{202a}'..='\u{202e}' | '\u{2066}'..='\u{2069}' | '\u{200e}' | '\u{200f}' | '\u{200b}'..='\u{200d}' | '\u{feff}' | '\u{e0001}' | '\u{e0020}'..='\u{e007f}')
+}
+
+/// The text without those characters, and how many there were.
+pub fn strip_hidden(text: &str) -> (String, usize) {
+    let n = text.chars().filter(|c| is_hidden_char(*c)).count();
+    if n == 0 {
+        return (text.to_string(), 0);
+    }
+    (text.chars().filter(|c| !is_hidden_char(*c)).collect(), n)
+}
+
 pub fn extract(pages: &[Page], sha: &str, catalog: &Catalog) -> Draft {
+    let mut hidden = 0;
+    let mut clean = |t: &str| {
+        let (s, n) = strip_hidden(t);
+        hidden += n;
+        s
+    };
     let words: Vec<Word> = pages.iter().flat_map(|p| p.words.iter().cloned()).collect();
-    let first_text = pages.iter().map(|p| p.text.as_str()).collect::<Vec<_>>().join("\n");
+    let first_text = pages.iter().map(|p| clean(&p.text)).collect::<Vec<_>>().join("\n");
+    let second_text = pages.iter().map(|p| match p.second_text.as_deref() { Some(t) => clean(t), None => p.text.clone() }).collect::<Vec<_>>().join("\n");
+    let mut draft = extract_clean(pages, sha, catalog, words, first_text, second_text);
+    if hidden > 0 {
+        draft.warnings.insert(0, format!("hidden characters: {hidden} invisible or text-direction control characters were found in the document text and removed; a claim document has no reason to contain them, so compare the page with every field carefully"));
+    }
+    draft
+}
+
+fn extract_clean(pages: &[Page], sha: &str, catalog: &Catalog, words: Vec<Word>, first_text: String, second_text: String) -> Draft {
     if pages.iter().any(|p| p.second_text.is_some()) {
-        let second_text = pages.iter().map(|p| p.second_text.as_deref().unwrap_or(p.text.as_str())).collect::<Vec<_>>().join("\n");
         // the word confidences belong to the second reading (Tesseract); the first (vision) reading has none
         let first = scan(&first_text, &[], catalog);
         let second = scan(&second_text, &words, catalog);
@@ -1099,5 +1129,19 @@ mod tests {
         assert_eq!(c["lines"][0]["service_code"], "SVC-LAB");
         assert_eq!((c["lines"][0]["quantity"].clone(), c["lines"][0]["unit_price"].clone(), c["lines"][0]["net_amount"].clone()), (Value::Null, Value::Null, Value::Null));
         assert!(d.warnings.iter().any(|w| w.starts_with("lines[0]") && w.contains("only two numbers")), "{:?}", d.warnings);
+    }
+
+    #[test]
+    fn hidden_characters_are_removed_and_reported() {
+        let (t, n) = strip_hidden("SVC\u{200b}-LAB \u{202e}gpj\u{e0041}\u{e0042} \u{feff}ok");
+        assert_eq!((t.as_str(), n), ("SVC-LAB gpj ok", 5));
+        assert_eq!(strip_hidden("plain text, accents \u{e9} and \u{0627}\u{0644}"), ("plain text, accents \u{e9} and \u{0627}\u{0644}".to_string(), 0));
+        let clean = extract(&page(SCAN_B), "x", &catalog());
+        assert!(!clean.warnings.iter().any(|w| w.starts_with("hidden characters")));
+        let hidden_text = SCAN_B.replace("SVC-IMAGE", "SVC\u{200b}-IMAGE").replace("Invoice date", "\u{e0049}\u{e0067}Invoice date");
+        let d = extract(&page(&hidden_text), "x", &catalog());
+        assert!(d.warnings[0].starts_with("hidden characters: 3 "), "{:?}", d.warnings);
+        // the fields are the same as for the clean text: removing them does not change what is read
+        assert_eq!(d.claim, clean.claim);
     }
 }

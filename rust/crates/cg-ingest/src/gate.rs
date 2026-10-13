@@ -88,6 +88,57 @@ fn jpeg_dims(b: &[u8]) -> Option<(u32, u32)> {
     None
 }
 
+/// Signatures of other file formats an upload must not also carry (an executable, an archive or jar, a Java class, an Office/OLE container). The idea (a file
+/// that starts as one format and contains another is a polyglot) and the strings come from the Attijari mail-attachment YARA rules (`polyglot_file`,
+/// `suspicious_exe_in_document`); "MZ" is only meaningful at the start of a region, as that project's CI found ("DMZ" is ordinary text).
+const FOREIGN_START: [&[u8]; 5] = [b"MZ", b"\x7fELF", b"PK\x03\x04", b"\xca\xfe\xba\xbe", b"\xd0\xcf\x11\xe0"];
+const FOREIGN_ANYWHERE: [&[u8]; 6] = [b"This program cannot be run in DOS mode", b"\x7fELF", b"PK\x03\x04", b"\xca\xfe\xba\xbe", b"\xd0\xcf\x11\xe0", b"META-INF/MANIFEST"];
+
+fn find(hay: &[u8], needle: &[u8]) -> Option<usize> {
+    hay.windows(needle.len()).position(|w| w == needle)
+}
+
+/// What follows the end of a picture (PNG `IEND` chunk, JPEG last `FFD9`): a camera may add a little; an executable or another document may not.
+fn trailer_of(kind: Kind, bytes: &[u8]) -> &[u8] {
+    let end = match kind {
+        Kind::Png => bytes.windows(4).rposition(|w| w == b"IEND").map(|p| p + 8),
+        Kind::Jpeg => bytes.windows(2).rposition(|w| w == [0xFF, 0xD9]).map(|p| p + 2),
+        Kind::Pdf => None,
+    };
+    end.filter(|e| *e <= bytes.len()).map(|e| &bytes[e..]).unwrap_or(&[])
+}
+
+fn has_end(kind: Kind, bytes: &[u8]) -> bool {
+    match kind {
+        Kind::Png => bytes.windows(4).any(|w| w == b"IEND"),
+        Kind::Jpeg => bytes.windows(2).any(|w| w == [0xFF, 0xD9]),
+        Kind::Pdf => true,
+    }
+}
+
+fn polyglot(kind: Kind, bytes: &[u8], pdf_at: usize) -> Option<&'static str> {
+    if find(bytes, b"This program cannot be run in DOS mode").is_some() {
+        return Some("it contains an executable program");
+    }
+    match kind {
+        Kind::Pdf => {
+            if pdf_at > 0 && FOREIGN_START.iter().any(|s| bytes.starts_with(s)) {
+                return Some("it starts as a different kind of file and only then looks like a PDF");
+            }
+            if find(bytes, b"META-INF/MANIFEST").is_some() {
+                return Some("it contains a Java archive");
+            }
+        }
+        Kind::Png | Kind::Jpeg => {
+            let t = trailer_of(kind, bytes);
+            if !t.is_empty() && (FOREIGN_START.iter().any(|s| t.starts_with(s)) || FOREIGN_ANYWHERE.iter().any(|s| find(t, s).is_some()) || find(t, b"%PDF-").is_some()) {
+                return Some("another file is attached after the end of the picture");
+            }
+        }
+    }
+    None
+}
+
 pub fn inspect(bytes: &[u8]) -> Result<Inspected, Rejection> {
     if bytes.is_empty() {
         return reject("empty", "the file is empty");
@@ -106,6 +157,10 @@ pub fn inspect(bytes: &[u8]) -> Result<Inspected, Rejection> {
     } else {
         return reject("unsupported_type", "only PDF, PNG and JPEG files are accepted (the type is read from the file itself, not from its name)");
     };
+    let pdf_at = head.windows(5).position(|w| w == b"%PDF-").unwrap_or(0);
+    if let Some(why) = polyglot(kind, bytes, pdf_at) {
+        return reject("polyglot_file", format!("the file is not a plain {}: {why}", match kind { Kind::Pdf => "PDF", Kind::Png => "PNG picture", Kind::Jpeg => "JPEG picture" }));
+    }
     let mut dims = None;
     match kind {
         Kind::Png | Kind::Jpeg => {
@@ -116,6 +171,9 @@ pub fn inspect(bytes: &[u8]) -> Result<Inspected, Rejection> {
             }
             if (w as u64) * (h as u64) > MAX_PIXELS {
                 return reject("image_too_large", format!("the picture is {w} x {h} pixels; the limit is {} million", MAX_PIXELS / 1_000_000));
+            }
+            if !has_end(kind, bytes) {
+                return reject("bad_image", "the picture has no end marker (cut off or damaged)");
             }
             dims = Some((w, h));
         }
@@ -147,6 +205,7 @@ mod tests {
         v.extend_from_slice(&w.to_be_bytes());
         v.extend_from_slice(&h.to_be_bytes());
         v.extend_from_slice(&[8, 2, 0, 0, 0, 0, 0, 0, 0]);
+        v.extend_from_slice(&[0, 0, 0, 0, b'I', b'E', b'N', b'D', 0xAE, 0x42, 0x60, 0x82]);
         v
     }
 
@@ -154,7 +213,7 @@ mod tests {
         let mut v = vec![0xFF, 0xD8, 0xFF, 0xE0, 0x00, 0x04, 0, 0, 0xFF, 0xC0, 0x00, 0x0B, 8];
         v.extend_from_slice(&h.to_be_bytes());
         v.extend_from_slice(&w.to_be_bytes());
-        v.extend_from_slice(&[1, 1, 0x11, 0]);
+        v.extend_from_slice(&[1, 1, 0x11, 0, 0xFF, 0xD9]);
         v
     }
 
@@ -178,6 +237,8 @@ mod tests {
             (png(50, 50), "bad_image"),
             (png(9000, 9000), "image_too_large"),
             (png(800, 600)[..20].to_vec(), "bad_image"),
+            (png(800, 600)[..33].to_vec(), "bad_image"), // no end chunk: cut off, so nothing proves what follows
+            (jpeg(1200, 900)[..jpeg(1200, 900).len() - 2].to_vec(), "bad_image"),
             (jpeg(10, 10), "bad_image"),
             (vec![0xFF, 0xD8, 0xFF], "bad_image"),
         ] {
@@ -194,6 +255,29 @@ mod tests {
         }
         assert_eq!(inspect(b"%PDF-1.4\n<< /Type /Catalog /Metadata /JSON /Jsx /AAA /OpenActions >>").unwrap().kind, Kind::Pdf);
         assert_eq!(inspect(b"%PDF-1.4\n<< /Encrypt 3 0 R >>").unwrap_err().code, "pdf_encrypted");
+    }
+
+    #[test]
+    fn a_file_that_is_two_formats_at_once_is_refused() {
+        let mut exe_then_pdf = b"MZ\x90\x00 header".to_vec();
+        exe_then_pdf.extend_from_slice(b"\n%PDF-1.4\n<< /Type /Catalog >>");
+        let mut png_plus_exe = png(800, 600);
+        png_plus_exe.extend_from_slice(b"MZ\x90\x00 payload");
+        let mut png_plus_zip = png(800, 600);
+        png_plus_zip.extend_from_slice(b"junk PK\x03\x04 zip");
+        let mut jpeg_plus_pdf = jpeg(1200, 900);
+        jpeg_plus_pdf.extend_from_slice(b"%PDF-1.4 hidden");
+        let mut pdf_with_exe = b"%PDF-1.4\n1 0 obj\n<< /Type /Catalog >>\nendobj\n".to_vec();
+        pdf_with_exe.extend_from_slice(b"stream\nThis program cannot be run in DOS mode.\nendstream");
+        let pdf_with_jar = b"%PDF-1.4\n<< >>\nstream\nMETA-INF/MANIFEST.MF\nendstream";
+        for (name, data) in [("exe then pdf", exe_then_pdf), ("png plus exe", png_plus_exe), ("png plus zip", png_plus_zip), ("jpeg plus pdf", jpeg_plus_pdf), ("pdf with exe", pdf_with_exe), ("pdf with jar", pdf_with_jar.to_vec())] {
+            assert_eq!(inspect(&data).unwrap_err().code, "polyglot_file", "{name}");
+        }
+        // ordinary files stay fine: "DMZ" in text, a few harmless bytes after a picture
+        assert_eq!(inspect(b"%PDF-1.4\nthe DMZ network and MZ in text").unwrap().kind, Kind::Pdf);
+        let mut padded = png(800, 600);
+        padded.extend_from_slice(&[0u8; 12]);
+        assert_eq!(inspect(&padded).unwrap().kind, Kind::Png);
     }
 
     #[test]

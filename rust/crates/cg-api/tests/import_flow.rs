@@ -145,6 +145,7 @@ fn png(w: u32, h: u32) -> Vec<u8> {
     v.extend_from_slice(&w.to_be_bytes());
     v.extend_from_slice(&h.to_be_bytes());
     v.extend_from_slice(&[8, 2, 0, 0, 0, 0, 0, 0, 0, 1, 2, 3, 4]);
+    v.extend_from_slice(&[0, 0, 0, 0, b'I', b'E', b'N', b'D', 0xAE, 0x42, 0x60, 0x82]);
     v
 }
 
