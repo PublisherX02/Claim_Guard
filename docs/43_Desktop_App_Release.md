@@ -1,20 +1,29 @@
 # The Windows desktop app (ClaimGuard.exe): release notes
 
-**Download:** the *Releases* page of the repository, release `desktop-v0.1.0`
-(<https://github.com/PublisherX02/Claim_Guard/releases/tag/desktop-v0.1.0>). It is marked a pre-release: see "What is not tested" below.
+**Current release: `desktop-v0.2.0`**, <https://github.com/PublisherX02/Claim_Guard/releases/tag/desktop-v0.2.0>. It is marked a pre-release: see "What is not tested" below. It replaces `desktop-v0.1.0` (28,165,007 bytes, SHA-256 `673BC26AF43CE4987EDEED8E8D41374C7AC09A0CDFC74914EE3DD369C23E0135`), which stays on the Releases page for reference; use v0.2.0.
 
 | | |
 |---|---|
-| File | `ClaimGuard.exe`, one file, 28,165,007 bytes (about 27 MB) |
-| SHA-256 | `673BC26AF43CE4987EDEED8E8D41374C7AC09A0CDFC74914EE3DD369C23E0135` |
-| Built from | the Rust server and console as of commit `df3a770` (nothing under `rust/`, `src/` or `desktop/` has changed since) |
+| File | `ClaimGuard.exe`, one file, 28,654,298 bytes (about 27 MB) |
+| SHA-256 | `4B7C00C840F290F59D74E7D3404D4E5A7EB248DFC00B93A556FA9EB9C471B753` |
+| Built from | the Rust server and console of branch `rust-rewrite` at commit `8eb5cf8` (every later commit changes documents only) |
 | Platform | Windows 10 or 11, 64-bit. Needs the Microsoft Edge WebView2 runtime, which Windows 11 includes and recent Windows 10 builds usually have |
 | Signed | **No.** There is no code-signing certificate, so Windows shows a warning (below) |
 
-## What it is
-The reviewer console (the web page served by the server: inbox, claim review, queue, routing settings, users, audit and health panels) in its own window, so a reviewer does not need a browser tab. It is the same console, not a second program: everything the server shows or refuses, the window shows or refuses.
+## What is new since v0.1.0
+The window and the bundled server now include everything built after the first release; all of it is in the same console, behind the same sign-in and permissions:
 
-The package holds three things: the window (Python with `pywebview`, packed with PyInstaller), the Rust server `cg.exe`, and the rule files and 60 sample claims for the demo. No Python, Rust or database has to be installed on the PC.
+- **Import from files** (administrators): a claim can be imported from a PDF, a scan, a phone photo, FHIR, CSV or JSONL. Files pass the server's gate (type read from the bytes, size and picture caps, PDFs with active content or encryption refused, polyglot files and files with an executable appended refused). The text of a PDF or picture is read by an isolated reader service (a separate container, `deploy/ocr`; **in the desktop demo no reader is attached**, so PDF and picture import answers 503 `document_reader_not_configured` while FHIR, CSV and JSONL import works). The result is an editable draft shown beside the page, and a person confirms it before it is submitted. [docs/45 section 1](45_Document_Intake_Ledger_and_Streaming.md).
+- **Payer rules** page: limits, provider lists, required documents, submission window and currency as versioned data; a change needs a reason and, with two administrators, a different administrator's approval with a fresh authenticator code. [docs/45 section 4](45_Document_Intake_Ledger_and_Streaming.md).
+- **Ask the rulebook** page: quoted answers with their source, from the 15 rules and the payer policies in force; refuses what it cannot answer. [docs/45 section 5](45_Document_Intake_Ledger_and_Streaming.md).
+- **Live updates:** the inbox and queue refresh within seconds of a change instead of on a 20-second poll.
+- **Signed audit ledger:** checkpoints and inclusion proofs on the audit page. [docs/45 section 2](45_Document_Intake_Ledger_and_Streaming.md).
+- Console fixes found in a real-browser review of every page for every role at desktop and phone width (a lost Send button, checkbox width, layout), and a content-security policy adjusted so the page preview can be shown.
+
+## What it is
+The reviewer console (the web page served by the server: inbox, claim review, queue, routing settings, users, audit and health panels, and the pages above) in its own window, so a reviewer does not need a browser tab. It is the same console, not a second program: everything the server shows or refuses, the window shows or refuses.
+
+The package holds three things: the window (Python with `pywebview`, packed with PyInstaller), the Rust server `cg.exe`, and the rule files and sample claims for the demo. No Python, Rust or database has to be installed on the PC.
 
 ## Two ways to use it
 1. **Connect to a real server** (the normal use): start it, enter the server's address (`https://...`) once; it is remembered in `~/.claimguard` and the window then opens that address. Sign-in is the server's own (badge number, password, authenticator code).
@@ -25,7 +34,7 @@ The file is not signed, so on first run Windows SmartScreen says "Windows protec
 
 ```powershell
 Get-FileHash .\ClaimGuard.exe -Algorithm SHA256
-# must print 673BC26AF43CE4987EDEED8E8D41374C7AC09A0CDFC74914EE3DD369C23E0135
+# must print 4B7C00C840F290F59D74E7D3404D4E5A7EB248DFC00B93A556FA9EB9C471B753
 ```
 
 If the hash differs, do not run the file. A hash printed next to the file only protects you if you got the hash from a place the file did not come from: read it in this document in the repository, not from the release page alone.
@@ -37,11 +46,16 @@ powershell -ExecutionPolicy Bypass -File desktop\build_windows.ps1   # prints th
 ```
 The build is not bit-for-bit reproducible (PyInstaller embeds timestamps), so your hash will differ from the one above; compare behaviour, not hashes, for a self-built file. Details of the script are in `desktop/build_windows.ps1`.
 
+## What was tested
+- The exe was **launched** in `--local-demo` mode on the development PC: the window process started, the bundled server came up on a local port and answered its health check with 200.
+- The server and console it contains are covered by: 306 Rust tests (run against real MongoDB and Redis, with the database tests required rather than skipped), the real-Chrome review of every page (0 issues), and the black-box checks listed in [docs/45](45_Document_Intake_Ledger_and_Streaming.md) (14 ledger, 16 payer-rule, 21 live-stream, 8 rulebook-question, 9 import-flow). The 116-check penetration test ([docs/39](39_Rust_Security_Results.md)) was last run before the upload gate and the rulebook search were added; those two have their own tests.
+
 ## What is not tested
-- The exe was built from the final code but **was not launched on a clean PC** (one without this project's tools) before release. The same console and server are covered by the 116-check penetration test, the browser XSS test and the 237 Rust tests (`docs/39`), but the packaged window itself has only been run on the development machine.
+- The exe was **not launched on a clean PC** (one without this project's tools), and its window was not driven by hand after packaging; only the start-up and the server health check were verified.
 - Not code-signed; Windows only; no automatic updates (download a new release).
+- PDF and picture import needs the reader container, which the desktop demo does not include (see above); the reader image is built and checked separately ([docs/45](45_Document_Intake_Ledger_and_Streaming.md), "Reader image, built and checked").
 - Local demo mode is for demonstrations: its accounts and secrets are generated on the PC and are not suitable for real claims.
-- It has not been tested against the production Docker stack on the target server (nothing has: `docs/40` section 9 is the checklist for that day).
+- It has not been tested against the production Docker stack on the target server (nothing has: [docs/40](40_Rust_Operations_Runbook.md) section 9 is the checklist for that day).
 
 ## Related
-Console and deployment overview: `docs/35`. The Rust server it bundles: `docs/38`. Security record: `docs/39`. Operations: `docs/40`.
+Console and deployment overview: [docs/35](35_Console_Desktop_App_and_Deployment.md). The Rust server it bundles: [docs/38](38_Rust_Port.md). Security record: [docs/39](39_Rust_Security_Results.md). Operations: [docs/40](40_Rust_Operations_Runbook.md). Files, ledger, live updates, payer rules, rulebook search: [docs/45](45_Document_Intake_Ledger_and_Streaming.md). Test evaluation report: [docs/46](46_Rust_Test_Evaluation_Report.md).

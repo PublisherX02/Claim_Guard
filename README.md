@@ -4,6 +4,71 @@ A pre-validation copilot for **synthetic** healthcare claims. It ingests claims 
 
 Built for the CSTAM-VELODOC challenge (mentor: Dr. Wael Hilali). All data, codes, prices and payer rules are invented. Nothing here is a real reimbursement system.
 
+## Start here (for the mentor)
+
+This section is the whole project in one page: what exists, what was measured, what you can run, and what is not done. Everything else in this README is detail behind it.
+
+**What it is.** ClaimGuard checks a healthcare claim against 15 fixed payer rules before it is sent, using a deterministic engine (the engine decides; an AI step only explains, and cannot change a verdict). Claims that are risky or uncertain go to a person, every decision is audited, and nothing leaves the hospital's own server. All data is synthetic. The system now exists twice: the original Python version (kept as the reference) and a **Rust rebuild** of all of it, which is what the desktop app and the server image run.
+
+**Get it and run it (2 minutes).**
+1. Download `ClaimGuard.exe` from the [Releases page, release `desktop-v0.2.0`](https://github.com/PublisherX02/Claim_Guard/releases/tag/desktop-v0.2.0) (Windows 10/11, one file, 27 MB, nothing to install). It is not code-signed, so Windows warns on first run: check the SHA-256 in [docs/43](docs/43_Desktop_App_Release.md) first, then *More info, Run anyway*.
+2. Start it as `ClaimGuard.exe --local-demo`. A private demo server starts on the PC and the console opens with one-click demo logins (a reviewer, a senior reviewer, an administrator). Try: *My inbox* (claims routed to you), *Import from files* (FHIR, CSV and JSONL work in the demo; PDFs and photos need the reader container, which the exe does not include: see [docs/45](docs/45_Document_Intake_Ledger_and_Streaming.md)), *Payer rules*, *Ask the rulebook*, *Audit and traceability*.
+3. From source instead: `cd rust && cargo build --release -p cg-cli`, then `rust/target/release/cg serve --demo --port 8765 --data-dir <empty folder>`. Production deployment on a server: [docs/40](docs/40_Rust_Operations_Runbook.md) and `deploy/rust/install.sh`.
+
+### Phase 2 scoring, with the evidence
+
+| Rubric item | What was done and measured | Where |
+|---|---|---|
+| **Detection quality and benchmark (15)**: macro F1, low false-positive rate | Rust engine against the organizers' answer key: fail-detection precision, recall and F1 = **1.000** on the 50-claim split, on the 150-claim validation split and on the 400-claim development split; macro F1 over rule categories 1.0; **0 valid claims wrongly flagged** (0 of 24, 62 and 160; exact 95% upper bounds 11.7%, 4.7%, 1.9%); engine time **0.19 ms per claim**. The Python reference gives the same result on the same claims; claims read back from FHIR bundles score lower for a documented reason, see [why FHIR claims do not score 1.0](#why-fhir-claims-do-not-score-10). | [docs/46](docs/46_Rust_Test_Evaluation_Report.md) (the test evaluation report), [docs/29](docs/29_Test_Evaluation_Report.md) |
+| **Human-in-the-loop and escalation (10)** | Every FAIL and UNABLE_TO_ASSESS result carries `requires_human_review` and a corrective action (checked on all three splits). Severity-weighted routing into lanes, personal inboxes, reviewer decisions that can override, a feedback log, two-person approval for dangerous actions. | docs/46 section 3, [docs/35](docs/35_Console_Desktop_App_and_Deployment.md) |
+| **Privacy, security and safety (5)** | Data minimization (logs and stores scanned for patient identifiers), badge + password + authenticator sign-in with four clearance levels and masked identifiers, hash-chained and now **cryptographically signed** audit logs, guards that stop the AI text from giving clinical advice, graceful handling of malformed FHIR/CSV/JSONL (12,000 randomly damaged bundles: same accept/quarantine verdict as the reference, none becomes a pass). 116-check penetration test, 21 black-box checks on the live stream. | [docs/32](docs/32_Privacy_and_Security_Note.md) (the privacy and security note, section 9 is new), [docs/39](docs/39_Rust_Security_Results.md) |
+
+### The bonus items
+
+| Bonus | Status | What it is | Where |
+|---|---|---|---|
+| **Multi-format attachment parsing (OCR/RAG)** | **Built** | A claim can arrive as a PDF, a scan, a phone photo, FHIR, CSV or JSONL. Files pass a gate in the server (type read from the bytes; only PDF, PNG and JPEG; size and pixel caps; PDFs with JavaScript, launch actions, embedded files or encryption refused; polyglot files and files with an executable appended refused), then an **isolated reader container** (no network, read-only, all capabilities dropped, memory and process limits) reads the pages: the PDF text layer when there is one, otherwise **Tesseract** and, optionally, the **Unlimited-OCR** vision model as a second independent reader. The result is a **draft claim** with the evidence and confidence of every field, shown beside the page; a person compares and confirms it before it is submitted. The system never decides on a converted claim by itself. | [docs/44](docs/44_OCR_and_RAG_Plan.md), [docs/45 section 1](docs/45_Document_Intake_Ledger_and_Streaming.md) |
+| **Rulebook question answering (the RAG part)** | **Built, deliberately simple** | "Ask the rulebook": BM25 keyword retrieval over the text of the 15 rules and the payer policies **now in force**, answering with the quoted passage and its source. It is retrieval, not a language model: nothing is generated, so nothing can be invented, and a question the documents cannot answer is refused. It is not hybrid (no embeddings). It never reads a claim. Right passage in the top three for 96% of 26 questions. | [docs/45 section 5](docs/45_Document_Intake_Ledger_and_Streaming.md) |
+| **Dynamic payer-rule management (GUI and API)** | **Built** | The numbers a payer contract fixes (price and quantity limits, allowed providers, services needing authorization, required documents, submission window, currency) are data an administrator edits in the console (`#/rules`, `/api/v1/rules/payer`). A change is validated, shown as a list of differences, needs a reason, and with two administrators waits for a *different* administrator to approve it with a fresh authenticator code. Each version is kept in a hash-chained history; rollback is a new version; the engine switches without a restart and every receipt records the table version. The 15 rules themselves stay fixed code. | [docs/45 section 4](docs/45_Document_Intake_Ledger_and_Streaming.md) |
+| **Cryptographic audit ledger** | **Built** | The worker signs (Ed25519) a checkpoint over each audit log: name, row count, head hash and a Merkle root. Anyone with the public key can verify that the history was not rewritten or cut, and verify a single event with an inclusion proof without seeing any other event. `cg ledger ...`, `/api/v1/ledger`, a card on the audit page. | [docs/45 section 2](docs/45_Document_Intake_Ledger_and_Streaming.md) |
+| **Real-time streaming API** | **Built (server-sent events)** | The console is told when its inbox or queue changed (seen in 1.7 s instead of the 20 s poll); the stream carries no claim data and re-reads through the normal permission-checked routes. WebSocket is not built. | [docs/45 section 3](docs/45_Document_Intake_Ledger_and_Streaming.md) |
+| **Active learning feedback loop** | **Not built, on purpose** | Held until the mentor decides how reviewer feedback may change routing. | none yet |
+
+### The results in pictures
+
+![Fields and documents right per reader](docs/figures/ocr_reader_accuracy.png)
+
+![Wrong fields: flagged versus silent](docs/figures/ocr_silent_errors.png)
+
+![Default pipeline by input condition](docs/figures/ocr_by_condition.png)
+
+![Rulebook retrieval](docs/figures/rag_retrieval.png)
+
+How to read them: 240 synthetic documents (about 40 fields each) were read by Tesseract alone, with upscaling, and with the two readers cross-checked. The default pipeline reads **97.4%** of fields correctly (digital PDFs 100%, scans 98.9%, image-only PDFs 98.7%, phone-style photos 88.1%). A *silent* error is a wrong field that nothing flagged: the second reader cuts them from 41 to **1** in 240 documents, and photos are the reason a person always compares the page before anything is submitted.
+
+### Decisions you may want to know about
+
+- **A colleague's OCR/RAG repository was reviewed and not adopted**: its language model decides the findings (this project's rule is that the rule engine decides), claim data goes to a cloud API (the mentor's data-protection point), its output is not the claim format, it has no upload gate and a calculator tool that can be made to hang the server. Three of its ideas were kept and re-implemented. The full review is [docs/44 section 8](docs/44_OCR_and_RAG_Plan.md).
+- **Ideas taken from an earlier mail-attachment security project** (the polyglot and embedded-executable checks and the hidden-Unicode handling): [docs/45 section 1](docs/45_Document_Intake_Ledger_and_Streaming.md).
+- **Unlimited-OCR** (baidu, 3.3B parameters, MIT licence) was studied and is used as the optional second reader, with a loop guard and Tesseract supplying table rows, because through Ollama it fuses table cells.
+
+### What was tested
+
+306 Rust tests pass against **real MongoDB and Redis** (database tests are required, not skipped); 18 black-box checks on the reader run **inside the hardened container**, whose image has 0 high or critical vulnerabilities with a published fix (Trivy); 14 ledger, 16 payer-rule, 21 live-stream and 8 rulebook-question checks run end to end against a real server; a real-Chrome review of every page for every role at desktop and phone width found 0 issues; the desktop app was started and its bundled server answered its health check.
+
+### What is not done or not known (read this before quoting a number)
+
+- **Everything is synthetic.** Real hospital paper, handwriting, stamps and Arabic documents are untested (the Arabic Tesseract model is in the container; the vision model's Arabic is unmeasured).
+- **Routing by model confidence and the active learning loop are not built** (waiting for the mentor).
+- **Not yet run on the target server** (RTX 3080, Linux); [docs/40](docs/40_Rust_Operations_Runbook.md) section 9 is the checklist for that day. Nothing here has run on real hospital traffic.
+- **The desktop app is unsigned**, Windows only, and was not run on a clean PC; the 116-check penetration test was last run before the final two changes (the upload gate and the rulebook search), so those two are covered by their own tests, not by that run.
+- **The rulebook search is lexical**: a question that shares no words with the documents misses (one of 26 did).
+- **Reader and ledger limits:** hidden text inside a PDF's text layer is read like visible text, which is why a person compares the page; rows removed after the newest signed checkpoint are caught by the anchor and the mirror, not the ledger. More in docs/45.
+
+### Where to read more
+
+[docs/46](docs/46_Rust_Test_Evaluation_Report.md) test evaluation report · [docs/32](docs/32_Privacy_and_Security_Note.md) privacy and security note · [docs/45](docs/45_Document_Intake_Ledger_and_Streaming.md) files, ledger, streaming, payer rules, rulebook search · [docs/44](docs/44_OCR_and_RAG_Plan.md) OCR and RAG plan and the review of the colleague's repository · [docs/43](docs/43_Desktop_App_Release.md) the desktop app release notes · [docs/38](docs/38_Rust_Port.md) the Rust rebuild · [docs/42](docs/42_Mentor_Session_Pack.md) the mentor session pack · [SPECS.md](SPECS.md) the detailed specification.
+
 ## Phase 1 deliverables at a glance
 
 | Deliverable | Where | Status |
@@ -419,10 +484,10 @@ Also built and tested, but off by default: a **cascade** (fluent model, then a r
 
 ## Boundaries
 
-No clinical judgement, medical-necessity decision, fraud accusation, automatic approval, live payer submission or EHR integration. A PASS means "these 15 checks passed on the supplied data", never that a claim is valid or payable. Reviewer identity is self-declared: there is no authentication yet.
+No clinical judgement, medical-necessity decision, fraud accusation, automatic approval, live payer submission or EHR integration. A PASS means "these 15 checks passed on the supplied data", never that a claim is valid or payable. Reviewers sign in with a badge, a password and an authenticator code, and every decision is attributed to the signed-in person.
 
 **`python src/validate_pack.py` exits non-zero on purpose.** It prints a PASS line for the rule pack, then stops with `Release checksum differs`, because the organizers' `SHA256SUMS.json` correctly detects our intentional edits to files it tracks. We never edit `SHA256SUMS.json` itself.
 
 ## Status
 
-Phase 1 (ingestion, rule engine, structured output, audit log) is complete. Phase 2 is built: the detection evaluation and its report (`docs/29`), identity and access, the extension rules, the task queue and work dispatcher with its feedback report, and the privacy and security note (`docs/32`); see [Phase 2 deliverables at a glance](#phase-2-deliverables-at-a-glance) for where each lives and what it leaves out. The architecture and data-flow document is `docs/22`, and the demo runs with `python scripts/demo.py`; the recorded video follows `docs/23`. The reviewer console (web and desktop window) and a one-server Docker Compose deployment are built (`docs/35`). Not built: routing by model confidence, the pitch, and the unbuilt audit controls listed in `docs/32` section 4 (WORM storage, an external timestamp).
+Phase 1 (ingestion, rule engine, structured output, audit log) is complete. Phase 2 is built: the detection evaluation and its report (`docs/29`), identity and access, the extension rules, the task queue and work dispatcher with its feedback report, and the privacy and security note (`docs/32`); see [Phase 2 deliverables at a glance](#phase-2-deliverables-at-a-glance) for where each lives and what it leaves out. The architecture and data-flow document is `docs/22`, and the demo runs with `python scripts/demo.py`; the recorded video follows `docs/23`. The reviewer console (web and desktop window) and a one-server Docker Compose deployment are built (`docs/35`). The Rust rebuild, file import (OCR), the signed audit ledger, live updates, editable payer rules and the rulebook question search are built too (see [Start here](#start-here-for-the-mentor)). Not built: routing by model confidence, the active learning loop, the pitch, and the unbuilt audit controls listed in `docs/32` section 4 (WORM storage, an external timestamp).
