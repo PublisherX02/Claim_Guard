@@ -8,6 +8,7 @@ pub mod details;
 pub mod extensions;
 pub mod pack;
 pub mod payer;
+pub mod rag;
 
 use cg_core::config::{Config, ConfigError};
 use cg_core::text::pointer;

@@ -169,6 +169,7 @@ pub fn ui_files() -> BTreeMap<&'static str, (&'static [u8], &'static str)> {
         ("views-ops.js", (&include_bytes!("../../../../src/access/ui/views-ops.js")[..], js)),
         ("views-import.js", (&include_bytes!("../../../../src/access/ui/views-import.js")[..], js)),
         ("views-rules.js", (&include_bytes!("../../../../src/access/ui/views-rules.js")[..], js)),
+        ("views-ask.js", (&include_bytes!("../../../../src/access/ui/views-ask.js")[..], js)),
         ("style.css", (&include_bytes!("../../../../src/access/ui/style.css")[..], "text/css; charset=utf-8")),
         ("icon.svg", (&include_bytes!("../../../../src/access/ui/icon.svg")[..], "image/svg+xml")),
         ("vendor/qrcode.js", (&include_bytes!("../../../../src/access/ui/vendor/qrcode.js")[..], js)),

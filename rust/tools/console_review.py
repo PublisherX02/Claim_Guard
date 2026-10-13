@@ -20,8 +20,8 @@ from pathlib import Path
 import pyotp
 from playwright.sync_api import sync_playwright
 
-ROLES = {'admin': ('CG-4004', ['#/queue', '#/inbox', '#/claims', '#/submit', '#/config', '#/rules', '#/import', '#/users', '#/health', '#/audit']),
-         'senior': ('CG-3003', ['#/inbox', '#/claims', '#/queue']),
+ROLES = {'admin': ('CG-4004', ['#/queue', '#/inbox', '#/claims', '#/submit', '#/config', '#/rules', '#/import', '#/ask', '#/users', '#/health', '#/audit']),
+         'senior': ('CG-3003', ['#/inbox', '#/claims', '#/queue', '#/ask']),
          'reviewer': ('CG-2002', ['#/inbox', '#/claims']),
          'viewer': ('CG-1001', ['#/claims'])}
 VIEWPORTS = (({'width': 1440, 'height': 900}, 'desktop'), ({'width': 390, 'height': 800}, 'phone'))

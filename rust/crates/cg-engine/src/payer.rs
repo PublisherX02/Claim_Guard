@@ -47,6 +47,8 @@ pub struct PayerRules {
     rules_json: Value,
     services_json: Value,
     state: Mutex<State>,
+    /// the question index, rebuilt when the table version changes
+    index: Mutex<Option<(u64, Arc<crate::rag::Index>)>>,
 }
 
 fn read_json(path: &Path) -> Result<Value, String> {
@@ -110,7 +112,7 @@ impl PayerRules {
         let services_json = read_json(&root.join("rules/services.json"))?;
         let rules_json = read_json(&root.join("rules/rules.json"))?;
         let services = services_json.as_object().map(|m| m.keys().cloned().collect()).unwrap_or_default();
-        let p = PayerRules { engine, log_path: data_dir.join("payer_rules.jsonl"), shipped: shipped.clone(), services, rules_json, services_json, state: Mutex::new(State { version: 0, policies: shipped, rows_seen: 0 }) };
+        let p = PayerRules { engine, log_path: data_dir.join("payer_rules.jsonl"), shipped: shipped.clone(), services, rules_json, services_json, state: Mutex::new(State { version: 0, policies: shipped, rows_seen: 0 }), index: Mutex::new(None) };
         p.refresh()?;
         Ok(p)
     }
@@ -150,6 +152,28 @@ impl PayerRules {
     pub fn current(&self) -> Value {
         let st = self.state.lock().unwrap_or_else(|e| e.into_inner());
         json!({"version": st.version, "policies": st.policies, "services": self.services, "rulebook_hash": self.engine.rulebook_hash()})
+    }
+
+    /// "Ask the rulebook" (docs/45 section 5): passages of the rules and of the policy table in force that answer a question, quoted with their sources.
+    pub fn ask(&self, question: &str, k: usize) -> Value {
+        let (version, policies) = {
+            let st = self.state.lock().unwrap_or_else(|e| e.into_inner());
+            (st.version, st.policies.clone())
+        };
+        let ix = {
+            let mut g = self.index.lock().unwrap_or_else(|e| e.into_inner());
+            match &*g {
+                Some((v, ix)) if *v == version => ix.clone(),
+                _ => {
+                    let ix = Arc::new(crate::rag::Index::build(&self.rules_json, &policies, version));
+                    *g = Some((version, ix.clone()));
+                    ix
+                }
+            }
+        };
+        let mut out = crate::rag::hits_json(question, &ix.search(question, k));
+        out["table_version"] = json!(version);
+        out
     }
 
     pub fn history(&self) -> Vec<Value> {

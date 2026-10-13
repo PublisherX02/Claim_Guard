@@ -486,6 +486,7 @@ impl Api {
             ["claims", id, "findings", rule, "decision"] => if m == "POST" { self.decide_direct(req, id, rule) } else { Err(wrong()) },
             ["audit", "events"] => if m == "GET" { self.audit_events(req) } else { Err(wrong()) },
             ["audit", "verify"] => if m == "GET" { self.audit_verify(req) } else { Err(wrong()) },
+            ["knowledge", "search"] => if m == "GET" { self.knowledge(req) } else { Err(wrong()) },
             ["rules", "payer"] => match m { "GET" => self.payer_get(req), "POST" => self.payer_post(req), _ => Err(wrong()) },
             ["rules", "payer", "validate"] => if m == "POST" { self.payer_validate(req) } else { Err(wrong()) },
             ["ledger"] => if m == "GET" { self.ledger_status(req) } else { Err(wrong()) },
@@ -723,6 +724,17 @@ impl Api {
     // ---- payer rules ---------------------------------------------------------------------------------------------------------
     fn payer(&self) -> Result<&Arc<cg_engine::payer::PayerRules>, ApiError> {
         self.payer.as_ref().ok_or_else(|| ApiError::new(404, "not_found"))
+    }
+
+    /// Ask the rulebook: retrieval with citations over the rules and the payer policies in force. Never touches a claim.
+    fn knowledge(&self, req: &ApiRequest) -> R {
+        self.need(req, "claims.view")?;
+        let pr = self.payer()?;
+        let q = query(req).get("q").cloned().unwrap_or_default();
+        if q.trim().is_empty() || q.chars().count() > 300 {
+            return Err(ApiError::new(422, "invalid_request").with("detail", json!("ask a question of 1 to 300 characters")));
+        }
+        Ok(ApiResponse::json(200, &pr.ask(q.trim(), 4)))
     }
 
     fn payer_get(&self, req: &ApiRequest) -> R {
