@@ -20,6 +20,12 @@ Three features added after the Rust port: claims that arrive as a PDF, a photogr
 | two readers, cross-checked | 96.8% | 59.6% | 208 | 205 | 3 |
 | two readers, upscaled (the default) | 97.4% | 66.7% | 168 | 167 | 1 |
 
+![Fields and documents right per reader](figures/ocr_reader_accuracy.png)
+
+![Wrong fields: flagged versus silent](figures/ocr_silent_errors.png)
+
+![Default pipeline by input condition](figures/ocr_by_condition.png)
+
 A *silent* error is a wrong field nothing flagged (not empty, no warning, readers agree, confidence not low). Per condition for the default: scan 98.9%, image-only PDF 98.7%, phone-style photo 88.1% (12% of photos perfect). The evaluation found two bugs that were fixed: a claim line with an empty date cell was dropped, and a two-number row must be flagged, not guessed. Other tests: 41 extractor/gate/reader unit tests, 9 API flow tests with a stub reader on a real socket, 18 black-box checks on the reader (hostile PDFs, bad types, oversize), and an end-to-end run in real Chrome (`rust/tools/import_ui_test.py`).
 
 **Not done or not known.** Real hospital paper, handwriting, stamps and Arabic are untested (the container carries the Arabic Tesseract model; the vision model's Arabic is unmeasured). Hidden text in a PDF's text layer is read like visible text, which is why a person compares the page. Photos are poor enough that nothing may be queued unseen. The colleague's repository (an LLM agent on a cloud model) was reviewed and not adopted; reasons are in the project notes.
@@ -43,5 +49,7 @@ The fifteen rules are code (the YARA pack, hashed with the build) and are not ed
 **What it is.** A question box over the text of the fifteen rules (title, what each checks, what to do about it) and the payer policy table **as it is in force now** (one passage per policy fact, each naming the table version). `GET /api/v1/knowledge/search?q=` (permission `claims.view`, question 1 to 300 characters) and the console page *Ask the rulebook*. Ranking is BM25 (lexical; no model, no network, deterministic; `cg-engine/src/rag.rs`). The answer **is** the quoted passage with its source (`rule R008`, `policy EDU-BASIC (table version 3)`); nothing is generated, so nothing can be invented, and no clinical advice can be given. A question whose words barely touch the documents (fewer than two matching terms, or a weak score) is refused with "Not in the rulebook documents" instead of answered with the nearest guess. It never reads a claim, so it adds no privacy surface; the index is rebuilt when the payer table version changes, so an approved change is what people read about.
 
 **Evidence.** 26 reviewer-style questions with the expected rule or policy (`rag.rs` tests; written from what a reviewer would ask, not tuned against the index): hit@1 88%, hit@3 96%; the one miss is "two identical lines on the same day" (the rule says *duplicate*, the question does not). 5 off-topic or clinical questions (weather, football, "recommend a treatment for diabetes", poem, empty) are all refused. Tests also check that a policy answer quotes the real limit and follows an edited table, that the corpus holds no claim data, and that results are deterministic. 8 end-to-end checks against a real server (`rust/tools/knowledge_test.py`: role, citation, refusal, bad input, markup as text, no session = 401); the page was reviewed in real Chrome at desktop and phone width.
+
+![Rulebook retrieval](figures/rag_retrieval.png)
 
 **Limits, stated plainly.** It is retrieval, not a language model: it will not rephrase, combine or reason across passages. It is lexical, so a question using none of the documents' words misses (the one miss above). A dense retriever or a model that phrases the answer is possible later; it would have to beat these numbers on the same questions first. Attachment text from imported documents is deliberately **not** in the index (it is claim data; a person compares the page itself).

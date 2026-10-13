@@ -34,7 +34,19 @@ The rule engine takes **0.19 ms per claim** (the difference between a 400-claim 
 
 `cg ingest` accepts normalized JSON/JSONL, FHIR bundles and the CSV tables, and quarantines any record it cannot accept with a reason, never stopping the run. `rust/tools/compare_ingest.py` (35 checks): the 600 public claims in all three formats give claims and reports identical to the Python reference; 12,000 randomly damaged bundles reach the same accept-or-quarantine verdict and, when accepted, the same claim; every accepted damaged claim gets fifteen engine results. FHIR loses what it does not carry (authorization details), so those rules abstain rather than guess (docs/29 section 4).
 
-## 6. Limitations (read before quoting a number)
+## 6. Document reading and rulebook retrieval (charts)
+
+Numbers are those recorded in docs/45 sections 1 and 5; the script is `rust/tools/make_charts.py`.
+
+![Fields and documents right per reader](figures/ocr_reader_accuracy.png)
+
+![Wrong fields: flagged versus silent](figures/ocr_silent_errors.png)
+
+![Default pipeline by input condition](figures/ocr_by_condition.png)
+
+![Rulebook retrieval](figures/rag_retrieval.png)
+
+## 7. Limitations (read before quoting a number)
 
 - The public pack is synthetic and small; perfect scores on it do not show the system beats an alternative, and the key is the organizers' own rulebook.
 - Nine of fifteen rules have no failing example in the 50-claim split.
