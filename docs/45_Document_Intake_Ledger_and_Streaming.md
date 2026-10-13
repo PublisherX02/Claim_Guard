@@ -32,6 +32,8 @@ A *silent* error is a wrong field nothing flagged (not empty, no warning, reader
 
 **Not done or not known.** Real hospital paper, handwriting, stamps and Arabic are untested (the container carries the Arabic Tesseract model; the vision model's Arabic is unmeasured). Hidden text in a PDF's text layer is read like visible text, which is why a person compares the page. Photos are poor enough that nothing may be queued unseen. The colleague's repository (an LLM agent on a cloud model) was reviewed and not adopted; reasons are in the project notes.
 
+**Reader image, built and checked.** `deploy/ocr/Dockerfile` builds (401 MB; the first build exposed a pip flag that does not exist, now removed, and the package upgrade added so published Debian fixes are included). The 18 black-box reader checks pass **inside the container run with the production restrictions** (read-only, tmpfs `/tmp`, all capabilities dropped, no-new-privileges, 2 GB, 128 processes, 2 CPUs): `python rust/tools/ocr_service_test.py --container claimguard-reader:latest`. Trivy (HIGH and CRITICAL, fixed only) on the saved image: first build 4 HIGH in Debian packages (pcre2, openssl, all with fixes), after `apt-get upgrade` 0; the Python packages (pillow, pypdf, pypdfium2, pip) 0. The Linux Tesseract build reads a zero in an id as the letter O where the Windows build did not (`PAT-O002`): that is the misread the extractor's catalogue check and confidence flags exist for, and the reader test tolerates it. Not yet done: running the container beside the real compose stack on the target server.
+
 **Deploy.** `bash deploy/rust/install.sh <site> internal ai docs` adds the reader container; Caddy allows 17 MB only on the two import paths.
 
 ## 2. The signed ledger
