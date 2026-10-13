@@ -179,6 +179,7 @@ fn start(a: Args, dev: bool) -> Result<(), String> {
         ui: true,
         extra_probes: probes,
         data_dir: b.data_dir.clone(),
+        payer: Some(b.payer.clone()),
         import: Some(cg_api::import::ImportParts { reader: cg_ingest::document::ReaderConfig::from_env(&b.env)?, catalog: cg_ingest::extract::Catalog::load(&b.root) }),
     }));
     let addr: SocketAddr = format!("{}:{}", if a.host == "localhost" { "127.0.0.1" } else { &a.host }, a.port).parse().map_err(|_| "bad --host".to_string())?;

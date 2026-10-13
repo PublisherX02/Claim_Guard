@@ -7,6 +7,7 @@
 pub mod details;
 pub mod extensions;
 pub mod pack;
+pub mod payer;
 
 use cg_core::config::{Config, ConfigError};
 use cg_core::text::pointer;
@@ -60,9 +61,23 @@ pub struct RuleResult {
 }
 
 pub struct Engine {
-    pub cfg: Config,
+    cfg: std::sync::RwLock<std::sync::Arc<Config>>,
+    /// digest of the payer policies when an administrator has changed them (None: the table shipped with the build)
+    overlay: std::sync::RwLock<Option<String>>,
     pub pack: pack::Pack,
     root: std::path::PathBuf,
+}
+
+fn canonical_text(v: &Value) -> String {
+    match v {
+        Value::Object(m) => {
+            let mut keys: Vec<&String> = m.keys().collect();
+            keys.sort();
+            format!("{{{}}}", keys.iter().map(|k| format!("{}:{}", serde_json::to_string(k).unwrap_or_default(), canonical_text(&m[*k]))).collect::<Vec<_>>().join(","))
+        }
+        Value::Array(a) => format!("[{}]", a.iter().map(canonical_text).collect::<Vec<_>>().join(",")),
+        other => other.to_string(),
+    }
 }
 
 const CRASH_MESSAGE: &str = "An internal error prevented this check; it is treated as unable to assess.";
@@ -70,7 +85,27 @@ const CRASH_MESSAGE: &str = "An internal error prevented this check; it is treat
 impl Engine {
     /// `root` is the project directory that holds `rules/`.
     pub fn load(root: &Path) -> Result<Engine, EngineError> {
-        Ok(Engine { cfg: Config::load(root)?, pack: pack::Pack::load(root)?, root: root.to_path_buf() })
+        Ok(Engine { cfg: std::sync::RwLock::new(std::sync::Arc::new(Config::load(root)?)), overlay: std::sync::RwLock::new(None), pack: pack::Pack::load(root)?, root: root.to_path_buf() })
+    }
+
+    /// The configuration in force (the rulebook and the payer policies); it can be replaced while the engine runs (`payer.rs`).
+    pub fn cfg(&self) -> std::sync::Arc<Config> {
+        self.cfg.read().unwrap_or_else(|e| e.into_inner()).clone()
+    }
+
+    /// Switches to a new configuration. `edited` is the edited policies table, or None to go back to the shipped one.
+    pub fn set_config(&self, cfg: Config, edited: Option<&Value>) {
+        *self.overlay.write().unwrap_or_else(|e| e.into_inner()) = edited.map(|v| hex::encode(Sha256::digest(canonical_text(v).as_bytes())));
+        *self.cfg.write().unwrap_or_else(|e| e.into_inner()) = std::sync::Arc::new(cfg);
+    }
+
+    /// The hash recorded in every triage receipt as the rule pack: the YARA pack's hash while the payer table is the shipped one (so nothing changes for
+    /// an existing deployment), and the pack's hash combined with the table's digest once an administrator has changed it.
+    pub fn rulebook_hash(&self) -> String {
+        match &*self.overlay.read().unwrap_or_else(|e| e.into_inner()) {
+            None => self.pack.hash(),
+            Some(d) => hex::encode(Sha256::digest(format!("{}|payer-policies|{d}", self.pack.hash()).as_bytes())),
+        }
     }
 
     /// `yara_engine.engine_code_hash`: tells two builds of the engine apart. The pack plus the two Rust modules that feed and assemble it;
@@ -118,8 +153,9 @@ impl Engine {
     /// `tool_errors` receives one line per rule that crashed (kept out of the result record, which is schema-exact).
     pub fn evaluate(&self, claim: &Value, tool_errors: &mut Vec<String>) -> Result<Vec<RuleResult>, EngineError> {
         let view = View::of(claim).ok_or(EngineError::NoClaim)?;
+        let cfg = self.cfg();
         let mut details: Vec<(&'static str, Result<Details, String>)> = vec![];
-        for (rid, run) in details::all(&view, &self.cfg) {
+        for (rid, run) in details::all(&view, &cfg) {
             let outcome = catch_unwind(AssertUnwindSafe(|| run())).map_err(|e| {
                 let text = e.downcast_ref::<&str>().map(|s| s.to_string()).or_else(|| e.downcast_ref::<String>().cloned()).unwrap_or_else(|| "panic".into());
                 tool_errors.push(format!("{rid}: engine exception {text}"));
@@ -139,7 +175,7 @@ impl Engine {
         let matched = self.pack.scan(&blob)?;
         let mut results = Vec::with_capacity(15);
         for (rid, outcome) in details {
-            let def = self.cfg.rule(rid).ok_or_else(|| EngineError::OutOfSync(rid.to_string()))?;
+            let def = cfg.rule(rid).ok_or_else(|| EngineError::OutOfSync(rid.to_string()))?;
             let (status, d) = match outcome {
                 Err(_) => (
                     "UNABLE_TO_ASSESS",
@@ -175,7 +211,8 @@ impl Engine {
 
     /// Fifteen UNABLE_TO_ASSESS results for a claim that could not be evaluated at all (it failed the transport contract).
     pub fn fail_closed(&self, claim: &Value) -> Vec<RuleResult> {
-        let mut rules: Vec<_> = self.cfg.rules.iter().collect();
+        let cfg = self.cfg();
+        let mut rules: Vec<_> = cfg.rules.iter().collect();
         rules.sort_by(|a, b| a.rule_id.cmp(&b.rule_id));
         let claim_id = claim.get("claim_id").cloned().unwrap_or(Value::Null);
         rules

@@ -557,6 +557,7 @@ name = "cg-engine"
 version = "0.1.0"
 dependencies = [
  "bigdecimal",
+ "cg-audit",
  "cg-core",
  "fancy-regex",
  "hex",
@@ -565,6 +566,7 @@ dependencies = [
  "serde",
  "serde_json",
  "sha2 0.10.9",
+ "tempfile",
  "thiserror 1.0.69",
  "yara-x",
 ]

@@ -58,6 +58,7 @@ fn required() -> &'static BTreeMap<&'static str, BTreeSet<&'static str>> {
     T.get_or_init(|| {
         let rows: &[(&str, &[&str])] = &[
             ("ingestion", &["claim_id", "source_format", "outcome"]),
+            ("payer_rules_change", &["actor", "version", "reason", "policies", "summary"]),
             ("run_started", &["run_id", "claim_id", "input_hash"]),
             ("rule_check", &["run_id", "claim_id", "rule_id", "rule_version", "status", "severity", "result_hash", "confidence", "confidence_kind", "method"]),
             ("ai_request", &["run_id", "claim_id", "rule_id", "request_id", "question", "deterministic_status", "verdict", "requires_human_review", "finding_hash", "prompt_version", "prompt_hash", "action_type"]),

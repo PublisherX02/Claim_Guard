@@ -51,6 +51,8 @@ pub struct Boot {
     pub securitylog: Arc<SecurityLog>,
     pub review_log: Arc<AuditLog>,
     pub engine: Arc<Engine>,
+    /// the payer policies as an administrator has edited them (versioned, applied to `engine` at run time)
+    pub payer: Arc<cg_engine::payer::PayerRules>,
     pub queue: Option<QueueStack>,
 }
 
@@ -160,11 +162,28 @@ pub fn boot(o: &Options) -> Result<Boot, String> {
     let access = Arc::new(AccessService::new(users, settings.clone(), securitylog.clone(), clock.clone()));
     let review_log = Arc::new(AuditLog::open(data_dir.join("review_audit.jsonl")).map_err(|e| e.to_string())?);
     let engine = Arc::new(Engine::load(&root).map_err(|e| format!("rule engine: {e}"))?);
+    let payer = Arc::new(cg_engine::payer::PayerRules::open(&root, &data_dir, engine.clone()).map_err(|e| format!("payer rules: {e}"))?);
+    {
+        // an approved change of the payer rules is carried out here; other processes (the worker, the API) notice it within seconds
+        let pr = payer.clone();
+        access.set_action_hook(Arc::new(move |a, requester, approver| {
+            if a.action != "payer_rules" {
+                return Err("unknown action".into());
+            }
+            let p: Value = serde_json::from_str(&a.payload).map_err(|e| e.to_string())?;
+            pr.apply(&p["policies"], requester, Some(approver), p["reason"].as_str().unwrap_or("")).map(|_| ())
+        }));
+        let pr = payer.clone();
+        let _ = std::thread::Builder::new().name("claimguard-payer-refresh".into()).spawn(move || loop {
+            std::thread::sleep(Duration::from_secs(3));
+            let _ = pr.refresh();
+        });
+    }
     let queue = match queue_store {
         None => None,
         Some(store) => Some(build_queue(store, &env, &root, &engine, &access, &securitylog, &review_log, &clock, !o.demo)?),
     };
-    Ok(Boot { env, root, data_dir, settings, clock, access, securitylog, review_log, engine, queue })
+    Ok(Boot { env, root, data_dir, settings, clock, access, securitylog, review_log, engine, payer, queue })
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -178,7 +197,7 @@ fn build_queue(store: Arc<dyn QueueStore>, env: &HashMap<String, String>, root: 
         engine: efn.clone(),
         log: securitylog.clone(),
         clock: clock.clone(),
-        rule_pack_hash: engine.pack.hash(),
+        rule_pack_hash: { let e = engine.clone(); Arc::new(move || e.rulebook_hash()) },
         engine_version: engine.code_hash(),
         advisory: Some(flow::advisory_fn(extensions, store.clone())),
     });

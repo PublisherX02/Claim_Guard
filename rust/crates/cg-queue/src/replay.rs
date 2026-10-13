@@ -56,7 +56,7 @@ pub fn latest_documents(store: &dyn QueueStore) -> R<Vec<Value>> {
 }
 
 pub fn rerun(store: &dyn QueueStore, engine: &EngineFn, old_rule_pack_hash: &str, intake: &Intake, dry_run: bool) -> R<Value> {
-    if intake.rule_pack_hash == old_rule_pack_hash {
+    if (intake.rule_pack_hash)() == old_rule_pack_hash {
         return Err(QueueError::Invalid("the running rule pack is the one to be replaced; there is nothing to rerun".into()));
     }
     let (mut checked, mut changed, mut errors) = (0, vec![], vec![]);

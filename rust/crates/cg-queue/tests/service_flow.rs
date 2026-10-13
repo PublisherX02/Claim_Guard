@@ -56,7 +56,7 @@ fn q() -> Q {
     let review_log = Arc::new(AuditLog::open(w.dir.path().join("review.jsonl")).unwrap());
     let queue = Arc::new(QueueService::new(store.clone(), dispatcher.clone(), w.svc.clone(), w.svc.log.clone(), review_log, clock.clone()));
     let e = engine();
-    let intake = Arc::new(Intake { store: store.clone(), engine: engine_fn(e.clone()), log: w.svc.log.clone(), clock: clock.clone(), rule_pack_hash: e.pack.hash(), engine_version: e.code_hash(), advisory: Some(cg_queue::flow::advisory_fn(Arc::new(cg_engine::extensions::Extensions::load(&root()).unwrap()), store.clone())) });
+    let intake = Arc::new(Intake { store: store.clone(), engine: engine_fn(e.clone()), log: w.svc.log.clone(), clock: clock.clone(), rule_pack_hash: cg_queue::flow::fixed_hash(e.pack.hash()), engine_version: e.code_hash(), advisory: Some(cg_queue::flow::advisory_fn(Arc::new(cg_engine::extensions::Extensions::load(&root()).unwrap()), store.clone())) });
     queue.set_intake(intake.clone());
     let sc = store.clone();
     let explain = Arc::new(ExplainStep::new(store.clone(), Arc::new(NoModel), default_guard(), Arc::new(CircuitBreaker::new(clock.clone())), clock.clone(), Arc::new(move || cg_queue::flow::routing_config(&*sc))));

@@ -112,6 +112,7 @@ fn t(reader: Option<&Reader>) -> T {
         extra_probes: vec![],
         data_dir: w.dir.path().to_path_buf(),
         import: Some(ImportParts { reader: reader_cfg, catalog: Catalog::load(&root()) }),
+        payer: None,
     });
     T { api, w }
 }

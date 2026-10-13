@@ -122,6 +122,7 @@ pub struct Api {
     probes: Vec<Probe>,
     audit_status: Arc<AuditStatus>,
     import: Option<import::ImportParts>,
+    payer: Option<Arc<cg_engine::payer::PayerRules>>,
     doc_slots: import::DocumentSlots,
     ledger: Arc<ops::LedgerView>,
     ui_files: BTreeMap<&'static str, (&'static [u8], &'static str)>,
@@ -141,6 +142,8 @@ pub struct ApiParts {
     pub data_dir: PathBuf,
     /// The document reader and the catalogue for importing claims from files; None keeps the import routes to the plain text formats.
     pub import: Option<import::ImportParts>,
+    /// The editable payer rules (docs/45); None leaves the routes answering 404.
+    pub payer: Option<Arc<cg_engine::payer::PayerRules>>,
 }
 
 // ---- request bodies: strict types, unknown fields refused ----------------------------------------------------------------------------
@@ -309,6 +312,7 @@ impl Api {
             probes,
             audit_status,
             import: p.import,
+            payer: p.payer,
             doc_slots: import::DocumentSlots::default(),
             ledger,
             ui_files: claimstore::ui_files(),
@@ -482,6 +486,8 @@ impl Api {
             ["claims", id, "findings", rule, "decision"] => if m == "POST" { self.decide_direct(req, id, rule) } else { Err(wrong()) },
             ["audit", "events"] => if m == "GET" { self.audit_events(req) } else { Err(wrong()) },
             ["audit", "verify"] => if m == "GET" { self.audit_verify(req) } else { Err(wrong()) },
+            ["rules", "payer"] => match m { "GET" => self.payer_get(req), "POST" => self.payer_post(req), _ => Err(wrong()) },
+            ["rules", "payer", "validate"] => if m == "POST" { self.payer_validate(req) } else { Err(wrong()) },
             ["ledger"] => if m == "GET" { self.ledger_status(req) } else { Err(wrong()) },
             ["ledger", "proof"] => if m == "GET" { self.ledger_proof(req) } else { Err(wrong()) },
             ["ops", "audit", "summary"] => if m == "GET" { self.audit_overview(req) } else { Err(wrong()) },
@@ -712,6 +718,53 @@ impl Api {
         let ok = r["security"]["ok"] == true && r["review"]["ok"] == true;
         self.access.record("audit_verify", json!({"badge_id": p.badge(), "ok": ok})).map_err(|e| self.serr(e.into(), req, &p))?;
         Ok(ApiResponse::json(200, &json!({"security": r["security"], "review": r["review"]})))
+    }
+
+    // ---- payer rules ---------------------------------------------------------------------------------------------------------
+    fn payer(&self) -> Result<&Arc<cg_engine::payer::PayerRules>, ApiError> {
+        self.payer.as_ref().ok_or_else(|| ApiError::new(404, "not_found"))
+    }
+
+    fn payer_get(&self, req: &ApiRequest) -> R {
+        self.need(req, "routing.manage")?;
+        let pr = self.payer()?;
+        let _ = pr.refresh();
+        let mut cur = pr.current();
+        cur["history"] = json!(pr.history());
+        Ok(ApiResponse::json(200, &cur))
+    }
+
+    fn payer_validate(&self, req: &ApiRequest) -> R {
+        self.need(req, "routing.manage")?;
+        let body = object_body(req)?;
+        let policies = body.get("policies").ok_or_else(invalid)?;
+        Ok(ApiResponse::json(200, &self.payer()?.validate(policies).to_json()))
+    }
+
+    /// Changes the payer rules. With two or more administrators the change waits for a different administrator to approve it (the same dual control as the
+    /// other dangerous actions); a lone administrator acts alone and the security log says so. Either way it is a new numbered version in a hash-chained log.
+    fn payer_post(&self, req: &ApiRequest) -> R {
+        let p = self.need(req, "routing.manage")?;
+        let pr = self.payer()?;
+        let body = object_body(req)?;
+        let policies = body.get("policies").ok_or_else(invalid)?.clone();
+        let reason = body.get("reason").and_then(Value::as_str).ok_or_else(invalid)?.to_string();
+        let v = pr.validate(&policies);
+        if !v.errors.is_empty() {
+            return Err(ApiError::new(422, "invalid_request").with("detail", json!(v.errors.join("; "))));
+        }
+        if reason.chars().count() < 10 || reason.chars().count() > 300 {
+            return Err(ApiError::new(422, "invalid_request").with("detail", json!("write a reason of 10 to 300 characters")));
+        }
+        let summary = format!("Change the payer rules ({} difference(s)): {}", v.changes.len(), v.changes.iter().take(3).cloned().collect::<Vec<_>>().join("; "));
+        match self.access.gate_action(&p, "payer_rules", "payer-rules", summary, json!({"policies": policies, "reason": reason})).map_err(|e| self.serr(e, req, &p))? {
+            Gate::Pending { approval, uri } => Ok(Self::pending(&approval, uri)),
+            Gate::Done(()) => {
+                let version = pr.apply(&policies, p.badge(), None, &reason).map_err(|e| ApiError::new(422, "invalid_request").with("detail", json!(e)))?;
+                self.access.record("queue_admin", json!({"actor": p.badge(), "command": "payer_rules", "version": version})).map_err(|e| self.serr(e.into(), req, &p))?;
+                Ok(ApiResponse::json(200, &json!({"status": "applied", "version": version})))
+            }
+        }
     }
 
     /// The signed ledger: per log, how many checkpoints, what the newest covers, and whether every one verifies with the public key.
