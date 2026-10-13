@@ -148,7 +148,7 @@ def pages_of(body, ctype):
     raise Reject(415, 'unsupported content type')
 
 
-PREPROCESS = os.environ.get('OCR_PREPROCESS', 'none')    # none | grey | up | grey+up
+PREPROCESS = os.environ.get('OCR_PREPROCESS', 'up')    # none | grey | up | grey+up: `up` measured best (docs/45); `grey` made Tesseract worse
 
 
 def prepare_for_tesseract(img):
