@@ -338,6 +338,9 @@ pub fn audit_guard_jobs(env: &std::collections::HashMap<String, String>) -> Vec<
     if on("TSA_URL") {
         jobs.push(("audit_witness", secs("AUDIT_WITNESS_SECONDS", 3600.0)));
     }
+    if on("LEDGER_SIGNING_KEY") {
+        jobs.push(("audit_ledger", secs("LEDGER_CHECKPOINT_SECONDS", 300.0)));
+    }
     jobs
 }
 
@@ -404,8 +407,49 @@ fn res(status: &str, detail: impl Into<String>, extra: Value) -> (String, String
     (status.to_string(), detail.into(), extra.as_object().cloned().unwrap_or_default())
 }
 
-pub fn access_probes(service: Arc<AccessService>, securitylog: Arc<SecurityLog>, audit_status: Arc<AuditStatus>, data_dir: PathBuf, metrics: Arc<Metrics>, clock: Clock) -> Vec<Probe> {
+/// The signed ledger over both audit logs, as the API sees it: it holds only the PUBLIC key (LEDGER_PUBLIC_KEY, or the `ledger.pub` the worker writes into the data
+/// folder), so it can verify checkpoints and cut proofs but can never sign one. The result is cached for a minute: verifying hashes every row.
+pub struct LedgerView {
+    data_dir: PathBuf,
+    logs: Vec<(String, PathBuf)>,
+    cache: Mutex<Option<(std::time::Instant, Value)>>,
+}
+
+impl LedgerView {
+    pub fn new(data_dir: PathBuf, logs: Vec<(String, PathBuf)>) -> LedgerView {
+        LedgerView { data_dir, logs, cache: Mutex::new(None) }
+    }
+
+    pub fn public_key(&self) -> Option<cg_audit::ledger::VerifyingKey> {
+        let text = std::env::var("LEDGER_PUBLIC_KEY").ok().filter(|s| !s.trim().is_empty()).or_else(|| std::fs::read_to_string(self.data_dir.join("ledger.pub")).ok())?;
+        cg_audit::ledger::public_key_from(text.trim()).ok()
+    }
+
+    pub fn log_path(&self, label: &str) -> Option<&PathBuf> {
+        self.logs.iter().find(|(l, _)| l == label).map(|(_, p)| p)
+    }
+
+    pub fn get(&self, max_age_seconds: f64) -> Value {
+        if let Some((at, v)) = self.cache.lock().unwrap_or_else(|e| e.into_inner()).as_ref() {
+            if at.elapsed().as_secs_f64() <= max_age_seconds {
+                return v.clone();
+            }
+        }
+        let report = match self.public_key() {
+            None => json!({"configured": false}),
+            Some(pk) => {
+                let logs: Map<String, Value> = self.logs.iter().map(|(label, path)| (label.clone(), cg_audit::ledger::verify_ledger(path, label, &pk, 3).to_json())).collect();
+                json!({"configured": true, "key_id": cg_audit::ledger::key_id(&pk), "public_key": cg_audit::ledger::public_key_b64(&pk), "ok": logs.values().all(|r| r["ok"] == true), "logs": logs})
+            }
+        };
+        *self.cache.lock().unwrap_or_else(|e| e.into_inner()) = Some((std::time::Instant::now(), report.clone()));
+        report
+    }
+}
+
+pub fn access_probes(service: Arc<AccessService>, securitylog: Arc<SecurityLog>, audit_status: Arc<AuditStatus>, data_dir: PathBuf, metrics: Arc<Metrics>, clock: Clock, ledger: Arc<LedgerView>) -> Vec<Probe> {
     let (m, svc, st, sl, dd, ck) = (metrics, service, audit_status, securitylog, data_dir, clock);
+    let ck_ledger = ck.clone();
     let svc2 = svc.clone();
     let sl2 = sl.clone();
     let sl3 = sl.clone();
@@ -470,6 +514,26 @@ pub fn access_probes(service: Arc<AccessService>, securitylog: Arc<SecurityLog>,
                 "stale" => res(OK, &format!("timestamp valid; {} newer events are not stamped yet", st["unstamped_events"]), st),
                 other => res(DEGRADED, &format!("timestamp state: {other}"), st),
             }
+        }),
+        probe("ledger", "Signed ledger (Ed25519 checkpoints)", "optional", move || {
+            let r = ledger.get(60.0);
+            if r["configured"] != true {
+                return res(UNKNOWN, "no ledger key (optional: the worker signs checkpoints when it has LEDGER_SIGNING_KEY; this server verifies with the public key)", r);
+            }
+            if r["ok"] != true {
+                let first = r["logs"].as_object().into_iter().flatten().flat_map(|(label, v)| v["problems"].as_array().into_iter().flatten().map(move |p| format!("{label} log: {}", p.as_str().unwrap_or(""))).collect::<Vec<_>>()).next().unwrap_or_default();
+                return res(DOWN, format!("a signed checkpoint does not match its log ({first}): treat the history as untrusted until explained"), r);
+            }
+            let newest = r["logs"].as_object().into_iter().flatten().filter_map(|(_, v)| parse_time(&v["latest"]["time"])).fold(f64::MIN, f64::max);
+            let count: i64 = r["logs"].as_object().into_iter().flatten().map(|(_, v)| v["checkpoints"].as_i64().unwrap_or(0)).sum();
+            if count == 0 {
+                return res(DEGRADED, "the ledger key is configured but no checkpoint has been signed yet", r);
+            }
+            let age = ck_ledger() - newest;
+            if age > 3600.0 {
+                return res(DEGRADED, format!("the newest signed checkpoint is {:.0} minutes old: is the worker running with LEDGER_SIGNING_KEY?", age / 60.0), r);
+            }
+            res(OK, format!("{count} signed checkpoint(s) verify against both logs with the public key; the newest is {:.0} minute(s) old", (age / 60.0).max(0.0)), r)
         }),
         probe("signals", "Security signals (last hour)", "optional", move || {
             let rows = sl2.scan(MAX_SCAN_ROWS).unwrap_or_default();

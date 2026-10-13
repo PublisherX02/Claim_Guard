@@ -49,7 +49,7 @@ Have ready, in case of questions: `docs/39` (security results), `docs/40` (opera
 - **Not run on the target virtual machine**, and no Kubernetes cluster was available to apply the manifests to.
 - **Subject access and erasure, and a retention period** are designed, not built (`docs/41`).
 - **MedGemma 27B** was not tested; gemma3:4b is the model.
-- A **distributed denial-of-service**, the VM's firewall and a public certificate authority are untested; the system has not been attacked by anyone outside the team.
+- The **host firewall** is written and tested in throwaway containers (`docs/40` section 10) but has not been run on the real server; a **distributed denial-of-service** and a public certificate authority are untested; the system has not been attacked by anyone outside the team.
 - **Dual control** cannot know two administrator accounts belong to two people, and a lone administrator is not protected (logged).
 - **One API pod and one MongoDB member** in the Kubernetes files (the audit logs are files with locks).
 - The recheck route (`POST /claims/{id}/recheck`) is 501 in both builds; corrections are new versions through resubmission.

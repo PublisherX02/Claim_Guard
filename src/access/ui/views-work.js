@@ -71,7 +71,7 @@
         f.affected_line_ids && f.affected_line_ids.length ? h('span', { class: 'muted small', text: 'Lines: ' + f.affected_line_ids.join(', ') }) : null),
       f.explanation ? h('p', { text: f.explanation, style: null }) : null);
     if (!flagged) return card;
-    if (f.ai_explanation) {
+    if (f.ai_explanation && f.ai_explanation.text !== f.explanation) {      // the built-in template restates the line above: show the box only when it adds something
       card.appendChild(h('div', { class: 'ai-box' },
         h('div', { class: 'row' }, CG.chip('AI draft', 'ai'), h('span', { class: 'muted small', text: 'Source: ' + f.ai_explanation.source + '. The rule engine decided the status; this text only helps you read it. Check it against the evidence.' })),
         h('p', { text: f.ai_explanation.text })));
@@ -198,6 +198,7 @@
     root.appendChild(status); root.appendChild(list);
     load();
     CG.every(20000, load);
+    CG.live('inbox', load);
     CG.every(60000, function () { CG.api('POST', '/work/heartbeat').catch(function () {}); });
   };
 

@@ -10,6 +10,7 @@ bash deploy/rust/install.sh <address-or-domain> internal|public [ai]
 - Needs Linux with Docker and the compose plugin, and `openssl`. `internal` is for an address or internal name (a certificate from the proxy's own authority; browsers warn until you trust it); `public` is for a real domain with ports 80 and 443 reachable (a Let's Encrypt certificate). `ai` also hosts the local model (Ollama) and checks it with `cg model-check`.
 - It writes `.env` with freshly generated secrets **only if `.env` does not exist** (mode 600), builds and starts the stack, waits for health, and asks you to create the first administrator (level 4). You choose the password; the authenticator seed is shown once.
 - Only the proxy publishes ports (80, 443). The database and cache sit on a network with no route to the internet.
+- Set `CG_SSH_FROM=<your address>/32` when you run the script and it also installs the host firewall (section 10). Without it the script says so and the server relies on Docker alone.
 
 ## 2. Settings (environment, in `.env`)
 
@@ -138,8 +139,32 @@ The security log records every unmask with who, which claim, and the reason; the
 
 ## 9. What to run on the target machine, in this order
 
-1. `python rust/tools/deploy_attack.py` (TLS, proxy, network, isolation, image): all checks must pass. Also run the same TLS checks from **another machine** against the real address, and port-scan the VM from outside: only 80 and 443 should answer.
+1. `python rust/tools/deploy_attack.py` (TLS, proxy, network, isolation, image): all checks must pass. Also run the same TLS checks from **another machine** against the real address, then `python3 deploy/rust/portcheck.py <address>` from a machine that is not on the SSH allow-list (only 80 and 443 may answer; section 10).
 2. `python rust/tools/backup_restore_test.py`, then a real backup of the real data and a restore on a spare machine.
 3. `cargo audit`, and a vulnerability scan of the running image.
 4. A sign-in from a second device, an unmask, a decision and a sign-out; then `GET /api/v1/audit/verify` (the console's **Verify the logs**).
 5. If `ai` was chosen: `cg model-check` on the server, and `python rust/tools/model_redteam.py` pointed at the server's model.
+
+## 10. The host firewall (`deploy/rust/firewall.sh`, `deploy/rust/portcheck.py`)
+
+**The trap.** Docker publishes a container port by rewriting packets (the `nat` table) and forwarding them. Those packets never reach the `INPUT` chain where ufw and most guides put their rules, so `ufw deny 6379` does **not** close a port that a compose file published. Docker reserves the `DOCKER-USER` chain for your rules on that traffic. This stack publishes only 80 and 443 (a test enforces it), so today nothing sensitive is exposed; the firewall is the second lock for the day someone adds a `ports:` line by mistake, and for the host itself (SSH, anything else installed on the machine).
+
+**What the script does.** Two chains of its own, jumped to first from `DOCKER-USER` and `INPUT`, for IPv4 and IPv6:
+- containers: replies, and traffic that arrived for port 80 or 443, pass; everything else coming in from the outside interface is dropped;
+- the host: replies, loopback, container bridges, DHCP answers, limited ping (ICMPv6 for IPv6), 80, 443, and SSH **only from `CG_SSH_FROM`**; everything else is dropped. It does not touch ufw: ours run first, so a stray "allow 22 from anywhere" in ufw is shadowed.
+
+```
+CG_SSH_FROM=203.0.113.7/32 bash deploy/rust/firewall.sh apply --dry-run          # read what it will do first
+CG_SSH_FROM=203.0.113.7/32 bash deploy/rust/firewall.sh apply --auto-revert 120  # then apply; open a SECOND ssh session, answer yes within 120 s or it undoes itself
+CG_SSH_FROM=203.0.113.7/32 bash deploy/rust/firewall.sh persist                  # re-apply at every boot, after Docker is up (systemd)
+bash deploy/rust/firewall.sh status | remove
+```
+It refuses to run without `CG_SSH_FROM` (it cannot guess where you connect from, and a wrong guess locks you out of a machine you cannot walk up to). `any` is accepted with a warning. Values are checked against exact address shapes before they reach a command.
+
+**Verify from outside, every time you change the firewall or the compose file.** On a machine that is not allowed to use SSH: `python3 deploy/rust/portcheck.py <server address>` must print `PASS` (80 and 443 only). From the administration address: add `--ssh open`. Never run it on the server itself: traffic to its own address goes over loopback, which is always allowed, and proves nothing. A dropped port shows as *filtered*, a refused one as *closed*; only *open* counts against you. UDP cannot be scanned this way; `firewall.sh status` shows the rules.
+
+**What was tested, and what was not.** `rust/tools/firewall_test.py` applies the script for real in throwaway Linux containers (a client, a router that forwards ports 80, 443, 6379 and 11434 the way Docker does, and a backend): before the script the database and model ports answer from outside, after it only 80 and 443 do, SSH answers only to the allowed address, a second apply adds no second jump, `remove` leaves nothing behind, and `--auto-revert` without an answer removes the rules (15 checks). `tests/test_deploy_firewall.py` checks the dry-run output and the input validation. **Not tested:** the real server's kernel, distribution, ufw/firewalld/nftables setup and cloud security groups (a provider firewall in front of the machine is a good third lock); the systemd unit on a real boot; a flood (the script does not rate-limit SYN floods or defend against distributed denial of service, which needs the provider's help); rule changes made by other software after the script ran.
+
+## 11. Reviewing the console in a real browser (`rust/tools/console_review.py`)
+Against a local demo server (`cg serve --demo`), it signs in as each demo role in Chrome, opens every page at desktop and phone width plus one claim in the work view, saves screenshots, and fails on a console error or warning, an HTTP error, an uncaught exception, or a page that scrolls sideways. Run on 2026-10-12 it found and the next commit fixed: pages wider than a phone screen (tables forced the column open), no gap between two cards on the Users page, an orphan seventh summary tile, the shift list cut off after three badges, an AI box that only repeated the line above it, and long decision forms (options now two per row on wide screens). It does not judge colour, wording or usability; it is a regression check, and the screenshots still need a person's eye. It must only be pointed at a local demo server.
+

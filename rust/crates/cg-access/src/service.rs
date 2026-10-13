@@ -151,12 +151,16 @@ pub struct AccessService {
     pub log: Arc<SecurityLog>,
     clock: Clock,
     gate: AuditGate,
+    hook: Mutex<Option<ActionHook>>,
 }
+
+/// Carries out an approved action that this crate does not know (the payer rules): (approval, requester, approver).
+pub type ActionHook = Arc<dyn Fn(&Approval, &str, &str) -> Result<(), String> + Send + Sync>;
 
 impl AccessService {
     pub fn new(store: Arc<dyn UserStore>, settings: Settings, log: Arc<SecurityLog>, clock: Clock) -> AccessService {
         passwords::dummy_verify("warm-up", settings.bcrypt_rounds); // build the cached hash before the first real request
-        AccessService { store, settings, log, clock, gate: AuditGate { state: Mutex::new(HashMap::new()) } }
+        AccessService { store, settings, log, clock, gate: AuditGate { state: Mutex::new(HashMap::new()) }, hook: Mutex::new(None) }
     }
 
     pub fn now(&self) -> f64 {
@@ -449,6 +453,25 @@ impl AccessService {
     // administrator) are not carried out when asked for. They become a request, and a different administrator must approve it with a
     // fresh authenticator code. The API uses the `*_gated` functions; the plain ones above do the work and are what runs after approval.
 
+    pub fn set_action_hook(&self, hook: ActionHook) {
+        *self.hook.lock().unwrap_or_else(|e| e.into_inner()) = Some(hook);
+    }
+
+    /// Puts an administrator action of another module under dual control: with two or more active administrators it becomes a pending request that a
+    /// different administrator must approve (then the hook carries it out); a lone administrator acts alone and it is logged as such.
+    pub fn gate_action(&self, actor: &Principal, action: &str, target: &str, summary: String, payload: Value) -> Result<Gate<()>, ServiceError> {
+        Self::require(actor, "routing.manage")?;
+        if actor.user.level != permissions::ADMIN_LEVEL {
+            return Err(PermissionError::Denied("only an administrator can do this".into()).into());
+        }
+        if !self.dual_control()? {
+            self.note_unchecked(actor, action, target);
+            return Ok(Gate::Done(()));
+        }
+        let approval = self.open_approval(actor, action, target, summary, payload)?;
+        Ok(Gate::Pending { approval, uri: None })
+    }
+
     /// Dual control applies when it is switched on and there are at least two active administrators to ask. A lone administrator acts alone
     /// (nobody else could approve) and the action is logged as such.
     fn dual_control(&self) -> Result<bool, ServiceError> {
@@ -636,7 +659,11 @@ impl AccessService {
                 self.store.update_user(&a.target, &UserUpdate { totp_secret_enc: Some(text("totp_secret_enc")), ..Default::default() })?;
                 self.must("totp_reset", json!({"actor": requester.badge_id, "badge_id": a.target, "approved_by": approver.badge()}))?;
             }
-            _ => return Err(ServiceError::Invalid("unknown action".into())),
+            other => {
+                let hook = self.hook.lock().unwrap_or_else(|e| e.into_inner()).clone();
+                let Some(hook) = hook else { return Err(ServiceError::Invalid("unknown action".into())) };
+                hook(a, &requester.badge_id, approver.badge()).map_err(|e| ServiceError::Invalid(format!("{other}: {e}")))?;
+            }
         }
         Ok(())
     }

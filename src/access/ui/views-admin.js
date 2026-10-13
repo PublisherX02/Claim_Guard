@@ -52,6 +52,7 @@
     }
     load();
     CG.every(15000, load);
+    CG.live('queue', load);
   };
 
   // ---- routing settings ---------------------------------------------------------------------------------------------------
@@ -81,7 +82,7 @@
         pointInputs[key] = h('input', { type: 'number', min: '0', step: '1', value: (cfg.points[p[0]] || {})[p[1]] });
         return h('div', { class: 'field' }, h('label', { text: p[0].replace(/_/g, ' ').toLowerCase() + ', ' + p[1] }), pointInputs[key]);
       });
-      var shift = h('textarea', { placeholder: 'One badge per line, e.g. CG-2002' }); shift.value = (cfg.on_shift || []).join('\n');
+      var shift = h('textarea', { placeholder: 'One badge per line, e.g. CG-2002' }); shift.value = (cfg.on_shift || []).join('\n'); shift.rows = Math.max(3, (cfg.on_shift || []).length + 1);
       var excl = h('textarea', { placeholder: 'One pair per line: reviewer badge, patient id (that reviewer never gets that patient)' }); excl.value = (cfg.exclusions || []).map(function (p) { return p.join(', '); }).join('\n');
       var save = h('button', { class: 'btn primary', type: 'button', text: 'Save settings', onclick: function () {
         var changes = {}, k;
@@ -106,7 +107,7 @@
       body.appendChild(h('div', { class: 'card' }, h('h2', { text: 'Who is on shift' }), h('div', { class: 'field' }, h('label', { text: 'Badges on shift' }), shift), h('div', { class: 'field' }, h('label', { text: 'Conflict-of-interest exclusions' }), excl)));
       body.appendChild(h('div', { class: 'card' }, h('h2', { text: 'Capacity and timing' }), h('div', { class: 'row' }, numberFields.map(function (f) { return h('div', { style: null, class: 'grow' }, f); }))));
       body.appendChild(h('div', { class: 'card' }, h('h2', { text: 'Points per flagged finding' }), h('div', { class: 'row' }, pointFields.map(function (f) { return h('div', { class: 'grow' }, f); }))));
-      body.appendChild(h('div', { class: 'row', style: null }, save));
+      body.appendChild(h('div', { class: 'row savebar', style: null }, save));
     }, function (e) { body.appendChild(h('div', { class: 'notice bad', text: e.message })); });
   };
 

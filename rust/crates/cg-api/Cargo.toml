@@ -10,6 +10,7 @@ cg-access = { path = "../cg-access" }
 cg-engine = { path = "../cg-engine" }
 cg-queue = { path = "../cg-queue" }
 cg-timestamp = { path = "../cg-timestamp" }
+cg-ingest = { path = "../cg-ingest" }
 serde.workspace = true
 serde_json.workspace = true
 thiserror.workspace = true
@@ -21,7 +22,7 @@ axum = { version = "0.8", default-features = false, features = ["http1", "tokio"
 hyper = { version = "1", default-features = false, features = ["http1", "server"] }
 hyper-util = { version = "0.1", default-features = false, features = ["tokio", "server", "http1", "service"] }
 tower = { version = "0.5", default-features = false, features = ["util"] }
-tokio = { version = "1", features = ["rt-multi-thread", "macros", "net", "signal", "time"] }
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "net", "signal", "time", "sync"] }
 rustls = { version = "0.23", default-features = false, features = ["ring", "std"], optional = true }
 
 [dev-dependencies]

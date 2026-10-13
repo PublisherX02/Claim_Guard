@@ -11,6 +11,7 @@
 //! * bodies are small, JSON only, strictly typed with unknown fields refused, and errors never echo input or internals.
 
 pub mod claimstore;
+pub mod import;
 pub mod ops;
 pub mod server;
 
@@ -35,6 +36,14 @@ pub const API: &str = "/api/v1";
 pub const SESSION_COOKIE: &str = "cg_session";
 pub const CSRF_COOKIE: &str = "cg_csrf";
 pub const MAX_BODY_BYTES: usize = 65_536;
+/// The import routes take whole files (a scanned page, a FHIR export): a larger body, on those two paths only.
+pub const MAX_UPLOAD_BYTES: usize = 16 * 1024 * 1024;
+pub const IMPORT_FILE_PATH: &str = "/api/v1/queue/import/file";
+pub const IMPORT_CSV_PATH: &str = "/api/v1/queue/import/csv";
+
+pub fn body_limit(path: &str) -> usize {
+    if path == IMPORT_FILE_PATH || path == IMPORT_CSV_PATH { MAX_UPLOAD_BYTES } else { MAX_BODY_BYTES }
+}
 /// Failed sign-ins one client address may make, over all badges, in one window. (Per badge the service allows far fewer: PAIR_LIMIT.)
 pub const LOGIN_FAILURE_LIMIT: i64 = 100;
 pub const LOGIN_FAILURE_WINDOW: f64 = 900.0;
@@ -112,6 +121,10 @@ pub struct Api {
     pub metrics: Arc<Metrics>,
     probes: Vec<Probe>,
     audit_status: Arc<AuditStatus>,
+    import: Option<import::ImportParts>,
+    payer: Option<Arc<cg_engine::payer::PayerRules>>,
+    doc_slots: import::DocumentSlots,
+    ledger: Arc<ops::LedgerView>,
     ui_files: BTreeMap<&'static str, (&'static [u8], &'static str)>,
 }
 
@@ -127,6 +140,10 @@ pub struct ApiParts {
     /// Probes of the queue side (see `ops::queue_probes`); the access-side probes are added here.
     pub extra_probes: Vec<Probe>,
     pub data_dir: PathBuf,
+    /// The document reader and the catalogue for importing claims from files; None keeps the import routes to the plain text formats.
+    pub import: Option<import::ImportParts>,
+    /// The editable payer rules (docs/45); None leaves the routes answering 404.
+    pub payer: Option<Arc<cg_engine::payer::PayerRules>>,
 }
 
 // ---- request bodies: strict types, unknown fields refused ----------------------------------------------------------------------------
@@ -278,7 +295,8 @@ impl Api {
             }),
             p.clock.clone(),
         ));
-        let mut probes = ops::access_probes(p.access.clone(), p.securitylog.clone(), audit_status.clone(), p.data_dir.clone(), metrics.clone(), p.clock.clone());
+        let ledger = Arc::new(ops::LedgerView::new(p.data_dir.clone(), vec![("security".into(), p.securitylog.path().to_path_buf()), ("review".into(), p.review_log.path().to_path_buf())]));
+        let mut probes = ops::access_probes(p.access.clone(), p.securitylog.clone(), audit_status.clone(), p.data_dir.clone(), metrics.clone(), p.clock.clone(), ledger.clone());
         probes.extend(p.extra_probes);
         Api {
             access: p.access,
@@ -293,6 +311,10 @@ impl Api {
             metrics,
             probes,
             audit_status,
+            import: p.import,
+            payer: p.payer,
+            doc_slots: import::DocumentSlots::default(),
+            ledger,
             ui_files: claimstore::ui_files(),
         }
     }
@@ -303,6 +325,16 @@ impl Api {
 
     // ---- the layers around every request ------------------------------------------------------------------------------
     pub fn handle(&self, req: ApiRequest) -> ApiResponse {
+        self.handle_with(req, true)
+    }
+
+    /// The same layers, but not counted in the traffic figures: the live-update stream asks the same question every few seconds on behalf of
+    /// each open console, and those internal checks would drown the real traffic in the health panel.
+    pub fn handle_quiet(&self, req: ApiRequest) -> ApiResponse {
+        self.handle_with(req, false)
+    }
+
+    fn handle_with(&self, req: ApiRequest, record: bool) -> ApiResponse {
         let started = std::time::Instant::now();
         let mut resp = self.guarded(&req);
         let headers: Vec<(&str, &str)> = vec![
@@ -320,7 +352,9 @@ impl Api {
         }
         let csp = if req.path.starts_with(UI_PREFIX) { UI_CSP } else { "default-src 'none'" };
         resp.headers.push(("content-security-policy".into(), csp.into()));
-        self.metrics.record(&req.method, &req.path, resp.status, started.elapsed().as_secs_f64());
+        if record {
+            self.metrics.record(&req.method, &req.path, resp.status, started.elapsed().as_secs_f64());
+        }
         resp
     }
 
@@ -331,13 +365,14 @@ impl Api {
         if cl.is_some_and(|v| v.is_empty() || !v.bytes().all(|b| b.is_ascii_digit())) {
             return reply(400, "bad_request");
         }
-        if cl.and_then(|v| v.parse::<usize>().ok()).is_some_and(|n| n > MAX_BODY_BYTES) || req.body.len() > MAX_BODY_BYTES {
+        let limit = body_limit(&req.path);
+        if cl.and_then(|v| v.parse::<usize>().ok()).is_some_and(|n| n > limit) || req.body.len() > limit {
             return reply(413, "payload_too_large");
         }
         if ["POST", "PUT", "PATCH"].contains(&req.method.as_str()) {
             let has_body = cl.is_some_and(|v| v != "0") || req.headers.contains_key("transfer-encoding") || !req.body.is_empty();
             let ctype = req.headers.get("content-type").map(|c| c.split(';').next().unwrap_or("").trim().to_lowercase()).unwrap_or_default();
-            if has_body && ctype != "application/json" {
+            if has_body && ctype != "application/json" && req.path != IMPORT_FILE_PATH {
                 return reply(415, "unsupported_media_type");
             }
         }
@@ -451,6 +486,11 @@ impl Api {
             ["claims", id, "findings", rule, "decision"] => if m == "POST" { self.decide_direct(req, id, rule) } else { Err(wrong()) },
             ["audit", "events"] => if m == "GET" { self.audit_events(req) } else { Err(wrong()) },
             ["audit", "verify"] => if m == "GET" { self.audit_verify(req) } else { Err(wrong()) },
+            ["knowledge", "search"] => if m == "GET" { self.knowledge(req) } else { Err(wrong()) },
+            ["rules", "payer"] => match m { "GET" => self.payer_get(req), "POST" => self.payer_post(req), _ => Err(wrong()) },
+            ["rules", "payer", "validate"] => if m == "POST" { self.payer_validate(req) } else { Err(wrong()) },
+            ["ledger"] => if m == "GET" { self.ledger_status(req) } else { Err(wrong()) },
+            ["ledger", "proof"] => if m == "GET" { self.ledger_proof(req) } else { Err(wrong()) },
             ["ops", "audit", "summary"] => if m == "GET" { self.audit_overview(req) } else { Err(wrong()) },
             ["ops", "health"] => if m == "GET" { self.health(req) } else { Err(wrong()) },
             ["ops", "trace", id] => if m == "GET" { self.trace(req, id) } else { Err(wrong()) },
@@ -463,12 +503,16 @@ impl Api {
             ["approvals", id, "reject"] => if m == "POST" { self.approvals_reject(req, id) } else { Err(wrong()) },
             ["approvals", id, "cancel"] => if m == "POST" { self.approvals_cancel(req, id) } else { Err(wrong()) },
             ["work", "inbox"] if self.queue.is_some() => if m == "GET" { self.work_inbox(req) } else { Err(wrong()) },
+            ["work", "changes"] if self.queue.is_some() => if m == "GET" { self.work_changes(req) } else { Err(wrong()) },
             ["work", "next"] if self.queue.is_some() => if m == "POST" { self.work_next(req) } else { Err(wrong()) },
             ["work", "heartbeat"] if self.queue.is_some() => if m == "POST" { self.work_heartbeat(req) } else { Err(wrong()) },
             ["work", "claims", id, "findings", rule, "decision"] if self.queue.is_some() => if m == "POST" { self.work_decide(req, id, rule) } else { Err(wrong()) },
             ["work", "claims", id, "verify"] if self.queue.is_some() => if m == "POST" { self.work_verify(req, id) } else { Err(wrong()) },
             ["queue", "dashboard"] if self.queue.is_some() => if m == "GET" { self.q_dashboard(req) } else { Err(wrong()) },
             ["queue", "feedback"] if self.queue.is_some() => if m == "GET" { self.q_feedback(req) } else { Err(wrong()) },
+            ["queue", "import", "file"] => if m == "POST" { self.import_file(req) } else { Err(wrong()) },
+            ["queue", "import", "csv"] => if m == "POST" { self.import_csv(req) } else { Err(wrong()) },
+            ["queue", "import", "validate"] => if m == "POST" { self.import_validate(req) } else { Err(wrong()) },
             ["queue", "submit"] if self.queue.is_some() => if m == "POST" { self.q_submit(req) } else { Err(wrong()) },
             ["queue", "config"] if self.queue.is_some() => match m { "GET" => self.q_get_config(req), "PATCH" => self.q_patch_config(req), _ => Err(wrong()) },
             _ => Err(ApiError::new(404, "not_found")),
@@ -677,6 +721,85 @@ impl Api {
         Ok(ApiResponse::json(200, &json!({"security": r["security"], "review": r["review"]})))
     }
 
+    // ---- payer rules ---------------------------------------------------------------------------------------------------------
+    fn payer(&self) -> Result<&Arc<cg_engine::payer::PayerRules>, ApiError> {
+        self.payer.as_ref().ok_or_else(|| ApiError::new(404, "not_found"))
+    }
+
+    /// Ask the rulebook: retrieval with citations over the rules and the payer policies in force. Never touches a claim.
+    fn knowledge(&self, req: &ApiRequest) -> R {
+        self.need(req, "claims.view")?;
+        let pr = self.payer()?;
+        let q = query(req).get("q").cloned().unwrap_or_default();
+        if q.trim().is_empty() || q.chars().count() > 300 {
+            return Err(ApiError::new(422, "invalid_request").with("detail", json!("ask a question of 1 to 300 characters")));
+        }
+        Ok(ApiResponse::json(200, &pr.ask(q.trim(), 4)))
+    }
+
+    fn payer_get(&self, req: &ApiRequest) -> R {
+        self.need(req, "routing.manage")?;
+        let pr = self.payer()?;
+        let _ = pr.refresh();
+        let mut cur = pr.current();
+        cur["history"] = json!(pr.history());
+        Ok(ApiResponse::json(200, &cur))
+    }
+
+    fn payer_validate(&self, req: &ApiRequest) -> R {
+        self.need(req, "routing.manage")?;
+        let body = object_body(req)?;
+        let policies = body.get("policies").ok_or_else(invalid)?;
+        Ok(ApiResponse::json(200, &self.payer()?.validate(policies).to_json()))
+    }
+
+    /// Changes the payer rules. With two or more administrators the change waits for a different administrator to approve it (the same dual control as the
+    /// other dangerous actions); a lone administrator acts alone and the security log says so. Either way it is a new numbered version in a hash-chained log.
+    fn payer_post(&self, req: &ApiRequest) -> R {
+        let p = self.need(req, "routing.manage")?;
+        let pr = self.payer()?;
+        let body = object_body(req)?;
+        let policies = body.get("policies").ok_or_else(invalid)?.clone();
+        let reason = body.get("reason").and_then(Value::as_str).ok_or_else(invalid)?.to_string();
+        let v = pr.validate(&policies);
+        if !v.errors.is_empty() {
+            return Err(ApiError::new(422, "invalid_request").with("detail", json!(v.errors.join("; "))));
+        }
+        if reason.chars().count() < 10 || reason.chars().count() > 300 {
+            return Err(ApiError::new(422, "invalid_request").with("detail", json!("write a reason of 10 to 300 characters")));
+        }
+        let summary = format!("Change the payer rules ({} difference(s)): {}", v.changes.len(), v.changes.iter().take(3).cloned().collect::<Vec<_>>().join("; "));
+        match self.access.gate_action(&p, "payer_rules", "payer-rules", summary, json!({"policies": policies, "reason": reason})).map_err(|e| self.serr(e, req, &p))? {
+            Gate::Pending { approval, uri } => Ok(Self::pending(&approval, uri)),
+            Gate::Done(()) => {
+                let version = pr.apply(&policies, p.badge(), None, &reason).map_err(|e| ApiError::new(422, "invalid_request").with("detail", json!(e)))?;
+                self.access.record("queue_admin", json!({"actor": p.badge(), "command": "payer_rules", "version": version})).map_err(|e| self.serr(e.into(), req, &p))?;
+                Ok(ApiResponse::json(200, &json!({"status": "applied", "version": version})))
+            }
+        }
+    }
+
+    /// The signed ledger: per log, how many checkpoints, what the newest covers, and whether every one verifies with the public key.
+    fn ledger_status(&self, req: &ApiRequest) -> R {
+        let p = self.need(req, "audit.view")?;
+        self.access.record("audit_read", json!({"badge_id": p.badge()})).map_err(|e| self.serr(e.into(), req, &p))?;
+        Ok(ApiResponse::json(200, &self.ledger.get(0.0)))
+    }
+
+    /// A proof that one event was in a log at a signed checkpoint, to be checked elsewhere with the public key alone (`cg ledger verify-proof`).
+    fn ledger_proof(&self, req: &ApiRequest) -> R {
+        let p = self.need(req, "audit.view")?;
+        let q = query(req);
+        let label = q.get("log").map(String::as_str).unwrap_or("");
+        let seq = q_int(&q, "sequence", 0, 1, 1_000_000_000)? as u64;
+        let (Some(path), Some(pk)) = (self.ledger.log_path(label), self.ledger.public_key()) else { return Err(ApiError::new(404, "not_found")) };
+        let Some(cp) = cg_audit::ledger::latest_valid_checkpoint(path, label, &pk).filter(|c| c.count >= seq) else {
+            return Err(ApiError::new(404, "not_found").with("detail", json!("no signed checkpoint covers that event yet")));
+        };
+        self.access.record("audit_read", json!({"badge_id": p.badge()})).map_err(|e| self.serr(e.into(), req, &p))?;
+        cg_audit::ledger::prove(path, seq, &cp).map(|v| ApiResponse::json(200, &v)).map_err(|e| ApiError::new(409, "conflict").with("detail", json!(e)))
+    }
+
     fn audit_overview(&self, req: &ApiRequest) -> R {
         let p = self.need(req, "audit.view")?;
         let hours = q_int(&query(req), "hours", 24, 1, 168)?;
@@ -829,6 +952,39 @@ impl Api {
         let p = self.need(req, "claims.decide")?;
         let claims = self.queue()?.inbox(&p).map_err(|e| self.qerr(e, req, &p))?;
         Ok(ApiResponse::json(200, &json!({"claims": claims})))
+    }
+
+    /// A fingerprint of what the caller's open page shows, for the live-update stream (server.rs): it changes when the caller's own inbox
+    /// changes (`topics=inbox`) or when the queue overview's counts change (`topics=queue`, needs queue.view). It carries no claim data,
+    /// only a hash, so the stream can never show anyone more than they could already read; the page re-reads the real data through the
+    /// ordinary authenticated routes. Times that grow every second (waiting times, lease clocks) are left out on purpose.
+    fn work_changes(&self, req: &ApiRequest) -> R {
+        use sha2::{Digest, Sha256};
+        let p = self.principal(req)?;
+        let q = self.queue()?;
+        let topics = query(req).get("topics").cloned().unwrap_or_else(|| "inbox".into());
+        let want: Vec<&str> = topics.split(',').collect();
+        if want.is_empty() || want.len() > 2 || want.iter().any(|t| !["inbox", "queue"].contains(t)) || (want.len() == 2 && want[0] == want[1]) {
+            return Err(invalid());
+        }
+        let mut h = Sha256::new();
+        if want.contains(&"inbox") {
+            let docs = q.inbox(&p).map_err(|e| self.qerr(e, req, &p))?;
+            h.update(b"inbox");
+            for d in &docs {
+                h.update(d["claim_id"].as_str().unwrap_or("").as_bytes());
+                h.update(d["signoff_stage"].as_str().unwrap_or("").as_bytes());
+                h.update(b",");
+            }
+        }
+        if want.contains(&"queue") {
+            let d = q.dashboard(&p).map_err(|e| self.qerr(e, req, &p))?;
+            let stable = json!({"counts": d["counts"], "waiting": d["waiting"], "countersign": d["awaiting_countersign"], "on_shift": d["on_shift"],
+                                "inbox_sizes": d["inbox_sizes"], "shortages": d["shortages"], "config_version": d["config_version"]});
+            h.update(b"queue");
+            h.update(stable.to_string().as_bytes());
+        }
+        Ok(ApiResponse::json(200, &json!({"signature": hex::encode(h.finalize()), "topics": want})))
     }
 
     fn work_next(&self, req: &ApiRequest) -> R {

@@ -1,6 +1,6 @@
 //! The thin axum adapter: bytes in, `Api::handle` on a blocking thread, bytes out. No rule lives here.
 
-use crate::{Api, ApiRequest, ApiResponse, MAX_BODY_BYTES};
+use crate::{body_limit, Api, ApiRequest, ApiResponse};
 use axum::body::{Body, Bytes};
 use axum::extract::{ConnectInfo, Request, State};
 use axum::http::{HeaderName, HeaderValue, Response, StatusCode};
@@ -14,6 +14,7 @@ use std::time::Duration;
 struct App {
     api: Arc<Api>,
     behind_proxy: bool,
+    streams: Arc<Streams>,
 }
 
 /// The client address used for the login throttle: the socket peer, or, only behind our own reverse proxy, the last hop it appended.
@@ -40,6 +41,143 @@ fn into_response(r: ApiResponse) -> Response<Body> {
     b.body(Body::from(r.body)).unwrap_or_default()
 }
 
+// ---- live updates (server-sent events) -----------------------------------------------------------------------------------------
+// A console page that shows an inbox or the queue overview opens GET /api/v1/work/events?topics=inbox|queue. The stream carries no claim
+// data at all, only the words "changed" and "end": every few seconds the server asks the ordinary, authenticated route
+// /api/v1/work/changes (with the caller's own cookie) for a fingerprint of what that page shows, and says "changed" when the fingerprint
+// differs. The page then re-reads the real data through the usual routes, so permissions, masking and the session check live in one place
+// and a stream can never show anyone more than they could already fetch. A revoked or expired session ends the stream. The connection
+// lifetime limit below also ends it after five minutes; the browser reconnects by itself and the first message ("hello") makes the page
+// read once, so nothing that happened in the gap is missed.
+pub const EVENTS_PATH: &str = "/api/v1/work/events";
+const CHANGES_PATH: &str = "/api/v1/work/changes";
+pub const STREAM_TICK: Duration = Duration::from_secs(3);
+pub const STREAM_KEEPALIVE: Duration = Duration::from_secs(15);
+pub const MAX_STREAMS: usize = 256;
+pub const MAX_STREAMS_PER_CLIENT: usize = 16; // per address: several people may share one office address, and one person may have two tabs open
+
+#[derive(Default)]
+struct Streams {
+    per_client: std::sync::Mutex<HashMap<String, usize>>,
+    total: std::sync::atomic::AtomicUsize,
+}
+
+struct StreamSlot {
+    streams: Arc<Streams>,
+    client: String,
+}
+
+impl Streams {
+    fn acquire(self: &Arc<Self>, client: &str) -> Option<StreamSlot> {
+        use std::sync::atomic::Ordering::SeqCst;
+        let mut m = self.per_client.lock().unwrap_or_else(|e| e.into_inner());
+        if self.total.load(SeqCst) >= MAX_STREAMS || m.get(client).copied().unwrap_or(0) >= MAX_STREAMS_PER_CLIENT {
+            return None;
+        }
+        *m.entry(client.to_string()).or_insert(0) += 1;
+        self.total.fetch_add(1, SeqCst);
+        Some(StreamSlot { streams: self.clone(), client: client.to_string() })
+    }
+
+    #[cfg(test)]
+    fn open(&self) -> usize {
+        self.total.load(std::sync::atomic::Ordering::SeqCst)
+    }
+}
+
+impl Drop for StreamSlot {
+    fn drop(&mut self) {
+        let mut m = self.streams.per_client.lock().unwrap_or_else(|e| e.into_inner());
+        if let Some(n) = m.get_mut(&self.client) {
+            *n = n.saturating_sub(1);
+            if *n == 0 {
+                m.remove(&self.client);
+            }
+        }
+        self.streams.total.fetch_sub(1, std::sync::atomic::Ordering::SeqCst);
+    }
+}
+
+/// A response body fed from a channel: whatever the stream task sends is written to the client at once.
+struct EventBody(tokio::sync::mpsc::Receiver<Bytes>);
+
+impl hyper::body::Body for EventBody {
+    type Data = Bytes;
+    type Error = std::convert::Infallible;
+    fn poll_frame(mut self: std::pin::Pin<&mut Self>, cx: &mut std::task::Context<'_>) -> std::task::Poll<Option<Result<hyper::body::Frame<Bytes>, Self::Error>>> {
+        self.0.poll_recv(cx).map(|o| o.map(|b| Ok(hyper::body::Frame::data(b))))
+    }
+}
+
+async fn changes_call(api: Arc<Api>, headers: HashMap<String, String>, query: String, client: String, quiet: bool) -> Option<ApiResponse> {
+    let request = ApiRequest { method: "GET".into(), path: CHANGES_PATH.into(), query, headers, body: vec![], client };
+    tokio::task::spawn_blocking(move || if quiet { api.handle_quiet(request) } else { api.handle(request) }).await.ok()
+}
+
+fn signature_of(r: &ApiResponse) -> Option<String> {
+    serde_json::from_slice::<serde_json::Value>(&r.body).ok().and_then(|v| v["signature"].as_str().map(str::to_string))
+}
+
+async fn events(app: App, headers: HashMap<String, String>, query: String, client: String) -> Response<Body> {
+    // The first check is an ordinary request: a missing or bad session, a missing permission or a bad topic is answered as a normal error
+    // and no stream is opened.
+    let Some(first) = changes_call(app.api.clone(), headers.clone(), query.clone(), client.clone(), false).await else { return plain(500, "server_error") };
+    if first.status != 200 {
+        return into_response(first);
+    }
+    let Some(slot) = app.streams.acquire(&client) else { return plain(429, "too_many_streams") };
+    let (tx, rx) = tokio::sync::mpsc::channel::<Bytes>(8);
+    let _ = tx.try_send(Bytes::from_static(b"retry: 3000\nevent: hello\ndata: {}\n\n"));
+    let api = app.api.clone();
+    let mut last = signature_of(&first);
+    let mut out = Response::builder().status(200);
+    for (n, v) in &first.headers {
+        if !n.eq_ignore_ascii_case("content-type") && !n.eq_ignore_ascii_case("content-length") {
+            if let (Ok(n), Ok(v)) = (HeaderName::from_bytes(n.as_bytes()), HeaderValue::from_str(v)) {
+                out = out.header(n, v);
+            }
+        }
+    }
+    out = out.header("content-type", "text/event-stream; charset=utf-8").header("x-accel-buffering", "no");
+    tokio::spawn(async move {
+        let _slot = slot; // released when the client goes away, the session ends or the connection is cut
+        let mut quiet_for = Duration::ZERO;
+        loop {
+            tokio::time::sleep(STREAM_TICK).await;
+            if tx.is_closed() {
+                break;
+            }
+            let Some(r) = changes_call(api.clone(), headers.clone(), query.clone(), client.clone(), true).await else { continue };
+            match r.status {
+                200 => {
+                    let now = signature_of(&r);
+                    if now != last {
+                        last = now;
+                        quiet_for = Duration::ZERO;
+                        if tx.try_send(Bytes::from_static(b"event: changed\ndata: {}\n\n")).is_err() {
+                            break; // a client that does not read is dropped, not waited for
+                        }
+                    } else {
+                        quiet_for += STREAM_TICK;
+                        if quiet_for >= STREAM_KEEPALIVE {
+                            quiet_for = Duration::ZERO;
+                            if tx.try_send(Bytes::from_static(b": keep-alive\n\n")).is_err() {
+                                break;
+                            }
+                        }
+                    }
+                }
+                401 | 403 => {
+                    let _ = tx.try_send(Bytes::from_static(b"event: end\ndata: {\"reason\": \"session\"}\n\n"));
+                    break;
+                }
+                _ => {} // a passing failure (the database was busy): ask again at the next tick
+            }
+        }
+    });
+    out.body(Body::new(EventBody(rx))).unwrap_or_default()
+}
+
 async fn dispatch(State(app): State<App>, ConnectInfo(peer): ConnectInfo<SocketAddr>, req: Request) -> Response<Body> {
     let (parts, body) = req.into_parts();
     let mut headers: HashMap<String, String> = HashMap::new();
@@ -49,7 +187,11 @@ async fn dispatch(State(app): State<App>, ConnectInfo(peer): ConnectInfo<SocketA
             headers.entry(n.as_str().to_string()).or_insert_with(|| v.to_string());
         }
     }
-    let bytes: Bytes = match axum::body::to_bytes(body, MAX_BODY_BYTES + 1).await {
+    if parts.method == axum::http::Method::GET && parts.uri.path() == EVENTS_PATH {
+        let client = client_of(&peer, &headers, app.behind_proxy);
+        return events(app, headers, parts.uri.query().unwrap_or("").to_string(), client).await;
+    }
+    let bytes: Bytes = match axum::body::to_bytes(body, body_limit(parts.uri.path()) + 1).await {
         Ok(b) => b,
         Err(_) => return plain(413, "payload_too_large"),
     };
@@ -63,7 +205,7 @@ async fn dispatch(State(app): State<App>, ConnectInfo(peer): ConnectInfo<SocketA
 }
 
 pub fn router(api: Arc<Api>, behind_proxy: bool) -> Router {
-    Router::new().fallback(dispatch).with_state(App { api, behind_proxy })
+    Router::new().fallback(dispatch).with_state(App { api, behind_proxy, streams: Arc::new(Streams::default()) })
 }
 
 /// Connection limits. A client that sends its request headers slowly, or sends nothing, is cut off; the total number of open connections
@@ -128,5 +270,20 @@ mod tests {
         assert_eq!(client_of(&peer, &h, false), "10.1.1.1");
         assert_eq!(client_of(&peer, &h, true), "9.9.9.9", "a client-supplied first hop must not choose its own throttle key");
         assert_eq!(client_of(&peer, &HashMap::new(), true), "10.1.1.1");
+    }
+
+    #[test]
+    fn stream_slots_are_limited_per_address_and_in_total_and_come_back_when_dropped() {
+        let s = Arc::new(Streams::default());
+        let mine: Vec<StreamSlot> = (0..MAX_STREAMS_PER_CLIENT).map(|_| s.acquire("10.0.0.1").expect("within the per-address limit")).collect();
+        assert!(s.acquire("10.0.0.1").is_none(), "one address cannot hold more than the per-address limit");
+        assert!(s.acquire("10.0.0.2").is_some(), "another address is not affected");
+        assert_eq!(s.open(), MAX_STREAMS_PER_CLIENT);
+        drop(mine);
+        assert_eq!(s.open(), 0);
+        assert!(s.acquire("10.0.0.1").is_some(), "slots return when streams end");
+        let many: Vec<StreamSlot> = (0..MAX_STREAMS).map(|i| s.acquire(&format!("10.1.{}.{}", i / 200, i % 200)).expect("within the total")).collect();
+        assert!(s.acquire("192.168.0.1").is_none(), "the total is capped");
+        drop(many);
     }
 }

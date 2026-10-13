@@ -14,7 +14,7 @@ from fastapi.responses import RedirectResponse, Response
 
 UI_DIR = Path(__file__).resolve().parent / 'ui'
 UI_PREFIX = '/ui/'
-UI_CSP = ("default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self' data:; connect-src 'self'; "
+UI_CSP = ("default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self' data: blob:; connect-src 'self'; "
           "base-uri 'none'; form-action 'none'; frame-ancestors 'none'")
 TYPES = {'.html': 'text/html; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.css': 'text/css; charset=utf-8',
          '.svg': 'image/svg+xml', '.png': 'image/png', '.ico': 'image/x-icon'}

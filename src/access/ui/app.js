@@ -6,8 +6,8 @@
   var app = document.getElementById('app');
 
   var NAV = [
-    ['Work', [['#/inbox', 'My inbox', 'claims.decide'], ['#/claims', 'All claims', 'claims.view']]],
-    ['Queue', [['#/queue', 'Overview', 'queue.view'], ['#/submit', 'Submit claims', 'routing.manage'], ['#/config', 'Routing settings', 'routing.manage']]],
+    ['Work', [['#/inbox', 'My inbox', 'claims.decide'], ['#/claims', 'All claims', 'claims.view'], ['#/ask', 'Ask the rulebook', 'claims.view']]],
+    ['Queue', [['#/queue', 'Overview', 'queue.view'], ['#/import', 'Import from files', 'routing.manage'], ['#/submit', 'Submit claims', 'routing.manage'], ['#/config', 'Routing settings', 'routing.manage'], ['#/rules', 'Payer rules', 'routing.manage']]],
     ['Administration', [['#/health', 'System health', 'queue.view'], ['#/audit', 'Audit and traceability', 'audit.view'], ['#/users', 'Users', 'users.manage']]]
   ];
   var LEVELS = { 1: 'Viewer', 2: 'Reviewer', 3: 'Senior reviewer', 4: 'Administrator' };
@@ -113,7 +113,10 @@
     [/^#\/claims$/, 'claims.view', function (m, el) { CG.views.claims(el); }, '#/claims'],
     [/^#\/claim\/(.+)$/, 'claims.view', function (m, el) { CG.views.claim(el, decodeURIComponent(m[1])); }, '#/claims'],
     [/^#\/queue$/, 'queue.view', function (m, el) { CG.views.queue(el); }, '#/queue'],
+    [/^#\/import$/, 'routing.manage', function (m, el) { CG.views.importClaims(el); }, '#/import'],
     [/^#\/submit$/, 'routing.manage', function (m, el) { CG.views.submit(el); }, '#/submit'],
+    [/^#\/rules$/, 'routing.manage', function (m, el) { CG.views.rules(el); }, '#/rules'],
+    [/^#\/ask$/, 'claims.view', function (m, el) { CG.views.ask(el); }, '#/ask'],
     [/^#\/config$/, 'routing.manage', function (m, el) { CG.views.config(el); }, '#/config'],
     [/^#\/users$/, 'users.manage', function (m, el) { CG.views.users(el); }, '#/users'],
     [/^#\/health$/, 'queue.view', function (m, el) { CG.views.health(el); }, '#/health'],

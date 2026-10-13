@@ -38,6 +38,8 @@ fn t() -> T {
         ui: true,
         extra_probes: vec![],
         data_dir: w.dir.path().to_path_buf(),
+        import: None,
+        payer: None,
     });
     T { api, w }
 }

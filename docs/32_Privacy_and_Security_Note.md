@@ -160,3 +160,27 @@ Encryption at rest and in transit (TLS in front of the API, an encrypted databas
 WORM or INSERT-only storage for the logs and an external timestamp on the head hash; retention periods and deletion rules for claims,
 reasons and logs; a password-reset and single-sign-on story; a data-processing agreement or an on-premise model before any real claim
 reaches an AI provider; and a privacy impact assessment under the law that applies. None of these is claimed here.
+
+## 9. Addendum for the Rust build (2026-10-13): what the new surfaces add, and how they are bounded
+
+This section extends the threat model to what was added after sections 1 to 8 were written. The Rust build's own results are in `docs/39`; operations in `docs/40`; the features in `docs/45`.
+
+**Assets.** Claim data and identifiers, the uploaded document itself, the audit logs, the signing seed of the ledger, the reader's token.
+
+**Entry points and the controls on each.**
+
+| Surface | Who may use it | Main threat | Control | Evidence |
+|---|---|---|---|---|
+| `POST /api/v1/queue/import/*` | `routing.manage` (administrators), CSRF token, session | a hostile file; an oversized body; a document that talks to the system; a misread identifier reaching the rules | gate (size, real type, picture size, PDF names) before anything reads the file; 16 MB only on those two paths; the reader runs in a container with no route out, read-only, memory- and process-limited, which also resolves PDF structure and refuses active content; extraction is pattern matching, so text in a document cannot instruct anything; the result is a draft that a person compares with the page and confirms, then the ordinary submit validates it again; the security log records the file's hash, size and outcome, never its content | 9 API flow tests, 18 reader checks, 17 browser checks |
+| the document reader | the server only (bearer token, private network) | rasterizing a hostile PDF; resource exhaustion | one document at a time, page and pixel caps, timeouts; `no-new-privileges`, all capabilities dropped | `rust/tools/ocr_service_test.py` |
+| the ledger | read: `audit.view`; sign: the worker only | silent edit or truncation of the history by someone with file access | Ed25519 checkpoints and Merkle roots signed by a key the API does not hold; proofs that stand alone | 8 unit tests, 14 end-to-end checks |
+| the live-update stream | any signed-in user with `claims.decide` or `queue.view` | leaking claim data through the stream; connection exhaustion | the stream carries only `hello`, `changed`, `end`; each tick re-uses the ordinary authenticated route; per-address and total limits; a revoked session ends it | 21 black-box checks |
+| the host | the internet | a published Docker port bypassing ufw | firewall script in `DOCKER-USER` and `INPUT`, an outside port check | 15 container checks (not yet run on the server) |
+
+**Data minimization in the new paths.** An uploaded document is not stored by the server: the preview returns the draft to the browser, and only a confirmed claim reaches the queue (with a note that names the file by hash). The model that reads pictures sees the page image, which is the person's own upload, on the hospital's own machine; no claim data leaves the premises, and no cloud model is used. The language model that drafts explanations still never sees claim values.
+
+**Least privilege.** The API holds the ledger's public key only; the signing seed is in the worker's environment alone. The reader has no database or model credentials beyond the address of the vision model on its own private network. Only administrators can import.
+
+**Safety against invented content.** A field the reader cannot find stays empty and is listed as missing; an ambiguous date or number is kept as written and blocks acceptance; an identifier that is not in the catalogue is flagged as a probable misreading, never corrected; where two readers disagree the field is flagged. Measured: of 168 wrong fields in 240 synthetic documents, 167 were flagged and 1 was not (docs/45).
+
+**Known gaps.** Real hospital paper, handwriting and Arabic were not tested; hidden text inside a PDF's text layer is read like visible text; the reader container image was not built and scanned here; none of this was run on the target server; a distributed denial of service and a public certificate authority are untested.

@@ -61,7 +61,12 @@ fn num_map(v: &Value, key: &str) -> Result<BTreeMap<String, Num>, ConfigError> {
 impl Config {
     /// Loads from `<root>/rules/{rules,policies,services}.json`.
     pub fn load(root: &Path) -> Result<Config, ConfigError> {
-        let rules = read(root, "rules")?
+        Config::from_values(&read(root, "rules")?, &read(root, "policies")?, &read(root, "services")?)
+    }
+
+    /// The same, from already-parsed JSON: the rulebook as shipped, or the payer policies as an administrator has edited them.
+    pub fn from_values(rules_json: &Value, policies_json: &Value, services_json: &Value) -> Result<Config, ConfigError> {
+        let rules = rules_json
             .as_array()
             .ok_or_else(|| ConfigError::Shape("rules".into(), "not a list".into()))?
             .iter()
@@ -76,7 +81,7 @@ impl Config {
             })
             .collect::<Result<Vec<_>, ConfigError>>()?;
         let mut policies = BTreeMap::new();
-        for (id, p) in read(root, "policies")?.as_object().ok_or_else(|| ConfigError::Shape("policies".into(), "not an object".into()))? {
+        for (id, p) in policies_json.as_object().ok_or_else(|| ConfigError::Shape("policies".into(), "not an object".into()))? {
             let strings = |key: &str| -> Result<Vec<String>, ConfigError> {
                 p.get(key)
                     .and_then(Value::as_array)
@@ -108,7 +113,7 @@ impl Config {
                 },
             );
         }
-        let services = read(root, "services")?
+        let services = services_json
             .as_object()
             .ok_or_else(|| ConfigError::Shape("services".into(), "not an object".into()))?
             .keys()

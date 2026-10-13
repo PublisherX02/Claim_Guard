@@ -170,7 +170,8 @@
           { label: 'When', get: function (r) { return CG.when(r.recorded_at); } },
           { label: 'Event', get: function (r) { return CG.chip(r.event.event_type, /login_failure|lockout|forbidden|token_rejected/.test(r.event.event_type) ? 'high' : 'neutral'); } },
           { label: 'What happened', get: function (r) { return describe(r.event); } },
-          { label: 'Claim', get: function (r) { return r.event.claim_id ? h('a', { href: '#/trace/' + encodeURIComponent(r.event.claim_id), class: 'mono', text: r.event.claim_id }) : null; } }
+          { label: 'Claim', get: function (r) { return r.event.claim_id ? h('a', { href: '#/trace/' + encodeURIComponent(r.event.claim_id), class: 'mono', text: r.event.claim_id }) : null; } },
+          { label: '', get: function (r) { return h('button', { class: 'btn small', type: 'button', text: 'Proof', title: 'A signed proof that this event is in the log', onclick: function () { getProof('security', r.sequence); } }); } }
         ], d.events));
         pager.appendChild(h('button', { class: 'btn small', type: 'button', text: 'Newer', disabled: offset === 0, onclick: function () { offset = Math.max(0, offset - limit); loadRows(); } }));
         pager.appendChild(h('button', { class: 'btn small', type: 'button', text: 'Older', disabled: offset + d.events.length >= d.matched, onclick: function () { offset += limit; loadRows(); } }));
@@ -196,6 +197,39 @@
       }, CG.fail);
     } });
     if (!CG.has('audit.verify')) check.disabled = true;
+    // ---- the signed ledger: checkpoints signed with a key only the worker holds, verified here with the public key; one event can be proven on its own
+    var ledgerBox = h('div');
+    function getProof(log, seq) {
+      CG.api('GET', '/ledger/proof?log=' + encodeURIComponent(log) + '&sequence=' + encodeURIComponent(seq)).then(function (p) {
+        var a = h('a', { href: URL.createObjectURL(new Blob([JSON.stringify(p, null, 1)], { type: 'application/json' })), download: 'ledger-proof-' + log + '-' + seq + '.json' });
+        document.body.appendChild(a); a.click(); a.remove();
+        CG.toast('Proof saved. Anyone can check it with the public key: cg ledger verify-proof <file> --public <key>.', 'good');
+      }, function (e) { CG.toast(e.status === 404 ? 'No signed checkpoint covers that event yet (checkpoints are signed every few minutes).' : (e.message || 'No proof.'), 'warn'); });
+    }
+    function loadLedger() {
+      CG.api('GET', '/ledger').then(function (r) {
+        CG.clear(ledgerBox);
+        if (!r.configured) {
+          ledgerBox.appendChild(h('div', { class: 'card' }, h('h3', { text: 'Signed ledger' }), h('p', { class: 'muted', text: 'Not set up (optional). When the worker has a signing key it signs a checkpoint over each log every few minutes; this page then verifies them with the public key and can prove a single event without showing any other.' })));
+          return;
+        }
+        var logs = Object.keys(r.logs).sort();
+        var which = h('select', { 'aria-label': 'Log' }, logs.map(function (n) { return h('option', { value: n, text: n + ' log' }); }));
+        var seq = h('input', { type: 'text', inputmode: 'numeric', placeholder: 'event number (#)', maxlength: '10', 'aria-label': 'Event number' });
+        var table = CG.table([{ label: 'Log', get: function (n) { return n; } }, { label: 'Checkpoints', num: true, get: function (n) { return r.logs[n].checkpoints; } },
+          { label: 'Newest covers', num: true, get: function (n) { return r.logs[n].covered_rows + ' of ' + r.logs[n].log_rows + ' events'; } },
+          { label: 'Signed at', get: function (n) { return r.logs[n].latest ? r.logs[n].latest.time : null; } },
+          { label: 'Result', get: function (n) { return r.logs[n].ok ? CG.chip('verified', 'green') : CG.chip('FAILED', 'high'); } },
+          { label: 'Problems', get: function (n) { return r.logs[n].problems.length ? r.logs[n].problems.join('; ') : null; } }], logs);
+        ledgerBox.appendChild(h('div', { class: 'card stack' },
+          h('h3', { text: 'Signed ledger' }),
+          h('div', { class: 'notice ' + (r.ok ? 'good' : 'bad') }, h('b', { text: r.ok ? 'Every checkpoint verifies. ' : 'A checkpoint does not match its log. ' }), 'Key ' + r.key_id + '. The checkpoints are signed by the worker with a key this server does not hold; this check uses only the public key.'),
+          table,
+          h('p', { class: 'muted small', text: 'Public key (keep a copy offline; give it to an auditor): ' + r.public_key }),
+          h('div', { class: 'row' }, h('span', { class: 'muted small', text: 'Prove one event:' }), which, seq,
+            h('button', { class: 'btn small', type: 'button', text: 'Get a proof', onclick: function () { if (/^[0-9]+$/.test(seq.value.trim())) getProof(which.value, seq.value.trim()); else CG.toast('Type the event number (the # column).', 'warn'); } }))));
+      }, function () { CG.clear(ledgerBox); });
+    }
     var traceInput = h('input', { type: 'text', placeholder: 'Claim id, e.g. CG-1234ABCD', maxlength: '80', 'aria-label': 'Claim id to trace' });
     function go() { if (traceInput.value.trim()) location.hash = '#/trace/' + encodeURIComponent(traceInput.value.trim()); }
     traceInput.addEventListener('keydown', function (e) { if (e.key === 'Enter') go(); });
@@ -204,6 +238,7 @@
 
     root.appendChild(h('div', { class: 'row between' }, h('h1', { text: 'Audit' }), check));
     root.appendChild(verdict);
+    root.appendChild(ledgerBox);
     root.appendChild(summaryBox);
     root.appendChild(h('div', { class: 'card' }, h('h3', { text: 'Follow one claim from intake to decision' }),
       h('div', { class: 'row' }, h('div', { class: 'grow' }, traceInput), h('button', { class: 'btn primary', type: 'button', text: 'Show its trace', onclick: go }))));
@@ -212,6 +247,7 @@
       h('button', { class: 'btn', type: 'button', text: 'Apply', onclick: function () { offset = 0; loadRows(); } }), h('button', { class: 'btn', type: 'button', text: 'Download CSV', onclick: exportCsv })));
     root.appendChild(h('div', { class: 'card' }, table, pager));
     loadSummary();
+    loadLedger();
     loadRows();
   };
 

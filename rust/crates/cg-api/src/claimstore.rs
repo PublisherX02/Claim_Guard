@@ -155,7 +155,7 @@ pub fn review_state(results: &Value, log_path: &Path) -> BTreeMap<(String, Strin
 // ---- the console's static files ---------------------------------------------------------------------------------------------------
 
 pub const UI_PREFIX: &str = "/ui/";
-pub const UI_CSP: &str = "default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self' data:; connect-src 'self'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'";
+pub const UI_CSP: &str = "default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self' data: blob:; connect-src 'self'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'";
 
 /// {name: (bytes, content type)}: a fixed table, so a request can only ever name a file in it (there is no path to join).
 pub fn ui_files() -> BTreeMap<&'static str, (&'static [u8], &'static str)> {
@@ -167,6 +167,9 @@ pub fn ui_files() -> BTreeMap<&'static str, (&'static [u8], &'static str)> {
         ("views-work.js", (&include_bytes!("../../../../src/access/ui/views-work.js")[..], js)),
         ("views-admin.js", (&include_bytes!("../../../../src/access/ui/views-admin.js")[..], js)),
         ("views-ops.js", (&include_bytes!("../../../../src/access/ui/views-ops.js")[..], js)),
+        ("views-import.js", (&include_bytes!("../../../../src/access/ui/views-import.js")[..], js)),
+        ("views-rules.js", (&include_bytes!("../../../../src/access/ui/views-rules.js")[..], js)),
+        ("views-ask.js", (&include_bytes!("../../../../src/access/ui/views-ask.js")[..], js)),
         ("style.css", (&include_bytes!("../../../../src/access/ui/style.css")[..], "text/css; charset=utf-8")),
         ("icon.svg", (&include_bytes!("../../../../src/access/ui/icon.svg")[..], "image/svg+xml")),
         ("vendor/qrcode.js", (&include_bytes!("../../../../src/access/ui/vendor/qrcode.js")[..], js)),

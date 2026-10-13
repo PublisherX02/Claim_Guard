@@ -84,6 +84,7 @@
     invalid_credentials: 'Sign-in failed. Check the badge, password and the current code.', too_many_attempts: 'Too many attempts. Wait and try again later.',
     conflict: 'Someone changed this first, or your claim lease ran out. Reload and look again.', not_found: 'That was not found.',
     invalid_request: 'The server refused that input.', unavailable: 'The database is not reachable right now. Try again in a moment.',
+    refused: 'The file was refused.', busy: 'The reader is busy with other documents. Try again in a moment.', too_many_records: 'The file holds more records than can be read at once.', document_reader_unavailable: 'The document reader could not be reached.', payload_too_large: 'The file is larger than the 16 MB limit.',
     decision_rejected: 'That decision was refused.', wrong_code: 'That authenticator code is wrong, or was already used. Wait for the next code.', cross_site: 'That request came from another site and was refused.', password_change_required: 'You must set a new password first.', not_implemented: 'This is not built yet.'
   };
   CG.api = function (method, path, body) {
@@ -91,19 +92,26 @@
     var init = { method: method, headers: headers, credentials: 'same-origin' };
     if (body !== undefined) { headers['Content-Type'] = 'application/json'; init.body = JSON.stringify(body); }
     if (method !== 'GET') headers['X-CSRF-Token'] = CG.cookie('cg_csrf');
-    return fetch('/api/v1' + path, init).then(function (res) {
-      return res.text().then(function (text) {
-        var data = null;
-        try { data = text ? JSON.parse(text) : null; } catch (e) { data = null; }
-        if (res.ok) return data;
-        var code = data && data.error ? data.error : 'http_' + res.status;
-        var err = new Error(CG.ERRORS[code] || ('Request failed (' + code + ').'));
-        err.status = res.status; err.code = code; err.data = data;
-        if (res.status === 401 && path.indexOf('/auth/') !== 0) { CG.state.me = null; CG.stopTimers(); location.hash = '#/login'; }
-        if (code === 'password_change_required') location.hash = '#/password';
-        throw err;
-      });
-    }, function () { var err = new Error('Cannot reach the server.'); err.code = 'network'; throw err; });
+    return fetch('/api/v1' + path, init).then(function (res) { return settle(res, path); }, unreachable);
+  };
+  function settle(res, path) {
+    return res.text().then(function (text) {
+      var data = null;
+      try { data = text ? JSON.parse(text) : null; } catch (e) { data = null; }
+      if (res.ok) return data;
+      var code = data && data.error ? data.error : 'http_' + res.status;
+      var err = new Error(CG.ERRORS[code] || ('Request failed (' + code + ').'));
+      err.status = res.status; err.code = code; err.data = data;
+      if (res.status === 401 && path.indexOf('/auth/') !== 0) { CG.state.me = null; CG.stopTimers(); location.hash = '#/login'; }
+      if (code === 'password_change_required') location.hash = '#/password';
+      throw err;
+    });
+  }
+  function unreachable() { var err = new Error('Cannot reach the server.'); err.code = 'network'; throw err; }
+  // one file's raw bytes (a picture, a PDF, a JSON or FHIR file); the server reads the kind from the bytes, not from the name
+  CG.upload = function (path, name, buffer, ctype) {
+    var headers = { 'Accept': 'application/json', 'Content-Type': ctype || 'application/octet-stream', 'X-File-Name': String(name).slice(0, 80), 'X-CSRF-Token': CG.cookie('cg_csrf') };
+    return fetch('/api/v1' + path, { method: 'POST', headers: headers, credentials: 'same-origin', body: buffer }).then(function (res) { return settle(res, path); }, unreachable);
   };
 
   // ---- feedback
@@ -118,7 +126,22 @@
 
   // ---- timers owned by the current page are cleared on every navigation
   CG.every = function (ms, fn) { CG.state.timers.push(setInterval(fn, ms)); };
-  CG.stopTimers = function () { CG.state.timers.forEach(clearInterval); CG.state.timers = []; };
+  CG.stopTimers = function () {
+    CG.state.timers.forEach(clearInterval); CG.state.timers = [];
+    (CG.state.streams || []).forEach(function (s) { s.close(); }); CG.state.streams = [];
+  };
+
+  // ---- live updates: the server only says "changed" (no claim data); the page then re-reads through the usual routes. The timers stay as
+  // the fallback, so a proxy that buffers the stream, or a browser without EventSource, only makes the page slower to notice, never wrong.
+  CG.live = function (topics, onChange) {
+    if (!window.EventSource) return;
+    var es = new EventSource('/api/v1/work/events?topics=' + encodeURIComponent(topics)), pending = null, seenHello = false;
+    function poke() { if (!pending) pending = setTimeout(function () { pending = null; onChange(); }, 300); }
+    es.addEventListener('hello', function () { if (seenHello) poke(); seenHello = true; });   // after a reconnect, read once: changes during the gap were not announced
+    es.addEventListener('changed', poke);
+    es.addEventListener('end', function () { es.close(); });
+    (CG.state.streams = CG.state.streams || []).push({ close: function () { es.close(); if (pending) clearTimeout(pending); } });
+  };
 
   CG.has = function (perm) { return !!(CG.state.me && CG.state.me.permissions.indexOf(perm) >= 0); };
 

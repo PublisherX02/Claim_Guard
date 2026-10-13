@@ -5,6 +5,7 @@ edition.workspace = true
 
 [dependencies]
 cg-core = { path = "../cg-core" }
+cg-audit = { path = "../cg-audit" }
 serde.workspace = true
 serde_json.workspace = true
 bigdecimal.workspace = true
@@ -15,3 +16,6 @@ hex.workspace = true
 thiserror.workspace = true
 yara-x = "1.21"
 fancy-regex = "0.14"
+
+[dev-dependencies]
+tempfile = "3"

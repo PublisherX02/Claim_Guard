@@ -64,12 +64,20 @@ pub fn engine_fn(engine: Arc<cg_engine::Engine>) -> EngineFn {
     })
 }
 
+pub type HashFn = Arc<dyn Fn() -> String + Send + Sync>;
+
+/// A hash that never changes (tests, and a server that does not offer rule editing).
+pub fn fixed_hash(h: String) -> HashFn {
+    Arc::new(move || h.clone())
+}
+
 pub struct Intake {
     pub store: Arc<dyn QueueStore>,
     pub engine: EngineFn,
     pub log: Arc<SecurityLog>,
     pub clock: Clock,
-    pub rule_pack_hash: String,
+    /// The hash of the rulebook in force NOW (the pack, and the payer policies when an administrator has edited them): a closure, because it changes at run time.
+    pub rule_pack_hash: HashFn,
     pub engine_version: String,
     /// The advisory (extension) results for a claim; None stores `[]`. Never allowed to stop a claim from being triaged.
     pub advisory: Option<AdvisoryFn>,
@@ -103,7 +111,7 @@ impl Intake {
         for version in (1..=latest["version"].as_i64().unwrap_or(0)).rev() {
             let doc = if Some(version) == latest["version"].as_i64() { Some(latest.clone()) } else { self.store.get(claim_id, Some(version))? };
             if let Some(d) = doc {
-                if d["input_hash"] == ihash && d["receipt"]["rule_pack_hash"] == self.rule_pack_hash.as_str() {
+                if d["input_hash"] == ihash && d["receipt"]["rule_pack_hash"] == (self.rule_pack_hash)().as_str() {
                     return Ok(Some(d["receipt"].clone()));
                 }
             }
@@ -133,7 +141,7 @@ impl Intake {
             }
             let version = self.store.get(&claim_id, None).map_err(fail)?.map_or(1, |l| l["version"].as_i64().unwrap_or(0) + 1);
             let results = (self.engine)(claim).map_err(IntakeError::Failed)?;
-            let receipt = triage::make_receipt(claim, &results, &cfg, &self.rule_pack_hash, &self.engine_version, (self.clock)());
+            let receipt = triage::make_receipt(claim, &results, &cfg, &(self.rule_pack_hash)(), &self.engine_version, (self.clock)());
             let doc = json!({"claim_id": claim_id, "version": version, "input_hash": ihash, "claim": claim, "results": results, "receipt": receipt, "advisory": self.advisory_for(claim)});
             if self.store.put_triaged(&doc).map_err(fail)? {
                 // shadow mode must never affect a claim
