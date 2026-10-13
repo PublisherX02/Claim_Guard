@@ -1,0 +1,35 @@
+# 45 | Importing claims from files, the signed ledger, and live updates
+
+Three features added after the Rust port: claims that arrive as a PDF, a photograph, FHIR or CSV; a cryptographic ledger over the audit logs; and a live-update stream for the console. Each section says what it does, how it was tested, and what it does not do.
+
+## 1. Importing claims from files
+
+**Why.** Claims do not always arrive as JSONL. The system's job is to convert whatever arrives into the one claim envelope, never to decide on the converted claim by itself.
+
+**Path.** (1) *Gate* in the server (`cg-ingest/gate.rs`): 16 MB cap, the type read from the bytes (PDF, PNG, JPEG only), picture size from the header (40-megapixel cap, a decompression-bomb guard), a plain-byte scan of PDFs for active-content names. The server never parses a PDF or decodes a picture. (2) *Reader* (`deploy/ocr/service.py`, its own container on a network with no route out, read-only, memory- and process-limited): resolves the PDF's structure and refuses JavaScript, launch actions, open actions, embedded files, XFA, rich media and encryption; takes the text layer with PDFium when the page has one; otherwise renders the page and reads it with Tesseract (word confidence) and, when configured, a vision model as a **second independent reader**. (3) *Extraction* (`cg-ingest/extract.rs`): labelled fields, table rows recognised by what a row looks like, dates and numbers read only when unambiguous (an ambiguous `10/09/2026` is kept as written and the draft cannot be accepted until a person decides), a catalogue check on every identifier, arithmetic checks, per-field evidence and confidence, and a cross-check of the two readers. The result is a **draft**, not a claim. (4) The console page *Import from files* shows the page beside editable fields; empty or doubtful fields are marked with the reason; the draft is checked by the server's transport contract; a person ticks that they compared every field with the page; only then does it go through the ordinary submit. JSON, JSONL, FHIR and the five CSV tables use the same page as a record-by-record preview.
+
+**Which vision model.** `baidu/Unlimited-OCR` (3.3B parameters, 0.5B active, MIT licence; OmniDocBench v1.5 overall 93.2). It reads fields almost perfectly (3 to 6 s a page on the development laptop) but, through Ollama, returns table cells fused together and can fall into a repetition loop on its plain-text prompt, so it is used with the layout prompt, a loop guard, and Tesseract supplying the table rows; the fused text verifies them. Serve it through llama.cpp or Ollama from the GGUF, or vLLM; do not use `trust_remote_code` from the live hub on the server. The Ollama build tested is a third-party conversion: convert the official weights yourself and record hashes before production.
+
+**Evidence** (`rust/tools/doc_eval.py` on documents from `make_docs.py`: 240 documents, two layouts, four conditions, answer key known; about 40 fields each):
+
+| Reader | Fields right | Documents fully right | Wrong fields | Flagged | Silent errors |
+|---|---|---|---|---|---|
+| PDF text layer (digital) | 100% | 100% (60/60) | 0 | - | 0 |
+| Tesseract alone | 94.6% | 50.4% | 353 | 312 | 41 |
+| Tesseract alone, small pages upscaled | 95.5% | 57.9% | 293 | 237 | 56 |
+| two readers, cross-checked | 96.8% | 59.6% | 208 | 205 | 3 |
+| two readers, upscaled (the default) | 97.4% | 66.7% | 168 | 167 | 1 |
+
+A *silent* error is a wrong field nothing flagged (not empty, no warning, readers agree, confidence not low). Per condition for the default: scan 98.9%, image-only PDF 98.7%, phone-style photo 88.1% (12% of photos perfect). The evaluation found two bugs that were fixed: a claim line with an empty date cell was dropped, and a two-number row must be flagged, not guessed. Other tests: 41 extractor/gate/reader unit tests, 9 API flow tests with a stub reader on a real socket, 18 black-box checks on the reader (hostile PDFs, bad types, oversize), and an end-to-end run in real Chrome (`rust/tools/import_ui_test.py`).
+
+**Not done or not known.** Real hospital paper, handwriting, stamps and Arabic are untested (the container carries the Arabic Tesseract model; the vision model's Arabic is unmeasured). Hidden text in a PDF's text layer is read like visible text, which is why a person compares the page. Photos are poor enough that nothing may be queued unseen. The colleague's repository (an LLM agent on a cloud model) was reviewed and not adopted; reasons are in the project notes.
+
+**Deploy.** `bash deploy/rust/install.sh <site> internal ai docs` adds the reader container; Caddy allows 17 MB only on the two import paths.
+
+## 2. The signed ledger
+
+The audit logs were hash chains with an HMAC anchor (checkable only with the secret, and blind to rows cut off the end). A **checkpoint** closes both gaps: the worker, the only holder of an Ed25519 seed, signs the log name, row count, head hash, an RFC 6962 Merkle root and the time, every few minutes. The API holds only the public key. Anyone with the public key can check that the log still holds the history each checkpoint vouches for (a rewritten row, even with the whole chain recomputed, changes the Merkle root; a cut log has fewer rows than a checkpoint said; a forged checkpoint fails its signature; checkpoints going backwards are refused), and can check a single event's **inclusion proof** with nothing but that proof and the key, without seeing any other event. `cg ledger keygen|pubkey|checkpoint|verify|prove|verify-proof`; `GET /api/v1/ledger` and `/ledger/proof`; a health probe; a card with a Proof button on the audit page. Tests: 8 unit tests (every leaf of every tree from 1 to 40 leaves; cut, rewritten-with-repaired-chain, forged, altered and reordered checkpoints) and 14 end-to-end checks (`rust/tools/ledger_test.py`). **Limits:** rows removed after the newest surviving checkpoint are covered by the anchor and the mirror, not the ledger; reading a whole log needs the data key because logs are encrypted on disk (a proof needs no secret); someone holding both the seed and the log files could re-sign.
+
+## 3. Live updates
+
+`GET /api/v1/work/events?topics=inbox|queue` is a server-sent-event stream carrying only `hello`, `changed` and `end`, never claim data. Per connection the server asks the ordinary authenticated route `/work/changes` (the caller's own cookie) for a fingerprint of what the open page shows every 3 seconds and says `changed` when it differs; the page then re-reads through the normal routes, so permissions and masking stay in one place. A revoked session ends the stream. Limits: 16 streams per address, 256 in total; the proxy neither compresses nor buffers it. Tested with 21 black-box checks, in Chrome (a change noticed in 1.7 s against the 20 s poll) and through the real Caddy image (`rust/tools/sse_test.py`, `sse_proxy_test.py`).
