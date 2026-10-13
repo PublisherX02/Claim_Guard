@@ -166,8 +166,9 @@ services:
     environment:
       OLLAMA_NUM_PARALLEL: ${CG_WORKER_CONCURRENCY:-4}   # parallel slots, the same number as the worker's pool
       OLLAMA_MAX_QUEUE: 64
-    # GPU: uncomment on a host with the NVIDIA container toolkit
-    # deploy: { resources: { reservations: { devices: [{ driver: nvidia, count: all, capabilities: [gpu] }] } } }
+      OLLAMA_MAX_LOADED_MODELS: 2   # the explanation model and the vision reader sit in the card together (about 3.3 GB + 3 GB of 10 GB)
+      OLLAMA_KEEP_ALIVE: 24h        # never unload: a cold load costs more than the memory
+    # GPU: install.sh adds compose.gpu.yml when the host has the NVIDIA container toolkit (by hand: -f deploy/rust/compose.gpu.yml)
 
 # The proxy is the only thing on the edge with the outside world; the database, the cache and the model are on a network with no route out
 # (internal), so a compromised proxy cannot reach MongoDB and a compromised database cannot call out.
