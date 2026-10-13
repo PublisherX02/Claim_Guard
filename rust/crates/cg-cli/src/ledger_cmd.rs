@@ -6,7 +6,9 @@
 //!   cg ledger verify <log> [--label L] [--public K]   check the log against every checkpoint; exit 0 when all verify
 //!   cg ledger prove <log> <sequence> [--label L] [--public K] [--output file]   a proof that one event was in the log, checkable without the log
 //!   cg ledger verify-proof <proof.json> [--public K]  check a proof from its own contents and the public key
-//! The public key is `--public`, or LEDGER_PUBLIC_KEY. Nothing here needs a secret except `checkpoint`.
+//! The public key is `--public`, or LEDGER_PUBLIC_KEY. Nothing here needs a secret except `checkpoint`, with one exception that is a property of the logs and not
+//! of the ledger: the logs are encrypted on disk, so reading a whole log (`verify`, `prove`) needs the same DATA_KEY / FERNET_KEY the server uses. A proof, once made,
+//! carries no secret and no other event: `verify-proof` needs only the public key.
 
 use cg_audit::ledger;
 use serde_json::Value;
@@ -23,6 +25,14 @@ fn label_of(args: &[String], log: &str) -> String {
 fn public(args: &[String]) -> Result<ledger::VerifyingKey, String> {
     let text = arg(args, "--public").or_else(|| std::env::var("LEDGER_PUBLIC_KEY").ok()).filter(|s| !s.trim().is_empty()).ok_or("give the public key with --public or LEDGER_PUBLIC_KEY")?;
     ledger::public_key_from(&text)
+}
+
+/// Lets this process read encrypted audit logs, with the same variables the server uses (DATA_KEY or FERNET_KEY, DATA_KEY_PREVIOUS, CG_ENCRYPT_AT_REST).
+fn unlock_logs() {
+    let env: std::collections::HashMap<String, String> = std::env::vars().collect();
+    if let Some(key) = env.get("DATA_KEY").or_else(|| env.get("FERNET_KEY")).filter(|k| !k.trim().is_empty()) {
+        let _ = crate::boot::set_audit_encryption(&env, key);
+    }
 }
 
 fn positional(args: &[String]) -> Vec<&String> {
@@ -45,6 +55,9 @@ pub fn run(args: &[String]) -> i32 {
         2
     };
     let pos = positional(args.get(1..).unwrap_or(&[]));
+    if matches!(args.first().map(String::as_str), Some("checkpoint" | "verify" | "prove")) {
+        unlock_logs();
+    }
     match args.first().map(String::as_str) {
         Some("keygen") => {
             let (seed, public) = ledger::keygen();
