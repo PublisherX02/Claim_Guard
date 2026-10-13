@@ -123,6 +123,7 @@ pub struct Api {
     audit_status: Arc<AuditStatus>,
     import: Option<import::ImportParts>,
     doc_slots: import::DocumentSlots,
+    ledger: Arc<ops::LedgerView>,
     ui_files: BTreeMap<&'static str, (&'static [u8], &'static str)>,
 }
 
@@ -291,7 +292,8 @@ impl Api {
             }),
             p.clock.clone(),
         ));
-        let mut probes = ops::access_probes(p.access.clone(), p.securitylog.clone(), audit_status.clone(), p.data_dir.clone(), metrics.clone(), p.clock.clone());
+        let ledger = Arc::new(ops::LedgerView::new(p.data_dir.clone(), vec![("security".into(), p.securitylog.path().to_path_buf()), ("review".into(), p.review_log.path().to_path_buf())]));
+        let mut probes = ops::access_probes(p.access.clone(), p.securitylog.clone(), audit_status.clone(), p.data_dir.clone(), metrics.clone(), p.clock.clone(), ledger.clone());
         probes.extend(p.extra_probes);
         Api {
             access: p.access,
@@ -308,6 +310,7 @@ impl Api {
             audit_status,
             import: p.import,
             doc_slots: import::DocumentSlots::default(),
+            ledger,
             ui_files: claimstore::ui_files(),
         }
     }
@@ -479,6 +482,8 @@ impl Api {
             ["claims", id, "findings", rule, "decision"] => if m == "POST" { self.decide_direct(req, id, rule) } else { Err(wrong()) },
             ["audit", "events"] => if m == "GET" { self.audit_events(req) } else { Err(wrong()) },
             ["audit", "verify"] => if m == "GET" { self.audit_verify(req) } else { Err(wrong()) },
+            ["ledger"] => if m == "GET" { self.ledger_status(req) } else { Err(wrong()) },
+            ["ledger", "proof"] => if m == "GET" { self.ledger_proof(req) } else { Err(wrong()) },
             ["ops", "audit", "summary"] => if m == "GET" { self.audit_overview(req) } else { Err(wrong()) },
             ["ops", "health"] => if m == "GET" { self.health(req) } else { Err(wrong()) },
             ["ops", "trace", id] => if m == "GET" { self.trace(req, id) } else { Err(wrong()) },
@@ -707,6 +712,27 @@ impl Api {
         let ok = r["security"]["ok"] == true && r["review"]["ok"] == true;
         self.access.record("audit_verify", json!({"badge_id": p.badge(), "ok": ok})).map_err(|e| self.serr(e.into(), req, &p))?;
         Ok(ApiResponse::json(200, &json!({"security": r["security"], "review": r["review"]})))
+    }
+
+    /// The signed ledger: per log, how many checkpoints, what the newest covers, and whether every one verifies with the public key.
+    fn ledger_status(&self, req: &ApiRequest) -> R {
+        let p = self.need(req, "audit.view")?;
+        self.access.record("audit_read", json!({"badge_id": p.badge()})).map_err(|e| self.serr(e.into(), req, &p))?;
+        Ok(ApiResponse::json(200, &self.ledger.get(0.0)))
+    }
+
+    /// A proof that one event was in a log at a signed checkpoint, to be checked elsewhere with the public key alone (`cg ledger verify-proof`).
+    fn ledger_proof(&self, req: &ApiRequest) -> R {
+        let p = self.need(req, "audit.view")?;
+        let q = query(req);
+        let label = q.get("log").map(String::as_str).unwrap_or("");
+        let seq = q_int(&q, "sequence", 0, 1, 1_000_000_000)? as u64;
+        let (Some(path), Some(pk)) = (self.ledger.log_path(label), self.ledger.public_key()) else { return Err(ApiError::new(404, "not_found")) };
+        let Some(cp) = cg_audit::ledger::latest_valid_checkpoint(path, label, &pk).filter(|c| c.count >= seq) else {
+            return Err(ApiError::new(404, "not_found").with("detail", json!("no signed checkpoint covers that event yet")));
+        };
+        self.access.record("audit_read", json!({"badge_id": p.badge()})).map_err(|e| self.serr(e.into(), req, &p))?;
+        cg_audit::ledger::prove(path, seq, &cp).map(|v| ApiResponse::json(200, &v)).map_err(|e| ApiError::new(409, "conflict").with("detail", json!(e)))
     }
 
     fn audit_overview(&self, req: &ApiRequest) -> R {

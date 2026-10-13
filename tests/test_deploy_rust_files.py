@@ -21,7 +21,7 @@ class RustCompose(unittest.TestCase):
         cls.svc = services(cls.text)
 
     def test_the_same_services_as_the_python_stack(self):
-        self.assertEqual(set(self.svc), {'proxy', 'api', 'worker', 'mongo', 'redis', 'ollama'})
+        self.assertEqual(set(self.svc), {'proxy', 'api', 'worker', 'mongo', 'redis', 'ollama', 'reader'})
 
     def test_only_the_proxy_publishes_ports(self):
         for name, block in self.svc.items():
@@ -57,7 +57,10 @@ class RustCompose(unittest.TestCase):
         nets = self.text.split('\nnetworks:\n', 1)[1].split('\nvolumes:\n', 1)[0]
         self.assertRegex(nets, r'data:\s*\n\s+internal: true')
         self.assertIn('networks: [edge]', self.svc['proxy'])
-        self.assertIn('networks: [edge, data]', self.svc['api'])
+        self.assertIn('networks: [edge, data, reader]', self.svc['api'])
+        self.assertRegex(nets, r'reader:\s*\n\s+internal: true')      # the document reader has no route out either
+        self.assertIn('networks: [reader]', self.svc['reader'])
+        self.assertNotRegex(self.svc['reader'], r'networks:[^\n]*(edge|egress|data)')
         self.assertIn('networks: [data]', self.svc['mongo'])
         self.assertIn('networks: [data]', self.svc['redis'])
         self.assertNotRegex(self.svc['proxy'], r'networks:[^\n]*data')
@@ -125,12 +128,12 @@ class RustSupplyChain(unittest.TestCase):
     def test_every_third_party_image_is_pinned_by_digest(self):
         compose = (DEPLOY / 'compose.yml').read_text(encoding='utf-8')
         for line in re.findall(r'(?m)^\s+image: (\S+)', compose):
-            if line.startswith('claimguard-rs'):
-                continue                                   # our own image, built from the Dockerfile
+            if line.startswith(('claimguard-rs', 'claimguard-reader')):
+                continue                                   # our own images, built from the Dockerfiles
             self.assertRegex(line, self.PIN, line)
-        dockerfile = (DEPLOY / 'Dockerfile').read_text(encoding='utf-8')
-        for line in re.findall(r'(?m)^FROM (\S+)', dockerfile):
-            self.assertRegex(line, self.PIN, line)
+        for df in (DEPLOY / 'Dockerfile', DEPLOY.parent / 'ocr' / 'Dockerfile'):
+            for line in re.findall(r'(?m)^FROM (\S+)', df.read_text(encoding='utf-8')):
+                self.assertRegex(line, self.PIN, line)
         for name in ('backup.sh', 'restore.sh'):
             for image in re.findall(r'docker run [^\n]*? (alpine\S*) sh -c', (DEPLOY / name).read_text(encoding='utf-8')):
                 self.assertRegex(image, self.PIN, (name, image))

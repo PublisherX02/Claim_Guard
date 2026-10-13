@@ -14,6 +14,7 @@ use std::path::PathBuf;
 
 mod boot;
 mod ingest_cmd;
+mod ledger_cmd;
 mod selfcheck;
 mod serve;
 mod tools;
@@ -29,6 +30,7 @@ fn main() {
         Some("audit-verify") => audit_verify(&args),
         Some("audit-append") => audit_append(&args),
         Some("xcheck") => xcheck(),
+        Some("ledger") => std::process::exit(ledger_cmd::run(&args[2..])),
         Some("ingest") => std::process::exit(ingest_cmd::ingest(&args[2..])),
         Some("ingest-doc") => std::process::exit(ingest_cmd::ingest_doc(&args[2..])),
         Some("extensions") => extensions(&args),

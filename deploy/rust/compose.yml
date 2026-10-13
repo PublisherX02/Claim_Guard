@@ -34,6 +34,14 @@ x-app: &app
     AUDIT_MIRROR_DIR: ${AUDIT_MIRROR_DIR:-/mirror}
     TSA_URL: ${TSA_URL:-}
     TSA_CA_FILE: ${TSA_CA_FILE:-}
+    # signed ledger (docs/45): the API and the worker know the PUBLIC key; the signing seed is given to the worker only (below)
+    LEDGER_PUBLIC_KEY: ${LEDGER_PUBLIC_KEY:-}
+    LEDGER_CHECKPOINT_SECONDS: ${LEDGER_CHECKPOINT_SECONDS:-300}
+    # importing claims from documents: the reader's address (empty: PDFs and pictures are refused; JSON, FHIR and CSV still work)
+    DOCUMENT_READER_URL: ${DOCUMENT_READER_URL:-}
+    DOCUMENT_READER_TOKEN: ${DOCUMENT_READER_TOKEN:-}
+    DOCUMENT_READER_ENGINE: ${DOCUMENT_READER_ENGINE:-auto}
+    DOCUMENT_READER_LANGS: ${DOCUMENT_READER_LANGS:-eng}
   volumes:
     - claimguard_data:/data
   depends_on:
@@ -65,12 +73,15 @@ services:
 
   api:
     <<: *app
-    networks: [edge, data]
+    networks: [edge, data, reader]
     command: ["cg", "serve", "--host", "0.0.0.0", "--port", "8443", "--queue", "--behind-proxy"]
     expose: ["8443"]
 
   worker:
     <<: *app
+    environment:
+      <<: *appenv
+      LEDGER_SIGNING_KEY: ${LEDGER_SIGNING_KEY:-}   # the signing seed: this process only, never the API
     networks: [data, egress]       # egress only for the optional external timestamp authority (TSA_URL)
     # The relay, deal, expire and reconcile loops. Exactly one instance: the loops must not be duplicated.
     command: ["cg", "worker"]
@@ -124,11 +135,31 @@ services:
       timeout: 5s
       retries: 6
 
+  reader:                       # optional, the document reader (PDF pages, scans, photos); start with --profile documents
+    profiles: ["documents"]
+    build: { context: ../.., dockerfile: deploy/ocr/Dockerfile }
+    image: claimguard-reader:latest
+    restart: unless-stopped
+    environment:
+      OCR_TOKEN: ${DOCUMENT_READER_TOKEN:?set DOCUMENT_READER_TOKEN in .env}
+      OCR_ENGINE: ${DOCUMENT_READER_ENGINE:-auto}
+      OCR_LANGS: ${DOCUMENT_READER_LANGS:-eng}
+      VLM_BASE_URL: ${VLM_BASE_URL:-}        # an OpenAI-compatible vision model on the private network, e.g. http://ollama:11434/v1
+      VLM_MODEL: ${VLM_MODEL:-}              # e.g. a build of baidu/Unlimited-OCR (docs/45); empty: Tesseract only
+    networks: [reader]                       # a network with no route out: shared only with the API and the model server
+    security_opt: ["no-new-privileges:true"]
+    cap_drop: [ALL]
+    read_only: true
+    tmpfs: [/tmp]
+    mem_limit: 2g
+    pids_limit: 128
+    cpus: 2.0
+
   ollama:                       # optional, on-premises model for the explanation drafts; start with --profile ai
     profiles: ["ai"]
     image: ollama/ollama:latest@sha256:b86366bb528bbf7f1424435d165028497a5b69bf6ddb4fa5a87102e2b79f44fb
     restart: unless-stopped
-    networks: [data]
+    networks: [data, reader]
     volumes: [ollama_data:/root/.ollama]
     mem_limit: 5g              # host memory only; the model itself sits in the graphics card's memory
     pids_limit: 512
@@ -143,6 +174,8 @@ services:
 networks:
   edge: {}
   data:
+    internal: true
+  reader:
     internal: true
   egress: {}
 

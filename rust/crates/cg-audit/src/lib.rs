@@ -7,6 +7,7 @@
 
 pub mod atrest;
 pub mod canonical;
+pub mod ledger;
 pub mod mirror;
 
 use hmac::{Hmac, Mac};

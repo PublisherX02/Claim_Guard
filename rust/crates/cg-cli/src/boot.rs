@@ -27,7 +27,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
-const SECRET_NAMES: [&str; 4] = ["JWT_SECRET", "AUDIT_ANCHOR_KEY", "PII_KEY", "FERNET_KEY"];
+const SECRET_NAMES: [&str; 5] = ["JWT_SECRET", "AUDIT_ANCHOR_KEY", "PII_KEY", "FERNET_KEY", "LEDGER_SIGNING_KEY"];
 
 pub struct QueueStack {
     pub store: Arc<dyn QueueStore>,
@@ -74,7 +74,7 @@ fn with_dev_secrets(env: &mut HashMap<String, String>, dir: &Path) -> Result<(),
     for name in SECRET_NAMES {
         if env.get(name).is_none_or(|v| v.trim().is_empty()) {
             if !saved.contains_key(name) {
-                saved.insert(name.into(), json!(if name == "FERNET_KEY" { new_fernet_key() } else { random_token(48) }));
+                saved.insert(name.into(), json!(if name == "FERNET_KEY" { new_fernet_key() } else if name == "LEDGER_SIGNING_KEY" { cg_audit::ledger::keygen().0 } else { random_token(48) }));
                 changed = true;
             }
             env.insert(name.into(), saved[name].as_str().unwrap_or("").to_string());
@@ -296,6 +296,7 @@ pub fn start_audit_guard(b: &Boot, q: &QueueStack, stop: Arc<AtomicBool>) -> std
     let env = b.env.clone();
     let logs: Vec<(String, std::path::PathBuf)> = vec![("security".into(), b.securitylog.path().to_path_buf()), ("review".into(), b.review_log.path().to_path_buf())];
     let security = b.securitylog.clone();
+    let data_dir = b.data_dir.clone();
     std::thread::Builder::new()
         .name("claimguard-audit-guard".into())
         .spawn(move || {
@@ -332,6 +333,25 @@ pub fn start_audit_guard(b: &Boot, q: &QueueStack, stop: Arc<AtomicBool>) -> std
                                     copied += cg_audit::mirror::sync_mirror(path, &target).map_err(|e| format!("{label} log: {e}"))?;
                                 }
                                 Ok(format!("{copied} bytes copied"))
+                            }, |d| d.clone());
+                        }
+                        "audit_ledger" => {
+                            // signed checkpoints over both logs: the seed is in this process only; the API verifies with the public key written beside the data
+                            let seed = env.get("LEDGER_SIGNING_KEY").cloned().unwrap_or_default();
+                            let dir = data_dir.clone();
+                            let _ = run_job_checked(&*store, &clock, name, || {
+                                let key = cg_audit::ledger::signing_key_from(&seed)?;
+                                let public = cg_audit::ledger::public_of_seed(&seed)?;
+                                if std::fs::read_to_string(dir.join("ledger.pub")).map(|t| t.trim() != public).unwrap_or(true) {
+                                    std::fs::write(dir.join("ledger.pub"), &public).map_err(|e| e.to_string())?;
+                                }
+                                let mut signed = 0;
+                                for (label, path) in &logs {
+                                    if path.exists() && cg_audit::ledger::sign_if_new(path, label, &key).map_err(|e| format!("{label} log: {e}"))?.is_some() {
+                                        signed += 1;
+                                    }
+                                }
+                                Ok(format!("{signed} new checkpoint(s)"))
                             }, |d| d.clone());
                         }
                         _ => {

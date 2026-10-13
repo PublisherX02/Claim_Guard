@@ -3,6 +3,7 @@
 #   bash deploy/rust/install.sh claims.example.org public      # a real domain: Let's Encrypt certificate
 #   bash deploy/rust/install.sh 203.0.113.10 internal          # an IP address or internal name: private-CA certificate
 #   bash deploy/rust/install.sh 203.0.113.10 internal ai       # also host gemma3:4b on this machine (Ollama) for the AI explanation drafts
+#   bash deploy/rust/install.sh 203.0.113.10 internal ai docs  # also the document reader: import claims from PDFs and photographs (docs/45)
 #   CG_SSH_FROM=203.0.113.7/32 bash deploy/rust/install.sh ...    # also set up the host firewall: SSH only from that address, web 80/443 for all
 #   (the model is overridable: CG_MODEL=gemma3:12b bash deploy/install.sh ... ai)
 # It writes .env with freshly generated secrets (only if .env does not exist), builds and starts the stack, waits until it is healthy,
@@ -13,6 +14,8 @@ cd "$(dirname "$0")/../.."
 SITE="${1:?usage: install.sh <domain-or-address> <public|internal>}"
 MODE="${2:?usage: install.sh <domain-or-address> <public|internal>}"
 AI="${3:-}"
+DOCS="${4:-}"
+[ "$AI" = "docs" ] && { AI=""; DOCS="docs"; }
 MODEL="${CG_MODEL:-gemma3:4b}"
 case "$MODE" in public) CADDYFILE=Caddyfile.public ;; internal) CADDYFILE=Caddyfile.internal ;; *) echo "mode must be public or internal"; exit 2 ;; esac
 command -v docker >/dev/null || { echo "docker is not installed"; exit 1; }
@@ -31,6 +34,8 @@ else
     echo "PII_KEY=$(secret)"
     echo "FERNET_KEY=$(head -c 32 /dev/urandom | base64 | tr '+/' '-_' | tr -d '\n')"
     echo "DATA_KEY=$(head -c 32 /dev/urandom | base64 | tr '+/' '-_' | tr -d '\n')"      # encrypts the claim data in the database; rotate it with `cg rotate-key`
+    echo "LEDGER_SIGNING_KEY=$(head -c 32 /dev/urandom | base64 | tr '+/' '-_' | tr -d '\n=')"   # signs the audit-log checkpoints; the worker only (docs/45)
+    echo "LEDGER_PUBLIC_KEY="                                                                    # filled in below from the seed: this one is public
     echo "MONGO_ROOT_USER=claimguard"
     echo "MONGO_ROOT_PASSWORD=$(openssl rand -hex 24)"
     echo "REDIS_PASSWORD=$(openssl rand -hex 24)"
@@ -38,11 +43,23 @@ else
       echo "QUEUE_AI_PROVIDER=ollama"
       echo "OLLAMA_MODEL=$MODEL"
     fi
+    if [ "$DOCS" = "docs" ]; then
+      echo "DOCUMENT_READER_URL=http://reader:8090"
+      echo "DOCUMENT_READER_TOKEN=$(secret)"
+      echo "DOCUMENT_READER_ENGINE=auto"
+      echo "DOCUMENT_READER_LANGS=eng"
+      echo "VLM_BASE_URL="      # set to http://ollama:11434/v1 and VLM_MODEL to a vision model you pulled into Ollama, to add the second reader (docs/45)
+      echo "VLM_MODEL="
+    fi
   } > .env
   echo "wrote .env (readable by you only). Back it up somewhere safe: without these secrets the data cannot be read."
 fi
 
 COMPOSE="docker compose -f deploy/rust/compose.yml --env-file .env"
+if [ "$DOCS" = "docs" ]; then
+  COMPOSE="$COMPOSE --profile documents"
+  grep -q '^DOCUMENT_READER_URL=.' .env || { echo "documents requested but .env has no DOCUMENT_READER_URL / DOCUMENT_READER_TOKEN: add them (see deploy/env.production.example), then re-run"; exit 1; }
+fi
 if [ "$AI" = "ai" ]; then
   COMPOSE="$COMPOSE --profile ai"
   grep -q '^QUEUE_AI_PROVIDER=ollama' .env || { echo "AI requested but .env has no QUEUE_AI_PROVIDER=ollama: add it with OLLAMA_MODEL=$MODEL, then re-run"; exit 1; }
@@ -62,6 +79,15 @@ if [ "$AI" = "ai" ]; then
   $COMPOSE exec -T ollama ollama pull "$MODEL_IN_ENV"
   echo "checking that the model answers in the required shape (about 3 minutes)..."
   $COMPOSE exec -T worker cg model-check || echo "WARNING: not every rule produced an accepted draft; claims whose draft is rejected keep the engine's own explanation. Details above."
+fi
+
+if grep -q '^LEDGER_SIGNING_KEY=.' .env && ! grep -q '^LEDGER_PUBLIC_KEY=.' .env; then
+  PUB="$($COMPOSE run --rm --no-deps worker cg ledger pubkey 2>/dev/null | tail -n1)"
+  if [ -n "$PUB" ]; then
+    sed -i "s|^LEDGER_PUBLIC_KEY=.*|LEDGER_PUBLIC_KEY=$PUB|" .env
+    $COMPOSE up -d api >/dev/null
+    echo "Signed ledger on. Public key (copy it somewhere offline; an auditor needs only this): $PUB"
+  fi
 fi
 
 if [ -n "${CG_SSH_FROM:-}" ]; then
