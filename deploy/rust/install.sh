@@ -48,16 +48,25 @@ else
       echo "DOCUMENT_READER_TOKEN=$(secret)"
       echo "DOCUMENT_READER_ENGINE=auto"
       echo "DOCUMENT_READER_LANGS=eng"
-      echo "VLM_BASE_URL="      # set to http://ollama:11434/v1 and VLM_MODEL to a vision model you pulled into Ollama, to add the second reader (docs/45)
-      echo "VLM_MODEL="
+      echo "VLM_BASE_URL=http://ollama:11434/v1"   # the second reader, Unlimited-OCR served by the same Ollama (docs/45); empty both lines for Tesseract only
+      echo "VLM_MODEL=${CG_VLM_MODEL:-richardyoung/unlimited-ocr}"
     fi
   } > .env
   echo "wrote .env (readable by you only). Back it up somewhere safe: without these secrets the data cannot be read."
 fi
 
 COMPOSE="docker compose -f deploy/rust/compose.yml --env-file .env"
+# GPU for the model server: only when the driver and the container toolkit are both there
+if command -v nvidia-smi >/dev/null && nvidia-smi >/dev/null 2>&1 && docker info 2>/dev/null | grep -qi nvidia; then
+  COMPOSE="docker compose -f deploy/rust/compose.yml -f deploy/rust/compose.gpu.yml --env-file .env"
+  echo "GPU found: the model server will use it."
+else
+  { [ "$AI" = "ai" ] || [ "$DOCS" = "docs" ]; } && echo "WARNING: no NVIDIA GPU / container toolkit detected: the models will run on the CPU (slow). Install nvidia-container-toolkit, then re-run."
+fi
+VLM_IN_ENV="$(grep '^VLM_MODEL=' .env 2>/dev/null | cut -d= -f2-)"
 if [ "$DOCS" = "docs" ]; then
   COMPOSE="$COMPOSE --profile documents"
+  [ -n "$VLM_IN_ENV" ] && [ "$AI" != "ai" ] && COMPOSE="$COMPOSE --profile ai"   # the vision reader is served by the Ollama container
   grep -q '^DOCUMENT_READER_URL=.' .env || { echo "documents requested but .env has no DOCUMENT_READER_URL / DOCUMENT_READER_TOKEN: add them (see deploy/env.production.example), then re-run"; exit 1; }
 fi
 if [ "$AI" = "ai" ]; then
@@ -79,6 +88,13 @@ if [ "$AI" = "ai" ]; then
   $COMPOSE exec -T ollama ollama pull "$MODEL_IN_ENV"
   echo "checking that the model answers in the required shape (about 3 minutes)..."
   $COMPOSE exec -T worker cg model-check || echo "WARNING: not every rule produced an accepted draft; claims whose draft is rejected keep the engine's own explanation. Details above."
+fi
+
+if [ "$DOCS" = "docs" ] && [ -n "$VLM_IN_ENV" ]; then
+  echo "downloading the vision reader $VLM_IN_ENV into the local model server (about 3 GB, once)..."
+  $COMPOSE exec -T ollama ollama pull "$VLM_IN_ENV"
+  echo "checking that the reader sees the vision model..."
+  $COMPOSE exec -T reader python -c "import os,json,urllib.request as u; h=json.load(u.urlopen(u.Request('http://127.0.0.1:8090/health', headers={'Authorization': 'Bearer ' + os.environ['OCR_TOKEN']}))); print(h); assert h.get('vlm'), 'vision model not configured'"     || echo "WARNING: the reader did not confirm the vision model; documents will be read with Tesseract only."
 fi
 
 if grep -q '^LEDGER_SIGNING_KEY=.' .env && ! grep -q '^LEDGER_PUBLIC_KEY=.' .env; then
