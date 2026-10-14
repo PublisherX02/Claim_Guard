@@ -164,7 +164,8 @@ class RustInstall(unittest.TestCase):
         self.assertIn('umask 077', text)
         self.assertIn('deploy/rust/compose.yml', text)
         self.assertIn('cg admin create-admin', text)
-        self.assertNotIn('python', text.lower().replace('# ', ' '))
+        # the document reader is a Python image by design (docs/45); its health probe is the one allowed use
+        self.assertNotIn('python', text.lower().replace('# ', ' ').replace('exec -t reader python -c', ''))
         self.assertNotIn('deploy/compose.yml', text.replace('deploy/rust/compose.yml', ''))
 
 
