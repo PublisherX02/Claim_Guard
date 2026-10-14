@@ -16,7 +16,7 @@ Nearly all of the 10-point item is built (lanes, personal inboxes, lease-bound d
 3. A reviewer can override: dismiss a finding with a reason, escalate, or request information (all existing). Every override is a counted feedback record.
 4. A rule that reviewers keep overriding becomes doubtful after enough independent decisions; one reviewer cannot move the estimate alone.
 5. No verdict, status, rule, evidence or AI output changes. Results are byte-identical with the feature on or off.
-6. Every estimate is versioned, every receipt names the version it used, and an estimate can be re-derived and checked.
+6. Learning never activates itself: a proposal needs a replay report and two different senior approvers before routing uses it. Every estimate is versioned, every receipt names the version it used, and an estimate can be re-derived and checked.
 7. Defaults are off: with the feature off every existing test, receipt and evidence file is unchanged.
 
 **Not in scope.** A trained language or neural model. Showing reliability numbers to reviewers (anchoring would corrupt the labels). Changing the 15 rules or the triage formula. Real-reviewer accuracy: all evidence uses simulated reviewers and says so.
@@ -53,6 +53,21 @@ Naming: this is **learning from human feedback for routing**. It is not reinforc
 **Active learning.** Dispatcher priority becomes `score + aging_per_hour * hours_waited + uncertainty_weight * uncertainty`; weight 0 changes nothing. The deal snapshot stores the uncertainty so replay and verify stay exact.
 
 **Visibility.** `GET /api/v1/queue/reliability` (`queue.view`) and the operator tool show the snapshot; reviewers see only the plain-word reason in `attention`.
+
+## 5a. Governance: learning never activates itself (added 2026-10-14)
+
+A snapshot made by `learn` is only a **proposal**. It becomes the one routing uses after (1) a **replay** and (2) approval by **two different seniors** (L3 or higher, neither being anyone who requested it), the same two-person rule payer rules already use. Until then routing keeps using the last approved snapshot (or nothing). States: `proposed`, `approved`, `rejected`, `superseded`; every move is audited. `verify` runs on approval and again at every use.
+
+**Replay.** `replay-reliability` re-routes a stored set of claims (default: the last 500 decided or waiting) under the proposal and prints, against the current routing: how many claims change lane or eligibility, the senior share before and after, the projected senior queue length, and a hash check that no verdict changed. If senior load rises, the report says so in words and names the setting that limits it. The report is stored with the proposal and shown to the approvers.
+
+## 5b. Reviewer console views (added 2026-10-14)
+
+- **Inbox:** the `attention` reasons as plain-word badges ("high severity", "low confidence", "could not assess"). No numbers.
+- **Learning panel (L3+/admin only):** per rule the rate with its interval, status, and the proposal waiting for approval, with the replay report and the Approve / Reject buttons (a second approver is required).
+- **Verify button:** runs the re-derivation and shows each recomputed figure beside the stored one.
+- **Demo mode:** `cg sim fast-forward` feeds simulated decisions to the live store so the panel changes in front of the judges.
+
+Hide-not-disable applies: users without the permission never receive the panel or the routes.
 
 ## 6. Configuration
 
