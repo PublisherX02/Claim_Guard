@@ -80,7 +80,7 @@ Seven new `RoutingConfig` fields, versioned and validated like the others, older
 | `cg-api` | `GET /queue/reliability`; the config body accepts the new fields; `attention` in the inbox view |
 | `cg-cli` | `queue-admin learn`, `reliability`, `verify-reliability` |
 
-The simulation lab is Python and lives in `scripts/sim/`: it is offline tooling that writes files, not part of the server. A Python reference of the statistics is the differential oracle for the Rust code, as elsewhere in this project.
+The simulator and the experiment runner are Rust too: a new `cg-sim` crate, exposed as `cg sim` subcommands of `cg-cli`, reusing the seeded ChaCha generator and the memory and MongoDB stores. Python is used only as the existing oracle: the Clopper-Pearson routine in `src/workqueue/shadow.py` is what the Rust statistics are checked against (as `tools/compare_*.py` do for the other crates). No new Python is written.
 
 ## 8. Failure behaviour
 
@@ -96,7 +96,7 @@ The simulation lab is Python and lives in `scripts/sim/`: it is offline tooling 
 
 ## 9. The simulated review database
 
-Real reviewer data does not exist yet, so a seeded generator (`scripts/sim/make_reviews.py`) builds it, so the whole loop can be developed and tested now. Everything it writes carries `simulated: true`.
+Real reviewer data does not exist yet, so a seeded generator (`cg sim make-reviews`, crate `cg-sim`) builds it, so the whole loop can be developed and tested now. Everything it writes carries `simulated: true`.
 
 - **Findings are real.** Claims come from `data/development/claims.jsonl` and their findings from the engine results (`expected_results.jsonl`); only the humans are simulated.
 - **Reviewers:** about 12 across L2 and L3, in personas: careful, lenient, noisy, slow, and one adversarial reviewer who dismisses nearly everything.
@@ -105,14 +105,14 @@ Real reviewer data does not exist yet, so a seeded generator (`scripts/sim/make_
 
 State plainly in every document: the reviewers are simulated, so this shows the mechanism and not real-world accuracy.
 
-## 10. Evidence (`scripts/learning_experiments.py` to `outputs/defense/learning.json`, added with `git add -f`)
+## 10. Evidence (`cg sim experiments`, writing `outputs/defense/learning.json`, added with `git add -f`)
 
 1. **Convergence:** estimate, interval and status over time, and the number of decisions until R006 becomes doubtful.
 2. **Routing effect and senior load:** share of claims sent to seniors with routing off and on, and the resulting senior queue and waiting time under the same arrivals. docs/31 shows 253 of 500 claims already need a senior, so doubtful-to-senior could worsen it; if it does, the document says so and names the setting (`doubtful_below`, or leaving routing off) that limits it. Hash comparison proves no verdict changed.
 3. **Active-learning gain:** with a fixed review budget, uncertainty-first against arrival order. Worded as a demonstration of the mechanism, not a finding: ordering by interval width shrinks intervals faster almost by construction.
 4. **Poisoning:** one adversarial reviewer among five, with and without the cap and the minimum-reviewers rule.
 5. **Label shift:** once a rule is doubtful its later labels come mostly from seniors, who may uphold at a different rate; the estimate then mixes two populations. Reported with the simulation and listed as a limit: the estimate describes the people who reviewed, not the rule in the abstract.
-6. **Stage 2 (offline only):** a logistic-regression routing policy fitted on logged deals with inverse-propensity weighting, evaluated on a split it never saw, compared with the threshold rule. Reported as exploratory.
+6. **Stage 2 (offline only):** a small logistic-regression routing policy (hand-written in Rust) fitted on logged deals with inverse-propensity weighting, evaluated on a split it never saw, compared with the threshold rule. Reported as exploratory.
 7. **Invariants:** receipts with the feature off equal the baseline on the 600 public claims; a tampered snapshot is detected; replay of a deal with an uncertainty term still matches.
 
 ## 11. Testing
