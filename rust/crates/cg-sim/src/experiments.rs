@@ -1,4 +1,4 @@
-//! The experiments behind docs/47. Every number comes from simulated reviewers (see `personas`): they show how the mechanism behaves, not
+//! The experiments behind docs/48. Every number comes from simulated reviewers (see `personas`): they show how the mechanism behaves, not
 //! how accurate it would be with real people. All functions are seeded, return plain JSON and write nothing.
 
 use crate::generate::{load_corpus, Corpus, Lab};

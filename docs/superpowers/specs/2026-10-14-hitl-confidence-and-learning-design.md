@@ -56,7 +56,7 @@ Naming: this is **learning from human feedback for routing**. It is not reinforc
 
 ## 5a. Governance: learning never activates itself (added 2026-10-14)
 
-A snapshot made by `learn` is only a **proposal**. It becomes the one routing uses after (1) a **replay** and (2) approval by **two different seniors** (L3 or higher, neither being anyone who requested it), the same two-person rule payer rules already use. Until then routing keeps using the last approved snapshot (or nothing). States: `proposed`, `approved`, `rejected`, `superseded`; every move is audited. `verify` runs on approval and again at every use.
+A snapshot made by `learn` is only a **proposal**. It becomes the one routing uses after (1) a **replay** and (2) approval by **two different administrators** through the existing approval gate (changed 2026-10-15: it is configuration of the system, level 4 owns dual control, and administrators cannot decide claims; a lone administrator acts alone and the security log says so), the same rule payer rules already use. Until then routing keeps using the last approved snapshot (or nothing). States: `proposed`, `approved`, `rejected`, `superseded`; every move is audited. `verify` runs on approval and again at every use.
 
 **Replay.** `replay-reliability` re-routes a stored set of claims (default: the last 500 decided or waiting) under the proposal and prints, against the current routing: how many claims change lane or eligibility, the senior share before and after, the projected senior queue length, and a hash check that no verdict changed. If senior load rises, the report says so in words and names the setting that limits it. The report is stored with the proposal and shown to the approvers.
 

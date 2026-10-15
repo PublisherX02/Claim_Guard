@@ -743,6 +743,14 @@ file. The opt-in local-model file and the third-party comparison system's file h
 pins are kept in comments, for the frozen results); the comparison code's unit tests and an agent build and query pass on the new
 versions, GPU model loading was not re-run (`docs/32`, section 6).
 
+### 10h. Confidence routing and the learning loop
+
+Full note: `docs/48_HITL_Confidence_and_Learning_Loop.md`. Confidence is measured, not modelled: per rule, the share of flagged findings that reviewers uphold (last confirm or dismiss per claim and rule), with an exact 95% interval (checked against the Python oracle on 1,685 cases, largest difference 2.8e-13), one reviewer capped at 40% of a rule's decisions, at least 20 decisions from 3 reviewers before a rule is judged. A rule is doubtful when the interval's upper bound is below 0.6. Off by default (`learn_enabled`, `route_by_reliability`, `uncertainty_weight`).
+
+Effects: a doubtful rule makes a claim need a senior; the dispatcher priority adds `uncertainty_weight x widest interval`; verdicts never change; reviewers see words only. Governance: `learn` stores a numbered proposal with a replay report; activation goes through the two-administrator approval gate used by payer rules; routing ignores a snapshot that fails `verify`. Code: `rust/crates/cg-queue/src/reliability.rs`, routes under `/api/v1/queue/reliability`, console page "Learned reliability", `cg queue learn|reliability|verify-reliability|replay-reliability|activate-reliability`, `cg sim` (simulated reviewers, experiments, fast-forward), evidence `outputs/defense/learning.json`.
+
+Simulated evidence (seed 1): R006 (hidden true rate 0.35) is doubtful after 405 decisions; no rule with hidden rate 0.97 was ever doubtful; routing on raised the senior share from 76.2% to 87.5% with identical verdict hashes; the reviewer cap and minimum protect against an adversary deciding up to about 30% of claims or a fully captured queue, not 40% to 80%. All reviewers there are simulated.
+
 ## 11. Experiments in detail
 
 ### 11.1 Why and how

@@ -1,4 +1,4 @@
-//! `cg sim ...`: the simulated review database and its experiments (docs/47). Nothing here touches a real queue unless `fast-forward` is aimed at one on purpose.
+//! `cg sim ...`: the simulated review database and its experiments (docs/48). Nothing here touches a real queue unless `fast-forward` is aimed at one on purpose.
 
 use cg_queue::store::QueueStore;
 use serde_json::json;

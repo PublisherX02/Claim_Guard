@@ -124,7 +124,7 @@ Priority follows MoSCoW (M must, S should, C could, W will not). Status: **Done*
 | FR-19 | Record in shadow mode what an automatic clearer would have done, without acting | C | Done | `src/workqueue/shadow.py` |
 | FR-20 | Provide a web screen for reviewers | S | Built (2026-10-08) | Reviewer console served by the API and shown in a desktop window; see docs/35. Checked with an automated browser, not a manual accessibility audit |
 | FR-21 | Accept claim submission over HTTP | C | Not built | Command-line tool only |
-| FR-22 | Route by model confidence | W | Not built | Choice: the engine is deterministic and the AI only explains |
+| FR-22 | Route by confidence | C | Built (2026-10-15), default off | No model confidence exists (the engine is deterministic); confidence is the measured share of a rule's findings that reviewers uphold, learned from overrides; docs/48; shown on simulated reviewers only |
 | FR-23 | Show administrators what is broken (system health panel: databases, broker, scheduled jobs, audit chains, disk, AI helper, request traffic) | S | Built (2026-10-09) | docs/37; `GET /api/v1/ops/health`; per-process traffic numbers, no alerts are sent |
 | FR-24 | Let administrators search and chart the audit log (filters by event, badge, claim and period; per-hour counts; CSV; on-demand chain verification) | S | Built (2026-10-09) | docs/37 |
 | FR-25 | Trace one claim from intake to decision (versions, state history, decisions, hashes, security-log entries, no claim values) | S | Built (2026-10-09) | docs/37; `GET /api/v1/ops/trace/{claim_id}` |
@@ -233,6 +233,7 @@ Status codes used by the reviewer API: `401` not signed in or invalid credential
 | UC23 | Replay, verify and rerun | Administrator | `queue_admin replay`, `rerun`, `verify-deal` | Done |
 | UC24 | Replay a failed task | Administrator | `queue_admin deadletters`, `deadletter-replay` | Done |
 | UC25 | Manage users | Administrator | `/api/v1/users` routes; `scripts/access_admin.py` | Done |
+| UC27 | Learn from overrides | Administrator | `GET /queue/reliability`, `POST /queue/reliability/learn`, `GET .../{v}/verify`, `POST .../{v}/activate`; `cg queue learn` | Done (default off) |
 | UC26 | Verify the audit trail | Administrator | `GET /api/v1/audit/events`, `/audit/verify` | Done |
 
 ### 6.2 Automatic checking
@@ -452,7 +453,7 @@ Status codes used by the reviewer API: `401` not signed in or invalid credential
 **Main scenario**
 1. Every 15 seconds the dispatcher deals: it takes the ready dossiers (newest version only) and the load of each eligible reviewer, and plans the dealing with a recorded **seed**.
 2. For each plan entry it places a **lease** (30 minutes by default) and logs `claim_dealt`.
-3. The reviewer reads their queue (`GET /work/inbox`) and sees masked views.
+3. The reviewer reads their queue (`GET /work/inbox`) and sees masked views, each with plain-word `attention` reasons (high severity, low confidence, could not assess, incomplete result, seniors disagreed) and never a reliability number.
 4. While working they send `POST /work/heartbeat`, which extends all their leases.
 
 **Secondary scenarios**
@@ -584,7 +585,7 @@ All use cases in this section need a signed-in level 4 user. Level 4 holds `queu
 
 **Extensions**
 - 2a. `expected_version` is not the current version (someone else changed it): 409 `conflict`; nothing is written.
-- 3a. A value is out of range or of the wrong type: 422. Ranges: `lane_b_flagged` 1 to 15; `lane_b_score` 1 to 1,000; `slice_size` 1 to 200; `low_water` 1 to 200 and not above `slice_size`; `lease_seconds` 60 to 86,400; `aging_per_hour` 0 to 100; `ai_per_minute` 0 to 600; `ai_daily_budget` 0 to 100,000.
+- 3a. A value is out of range or of the wrong type: 422. Ranges: `lane_b_flagged` 1 to 15; `lane_b_score` 1 to 1,000; `slice_size` 1 to 200; `low_water` 1 to 200 and not above `slice_size`; `lease_seconds` 60 to 86,400; `aging_per_hour` 0 to 100; `ai_per_minute` 0 to 600; `ai_daily_budget` 0 to 100,000; `learn_enabled` and `route_by_reliability` true or false (default false); `reliability_min_decisions` 5 to 1,000 (20); `reliability_min_reviewers` 1 to 50 (3); `reliability_reviewer_cap` 0.1 to 1.0 (0.4); `doubtful_below` 0.05 to 0.95 (0.6); `uncertainty_weight` 0 to 20 (0).
 
 **Failure scenarios.** A body with an unknown field or a `null` value: 422. A caller without `routing.manage`: 403 and an audit event. There is deliberately **no route** that assigns or moves a particular dossier.
 
@@ -700,6 +701,29 @@ All use cases in this section need a signed-in level 4 user. Level 4 holds `queu
 **Failure scenarios.** No right: 403. Log file unreadable: reported in the verification result.
 
 **Guarantees and limits.** The log is **tamper-evident, not immutable**: someone who can rewrite the chain, the anchor and the key together can rewrite history. There is no write-once storage and no external timestamp (part 9).
+
+
+#### UC27. Learn from overrides
+
+*Goal.* Measure how often reviewers uphold each rule's findings and, once two administrators agree, use that to send doubtful rules to a senior and to review the least-known cases first. *Actor.* Administrator (`queue.view` to read, `routing.manage` to change). *Related.* FR-22, UC13, UC20, docs/48.
+
+**Main scenario**
+1. Reviewers decide findings as usual (UC13); each last confirm or dismiss on a flagged rule is one counted decision.
+2. The administrator (or the worker, when `learn_enabled` is on) runs `POST /queue/reliability/learn`. A numbered **proposed** snapshot is stored with a **replay report**: the latest claims re-routed on their stored results, senior share before and after, and a check that no verdict hash changes.
+3. The administrator reads the figures (`GET /queue/reliability`) and can have every number recomputed (`GET /queue/reliability/{v}/verify`).
+4. They ask to use it (`POST /queue/reliability/{v}/activate`). With two or more active administrators the request waits for a different administrator to approve it with their authenticator code; a lone administrator acts alone and the security log says so.
+5. From then on, when `route_by_reliability` is on, a claim with a finding of a doubtful rule needs a senior, and when `uncertainty_weight` is above 0 less-known claims are dealt earlier.
+
+**Secondary scenarios.** `cg queue learn` (dry run) and `learn --apply`, `reliability`, `verify-reliability V`, `replay-reliability V`, `activate-reliability V`. `cg sim fast-forward` feeds simulated decisions into a demo queue so the panel has data.
+
+**Extensions**
+- 2a. Nothing has been decided, or inputs, parameters and statuses equal the newest snapshot: nothing is stored.
+- 4a. The snapshot is not `proposed` (409) or a newer one is already in use (422): refused.
+- 4b. The same proposal approved twice, or two learners racing: exactly one wins (single conditional update in the store).
+
+**Failure scenarios.** A caller without the right: 403 and a security-log event. A snapshot whose counts, figures, status or parameters were altered fails `verify`, is ignored by routing and is reported (`reliability_snapshot_rejected`). If the store cannot be read at intake, routing behaves as if the feature were off.
+
+**Guarantees and limits.** Verdicts, statuses, evidence and rule text never change; only eligibility and dealing order may. Reviewers see words, never numbers. All defaults are off. Evidence so far is from simulated reviewers; routing by it raised the senior share in the simulation, and the per-reviewer cap does not stop an adversary who decides 40% or more of the claims.
 
 ---
 
