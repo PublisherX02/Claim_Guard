@@ -408,3 +408,36 @@ fn a_decision_reason_that_contains_the_patients_identifier_is_refused() {
     assert!(matches!(q.queue.decide_finding(&who, &id, &rule, "confirm_issue", &format!("seen on the card of {patient}")), Err(QueueError::Invalid(m)) if m.contains("identifier")));
     q.queue.decide_finding(&who, &id, &rule, "confirm_issue", "seen on the card").unwrap();
 }
+
+#[test]
+fn routing_by_reliability_is_off_by_default_and_a_doubtful_rule_sends_a_medium_claim_to_a_senior() {
+    let q = q();
+    let admin = q.p("CG-4004");
+    let c = q.find("medium");
+    let mut errs = vec![];
+    let results = serde_json::to_value(engine().review(&c, &mut errs).unwrap()).unwrap();
+    let rule = triage::flagged(&results)[0]["rule_id"].as_str().unwrap().to_string();
+    // an approved snapshot in which that rule is doubtful
+    let p = cg_queue::reliability::Params::from_config(&RoutingConfig::default());
+    let snap = json!({"version": 1, "status": "proposed", "created_at": 0.0, "config_version": 1, "parameters": p.to_doc(), "decisions": 40, "inputs_hash": "x",
+                      "rules": {rule.clone(): cg_queue::reliability::row(4, 36, 5, &p)}});
+    assert!(q.store.put_reliability(&snap, 0).unwrap());
+    q.store.set_reliability_status(1, "proposed", "approved", "CG-4004", 1.0, None).unwrap();
+    // off: nothing changes
+    let r = q.intake.submit(&c).unwrap();
+    assert_eq!(r["eligibility"], "decide");
+    assert!(r.get("reliability_version").is_none(), "with the feature off the receipt gains no field");
+    // on: the same body under a new claim id goes to a senior
+    let mut set = serde_json::Map::new();
+    set.insert("route_by_reliability".into(), json!(true));
+    q.queue.set_config(&admin, &set, 1).unwrap();
+    let mut c2 = c.clone();
+    c2["claim_id"] = json!("CG-LEARN-1");
+    let r2 = q.intake.submit(&c2).unwrap();
+    assert_eq!((r2["eligibility"].as_str(), r2["doubtful_rules"].clone(), r2["reliability_version"].as_i64()), (Some("decide_high"), json!([rule]), Some(1)));
+    assert_eq!((r2["lane"].clone(), r2["score"].clone()), (r["lane"].clone(), r["score"].clone()), "lane and score are untouched");
+    // a stored snapshot that was altered after approval is ignored for routing
+    let mut bad = q.store.reliability_history().unwrap()[0].clone();
+    bad["rules"][&rule]["status"] = json!("measured");
+    assert!(cg_queue::reliability::verify(&bad).is_err());
+}

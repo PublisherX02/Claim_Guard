@@ -47,12 +47,13 @@ pub struct Snap {
     pub excluded_for: Vec<String>,
     pub prior_deciders: Vec<String>,
     pub avoid: Vec<String>,
+    pub uncertainty: f64,
 }
 
 impl Snap {
     fn to_json(&self) -> Value {
         json!({"claim_id": self.claim_id, "version": self.version, "state_at": self.state_at, "score": self.score, "eligibility": self.eligibility,
-               "excluded_for": self.excluded_for, "prior_deciders": self.prior_deciders, "avoid": self.avoid})
+               "excluded_for": self.excluded_for, "prior_deciders": self.prior_deciders, "avoid": self.avoid, "uncertainty": self.uncertainty})
     }
 
     fn from_json(v: &Value) -> Snap {
@@ -61,6 +62,7 @@ impl Snap {
             claim_id: v["claim_id"].as_str().unwrap_or("").into(), version: v["version"].as_i64().unwrap_or(0), state_at: v["state_at"].as_f64().unwrap_or(0.0),
             score: v["score"].as_i64().unwrap_or(0), eligibility: v["eligibility"].as_str().unwrap_or("decide").into(),
             excluded_for: list("excluded_for"), prior_deciders: list("prior_deciders"), avoid: list("avoid"),
+            uncertainty: v["uncertainty"].as_f64().filter(|u| u.is_finite()).unwrap_or(0.0),
         }
     }
 }
@@ -81,7 +83,7 @@ fn needed(s: &Snap) -> &'static str {
 
 fn priority(s: &Snap, cfg: &RoutingConfig, now: f64) -> f64 {
     let waited = ((now - s.state_at) / 3600.0).max(0.0);
-    s.score as f64 + cfg.aging_per_hour * waited
+    s.score as f64 + cfg.aging_per_hour * waited + cfg.uncertainty_weight * s.uncertainty
 }
 
 fn blocked(agent: &Agent, s: &Snap) -> bool {
@@ -204,6 +206,7 @@ impl Dispatcher {
                     score: d["receipt"]["score"].as_i64().unwrap_or(0), eligibility: d["receipt"]["eligibility"].as_str().unwrap_or("decide").into(),
                     excluded_for: cfg.exclusions.iter().filter(|(_, who)| who == patient).map(|(b, _)| b.clone()).collect::<BTreeSet<_>>().into_iter().collect(),
                     prior_deciders: prior.into_iter().collect(), avoid: avoid.into_iter().collect(),
+                    uncertainty: d["receipt"]["uncertainty"].as_f64().filter(|u| u.is_finite()).unwrap_or(0.0),
                 };
                 if d["escalated"] == true || !d["signoff"].is_null() {
                     snap.eligibility = "decide_high".into(); // an escalated claim, or one awaiting a countersignature, needs a senior
@@ -339,7 +342,7 @@ mod tests {
     }
 
     fn snap(id: &str, score: i64, high: bool) -> Snap {
-        Snap { claim_id: id.into(), version: 1, state_at: 0.0, score, eligibility: if high { "decide_high" } else { "decide" }.into(), excluded_for: vec![], prior_deciders: vec![], avoid: vec![] }
+        Snap { claim_id: id.into(), version: 1, state_at: 0.0, score, eligibility: if high { "decide_high" } else { "decide" }.into(), excluded_for: vec![], prior_deciders: vec![], avoid: vec![], uncertainty: 0.0 }
     }
 
     fn cfg(on: &[&str], slice: i64) -> RoutingConfig {
@@ -458,5 +461,26 @@ mod tests {
         ready(&store, "C1", "decide", 2);
         assert!(store.put_triaged(&make_doc("C1", 2, "h2", "A", "decide", 2, "P1", 1001.0, None)).unwrap());
         assert_eq!(d.deal(None, true).assigned.len(), 0, "version 1 is superseded and version 2 is not ready yet");
+    }
+
+    #[test]
+    fn uncertainty_raises_priority_only_when_the_weight_is_set_and_the_snapshot_round_trips() {
+        let mut a = snap("A", 2, false);
+        let mut b = snap("B", 2, false);
+        a.uncertainty = 1.0;
+        b.uncertainty = 0.1;
+        let agents = vec![Agent { badge_id: "U".into(), permissions: ["claims.decide"].iter().map(|s| s.to_string()).collect(), active: true }];
+        let mut cfg = RoutingConfig::default();
+        cfg.on_shift = vec!["U".into()];
+        cfg.slice_size = 1;
+        let off = plan_deal(&[b.clone(), a.clone()], &agents, &HashMap::new(), &cfg, 5, 0.0, None).unwrap();
+        cfg.uncertainty_weight = 5.0;
+        let on = plan_deal(&[b.clone(), a.clone()], &agents, &HashMap::new(), &cfg, 5, 0.0, None).unwrap();
+        assert_eq!(on[0].0, "A", "the less certain claim is dealt first");
+        let _ = off; // with weight 0 the order is the seeded tie-break, unchanged from before
+        assert_eq!(Snap::from_json(&a.to_json()), a);
+        assert_eq!(Snap::from_json(&json!({"claim_id": "X", "version": 1})).uncertainty, 0.0);
+        a.uncertainty = f64::NAN;
+        assert_eq!(Snap::from_json(&json!({"uncertainty": f64::NAN})).uncertainty, 0.0);
     }
 }

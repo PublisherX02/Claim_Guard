@@ -7,6 +7,7 @@
 use crate::routing_config::RoutingConfig;
 use crate::service::RESOLVING;
 use crate::shadow::clopper_pearson;
+use crate::store::QueueStore;
 use crate::triage;
 use serde_json::{json, Map, Value};
 use sha2::{Digest, Sha256};
@@ -175,6 +176,62 @@ pub fn doubtful_rules(snap: &Value) -> BTreeSet<String> {
     snap["rules"].as_object().into_iter().flatten().filter(|(_, r)| r["status"] == "doubtful").map(|(id, _)| id.clone()).collect()
 }
 
+/// Sets the reliability fields on a receipt. The snapshot must verify; a refused snapshot changes nothing.
+pub fn apply(receipt: &mut Value, results: &Value, snap: &Value) -> Result<(), String> {
+    verify(snap)?;
+    let rules = snap["rules"].as_object().ok_or("the snapshot has no rules table")?;
+    let mut doubtful: Vec<String> = vec![];
+    let mut uncertainty = 0.0f64;
+    for r in triage::flagged(results) {
+        let Some(id) = r["rule_id"].as_str() else { continue };
+        match rules.get(id) {
+            Some(row) => {
+                uncertainty = uncertainty.max(row["width"].as_f64().unwrap_or(1.0));
+                if row["status"] == "doubtful" {
+                    doubtful.push(id.to_string());
+                }
+            }
+            None => uncertainty = uncertainty.max(1.0),
+        }
+    }
+    doubtful.sort();
+    doubtful.dedup();
+    receipt["reliability_version"] = snap["version"].clone();
+    receipt["uncertainty"] = json!(uncertainty);
+    if !doubtful.is_empty() {
+        receipt["eligibility"] = json!("decide_high");
+    }
+    receipt["doubtful_rules"] = json!(doubtful);
+    Ok(())
+}
+
+/// The reasons a claim needs explicit approval, in plain words and in a fixed order. Never numbers.
+pub fn attention(doc: &Value) -> Vec<&'static str> {
+    let flagged = triage::flagged(&doc["results"]);
+    let mut out = vec![];
+    if flagged.iter().any(|r| r["severity"] != "medium") {
+        out.push("high_severity");
+    }
+    if doc["receipt"]["doubtful_rules"].as_array().is_some_and(|a| !a.is_empty()) {
+        out.push("low_confidence");
+    }
+    if flagged.iter().any(|r| r["status"] == "UNABLE_TO_ASSESS") {
+        out.push("could_not_assess");
+    }
+    if doc["receipt"]["degraded"] == true {
+        out.push("degraded");
+    }
+    if doc["escalated"] == true {
+        out.push("disagreement");
+    }
+    out
+}
+
+/// The snapshot routing uses: the highest-numbered one that two administrators approved. None when there is none or the store fails.
+pub fn active(store: &dyn QueueStore) -> Option<Value> {
+    store.reliability_history().ok()?.into_iter().filter(|d| d["status"] == "approved").max_by_key(|d| d["version"].as_i64().unwrap_or(0))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -289,5 +346,69 @@ mod tests {
                 assert!(r["n"].as_i64().unwrap() <= n as i64);
             }
         }
+    }
+
+    fn results_with(flags: &[(&str, &str, &str)]) -> Value {
+        let mut rows: Vec<Value> = crate::triage::rule_ids().into_iter().map(|id| json!({"rule_id": id, "status": "PASS", "severity": "medium"})).collect();
+        for (id, status, sev) in flags {
+            let i = crate::triage::rule_ids().iter().position(|r| r == id).unwrap();
+            rows[i]["status"] = json!(status);
+            rows[i]["severity"] = json!(sev);
+        }
+        Value::Array(rows)
+    }
+
+    fn snapshot_with(rule: &str, upheld: i64, overridden: i64) -> Value {
+        let p = params();
+        json!({"version": 3, "status": "approved", "parameters": p.to_doc(), "rules": {rule: row(upheld, overridden, 5, &p)}})
+    }
+
+    #[test]
+    fn a_doubtful_rule_sends_the_claim_to_a_senior_and_nothing_else_changes() {
+        let results = results_with(&[("R006", "FAIL", "medium")]);
+        let mut receipt = crate::triage::make_receipt(&json!({"claim_id": "C1"}), &results, &RoutingConfig::default(), "pack", "eng", 1.0);
+        assert_eq!(receipt["eligibility"], "decide");
+        let before = receipt.clone();
+        apply(&mut receipt, &results, &snapshot_with("R006", 6, 34)).unwrap();
+        assert_eq!((receipt["eligibility"].as_str(), receipt["reliability_version"].as_i64(), receipt["doubtful_rules"].clone()), (Some("decide_high"), Some(3), json!(["R006"])));
+        for k in ["lane", "score", "result_hash", "facts_hash", "statuses", "degraded"] {
+            assert_eq!(receipt[k], before[k], "{k} must not change");
+        }
+        assert!(receipt["uncertainty"].as_f64().unwrap() > 0.0);
+    }
+
+    #[test]
+    fn a_measured_rule_leaves_routing_alone_and_a_green_claim_has_no_uncertainty() {
+        let results = results_with(&[("R006", "FAIL", "medium")]);
+        let mut receipt = crate::triage::make_receipt(&json!({"claim_id": "C1"}), &results, &RoutingConfig::default(), "pack", "eng", 1.0);
+        apply(&mut receipt, &results, &snapshot_with("R006", 39, 1)).unwrap();
+        assert_eq!((receipt["eligibility"].as_str(), receipt["doubtful_rules"].clone()), (Some("decide"), json!([])));
+        let green = results_with(&[]);
+        let mut r2 = crate::triage::make_receipt(&json!({"claim_id": "C2"}), &green, &RoutingConfig::default(), "pack", "eng", 1.0);
+        apply(&mut r2, &green, &snapshot_with("R006", 6, 34)).unwrap();
+        assert_eq!((r2["uncertainty"].as_f64(), r2["doubtful_rules"].clone(), r2["eligibility"].as_str()), (Some(0.0), json!([]), Some("decide")));
+        assert!(attention(&json!({"results": green, "receipt": r2})).is_empty());
+    }
+
+    #[test]
+    fn an_unknown_rule_is_maximally_uncertain_and_a_tampered_snapshot_is_refused() {
+        let results = results_with(&[("R010", "FAIL", "medium")]);
+        let mut receipt = crate::triage::make_receipt(&json!({"claim_id": "C1"}), &results, &RoutingConfig::default(), "pack", "eng", 1.0);
+        apply(&mut receipt, &results, &snapshot_with("R006", 6, 34)).unwrap();
+        assert_eq!(receipt["uncertainty"].as_f64(), Some(1.0));
+        let mut bad = snapshot_with("R006", 6, 34);
+        bad["rules"]["R006"]["status"] = json!("measured");
+        let mut r2 = receipt.clone();
+        assert!(apply(&mut r2, &results, &bad).is_err());
+        assert_eq!(r2, receipt, "a refused snapshot leaves the receipt untouched");
+    }
+
+    #[test]
+    fn attention_names_the_reasons_in_words() {
+        let high = json!({"results": results_with(&[("R001", "FAIL", "high")]), "receipt": {"degraded": false}});
+        assert_eq!(attention(&high), vec!["high_severity"]);
+        let mixed = json!({"results": results_with(&[("R001", "UNABLE_TO_ASSESS", "high")]), "receipt": {"degraded": false, "doubtful_rules": ["R001"]}, "escalated": true});
+        assert_eq!(attention(&mixed), vec!["high_severity", "low_confidence", "could_not_assess", "disagreement"]);
+        assert_eq!(attention(&json!({"results": json!([]), "receipt": {"degraded": true}})), vec!["degraded"]);
     }
 }

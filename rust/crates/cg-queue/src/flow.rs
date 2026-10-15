@@ -141,7 +141,15 @@ impl Intake {
             }
             let version = self.store.get(&claim_id, None).map_err(fail)?.map_or(1, |l| l["version"].as_i64().unwrap_or(0) + 1);
             let results = (self.engine)(claim).map_err(IntakeError::Failed)?;
-            let receipt = triage::make_receipt(claim, &results, &cfg, &(self.rule_pack_hash)(), &self.engine_version, (self.clock)());
+            let mut receipt = triage::make_receipt(claim, &results, &cfg, &(self.rule_pack_hash)(), &self.engine_version, (self.clock)());
+            if cfg.route_by_reliability {
+                if let Some(snap) = crate::reliability::active(&*self.store) {
+                    if let Err(why) = crate::reliability::apply(&mut receipt, &results, &snap) {
+                        // an altered snapshot is ignored for routing and reported; the claim is routed as if the feature were off
+                        let _ = self.log.record("reliability_snapshot_rejected", json!({"version": snap["version"], "reason": why.chars().take(120).collect::<String>()}));
+                    }
+                }
+            }
             let doc = json!({"claim_id": claim_id, "version": version, "input_hash": ihash, "claim": claim, "results": results, "receipt": receipt, "advisory": self.advisory_for(claim)});
             if self.store.put_triaged(&doc).map_err(fail)? {
                 // shadow mode must never affect a claim
