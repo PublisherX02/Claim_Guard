@@ -1,6 +1,11 @@
 /* ClaimGuard console: the reviewer's work (inbox, a claim under review, the browse list). */
 (function () {
   'use strict';
+  var ATTENTION_TEXT = { high_severity: 'High severity', low_confidence: 'Low confidence', could_not_assess: 'Could not assess', degraded: 'Incomplete result', disagreement: 'Seniors disagreed' };
+  var ATTENTION_KIND = { high_severity: 'high', low_confidence: 'medium', could_not_assess: 'medium', degraded: 'medium', disagreement: 'info' };
+  function attentionBadges(list) {
+    return (list || []).map(function (a) { return CG.chip(ATTENTION_TEXT[a] || a, ATTENTION_KIND[a] || 'neutral'); });
+  }
   var CG = window.CG, h = CG.h;
 
   var ACTIONS = {
@@ -123,7 +128,7 @@
     }
     var head = h('div', { class: 'row between' },
       h('div', null, h('a', { href: back, text: ctx.mode === 'work' ? 'Back to my inbox' : 'Back to all claims' }), h('h1', { class: 'mono', text: ctx.id })),
-      h('div', { class: 'row' }, view.lane ? CG.chip('Lane ' + view.lane, view.lane === 'green' ? 'green' : view.lane) : null, view.score !== undefined ? h('span', { class: 'muted', text: 'score ' + view.score }) : null,
+      h('div', { class: 'row' }, view.lane ? CG.chip('Lane ' + view.lane, view.lane === 'green' ? 'green' : view.lane) : null, attentionBadges(view.attention), view.score !== undefined ? h('span', { class: 'muted', text: 'score ' + view.score }) : null,
         view.version ? h('span', { class: 'muted', text: 'version ' + view.version }) : null));
     root.appendChild(head);
 
