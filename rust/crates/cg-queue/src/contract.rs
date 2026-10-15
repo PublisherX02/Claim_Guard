@@ -86,6 +86,16 @@ pub fn run(fresh: &dyn Fn() -> Box<dyn QueueStore>) {
     let set = s.transition("C1", 1, "explained", "ready", "a", NOW + 3.0, None, fields(&[("escalated", json!(true)), ("decided_by", json!("CG-1"))]), None).unwrap().unwrap();
     assert_eq!((set["escalated"].as_bool(), set["decided_by"].as_str()), (Some(true), Some("CG-1")));
 
+    // ---- the system clears a green claim: triaged -> decided, with the auto_cleared marker, and nothing else may jump to decided
+    let s = fresh();
+    assert!(s.put_triaged(&doc("G1")).unwrap());
+    let cleared = s.transition("G1", 1, "triaged", "decided", "system:auto-clear", NOW + 1.0, Some(json!({"auto_cleared": true, "findings": 0, "audit_draw": 57.25})), fields(&[("decided_by", json!("system:auto-clear")), ("auto_cleared", json!(true))]), None).unwrap().unwrap();
+    assert_eq!((cleared["state"].as_str(), cleared["decided_by"].as_str(), cleared["auto_cleared"].as_bool()), (Some("decided"), Some("system:auto-clear"), Some(true)));
+    assert_eq!(cleared["events"].as_array().unwrap().last().unwrap()["detail"]["audit_draw"].as_f64(), Some(57.25));
+    assert_eq!(s.by_state("decided", 10).unwrap().len(), 1);
+    assert!(s.put_triaged(&doc("G2")).unwrap());
+    assert!(s.transition("G2", 1, "ready", "decided", "x", NOW, None, None, None).is_err(), "ready -> decided is still illegal");
+
     // ---- outbox, by_state, counts
     let s = fresh();
     assert!(s.put_triaged(&make_doc("B", 1, "hb", "A", "decide", 2, "P1", NOW + 5.0, None)).unwrap());

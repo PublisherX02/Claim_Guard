@@ -270,7 +270,7 @@ pub fn rotate_fernet_key(args: &[String]) -> i32 {
     }
 }
 
-pub const QUEUE_USAGE: &str = "usage: cg queue --badge CG-4004 [--dev] submit --claims FILE [--process] | reconcile | replay ID [--version N] | rerun --rule-pack HASH [--apply] | deadletters | deadletter-replay ID | verify-deal ID | workload [--skip-lower X]";
+pub const QUEUE_USAGE: &str = "usage: cg queue --badge CG-4004 [--dev] submit --claims FILE [--process] | reconcile | replay ID [--version N] | rerun --rule-pack HASH [--apply] | deadletters | deadletter-replay ID | verify-deal ID | workload [--skip-lower X] | audit";
 
 pub fn queue(args: &[String]) -> i32 {
     let say = |s: &str| println!("{s}");
@@ -278,7 +278,7 @@ pub fn queue(args: &[String]) -> i32 {
         say(QUEUE_USAGE);
         return 2;
     };
-    let Some(ci) = args.iter().position(|a| ["submit", "reconcile", "replay", "rerun", "deadletters", "deadletter-replay", "verify-deal", "workload"].contains(&a.as_str())) else {
+    let Some(ci) = args.iter().position(|a| ["submit", "reconcile", "replay", "rerun", "deadletters", "deadletter-replay", "verify-deal", "workload", "audit"].contains(&a.as_str())) else {
         say(QUEUE_USAGE);
         return 2;
     };
@@ -354,6 +354,19 @@ pub fn queue(args: &[String]) -> i32 {
                 let skip = flag(rest, "--skip-lower").and_then(|v| v.parse::<f64>().ok()).filter(|v| (0.5..1.0).contains(v)).unwrap_or(cg_queue::workload::DEFAULT_SKIP_LOWER);
                 let decided = store.by_state("decided", 1_000_000).map_err(|e| QueueError::Invalid(e.to_string()))?;
                 say(&sorted(&cg_queue::workload::report(&decided, &cg_queue::reliability::Params::from_config(&cfg), skip, cfg.lease_seconds as f64)));
+                Ok(0)
+            }
+            "audit" => {
+                // read-only: how auto-clear is doing, from the random sample of green claims a person still looked at
+                let mut docs = vec![];
+                for state in ["decided", "ready", "leased", "awaiting_countersign"] {
+                    docs.extend(store.by_state(state, 1_000_000).map_err(|e| QueueError::Invalid(e.to_string()))?);
+                }
+                let cfg = cg_queue::flow::routing_config(store);
+                let mut report = cg_queue::workload::audit_report(&docs);
+                report["auto_clear_green"] = serde_json::json!(cfg.auto_clear_green);
+                report["audit_percent"] = serde_json::json!(cfg.audit_percent);
+                say(&sorted(&report));
                 Ok(0)
             }
             "verify-deal" => {

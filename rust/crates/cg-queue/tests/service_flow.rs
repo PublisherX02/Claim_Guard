@@ -268,14 +268,14 @@ fn nobody_decides_a_claim_that_is_not_theirs_or_whose_lease_ran_out() {
 }
 
 #[test]
-fn a_reason_is_required_and_a_decision_is_idempotent_only_once() {
+fn a_dismissal_needs_a_reason_and_a_decision_is_idempotent_only_once() {
     let q = q();
     let id = q.ready("medium");
     q.lease_to(&id, "CG-2002");
     let who = q.p("CG-2002");
     let rules = q.flagged_rules(&id);
     let rule = rules[0].0.clone();
-    assert!(matches!(q.queue.decide_finding(&who, &id, &rule, "confirm_issue", "   "), Err(QueueError::Invalid(_))));
+    assert!(matches!(q.queue.decide_finding(&who, &id, &rule, "dismiss_with_reason", "   "), Err(QueueError::Invalid(_))), "a dismissal overrides the engine and needs a reason; a confirm does not (see confirming_needs_no_typed_reason)");
     assert!(matches!(q.queue.decide_finding(&who, &id, &rule, "approve", "ok"), Err(QueueError::Invalid(_))));
     assert!(matches!(q.queue.decide_finding(&who, &id, "R999", "confirm_issue", "ok"), Err(QueueError::NotFound(_))));
     let r = q.queue.decide_finding(&who, &id, &rule, "request_information", "need the invoice").unwrap();
@@ -407,4 +407,150 @@ fn a_decision_reason_that_contains_the_patients_identifier_is_refused() {
     let rule = q.flagged_rules(&id)[0].0.clone();
     assert!(matches!(q.queue.decide_finding(&who, &id, &rule, "confirm_issue", &format!("seen on the card of {patient}")), Err(QueueError::Invalid(m)) if m.contains("identifier")));
     q.queue.decide_finding(&who, &id, &rule, "confirm_issue", "seen on the card").unwrap();
+}
+
+// ---- one-click confirm and bulk confirm -------------------------------------------------------------------------------------
+
+#[test]
+fn confirming_needs_no_typed_reason_but_dismissing_still_does() {
+    let q = q();
+    let id = q.ready("medium");
+    q.lease_to(&id, "CG-2002");
+    let who = q.p("CG-2002");
+    let rules = q.flagged_rules(&id);
+    assert!(!rules.is_empty());
+    let r = &rules[0].0;
+    assert!(matches!(q.queue.decide_finding(&who, &id, r, "dismiss_with_reason", "   "), Err(QueueError::Invalid(m)) if m.contains("reason")), "overriding the engine still needs words");
+    assert!(q.queue.decide_finding(&who, &id, r, "confirm_issue", "").is_ok());
+    let d = q.store.get(&id, None).unwrap().unwrap();
+    let rec = d["decisions"].as_array().unwrap().iter().find(|x| x["rule_id"] == r.as_str()).unwrap();
+    assert_eq!(rec["reason"], cg_queue::service::CONFIRM_REASON);
+    assert!(std::fs::read_to_string(q.w.dir.path().join("review.jsonl")).unwrap().contains(cg_queue::service::CONFIRM_REASON), "the review log carries the recorded reason");
+}
+
+/// Decided dossiers for one rule, so that the rule has enough decisions from enough reviewers to be measured.
+fn seed_decided(q: &Q, rule: &str, upheld: usize, overridden: usize) {
+    let badges = ["CG-2002", "CG-2003", "CG-3003", "CG-3004", "CG-3005"];
+    for i in 0..(upheld + overridden) {
+        let (id, badge) = (format!("SEED-{rule}-{i}"), badges[i % badges.len()]);
+        let d = json!({"claim_id": id, "version": 1, "input_hash": format!("h-{id}"), "claim": {"claim_id": id}, "results": [{"rule_id": rule, "status": "FAIL", "severity": "medium"}],
+                       "receipt": {"lane": "A", "eligibility": "decide", "created_at": 1.0}});
+        assert!(q.store.put_triaged(&d).unwrap());
+        assert!(q.store.transition(&id, 1, "triaged", "ready", "t", 2.0, None, None, None).unwrap().is_some());
+        assert!(q.store.lease(&id, 1, badge, 3.0, 99_999.0).unwrap().is_some());
+        let action = if i < upheld { "confirm_issue" } else { "dismiss_with_reason" };
+        assert!(q.store.add_decision(&id, 1, badge, 4.0, &json!({"rule_id": rule, "action": action, "actor": badge, "reason": "seed", "at": 4.0, "round": 1})).unwrap().is_some());
+        let mut set = serde_json::Map::new();
+        set.insert("decided_by".into(), json!(badge));
+        assert!(q.store.transition(&id, 1, "leased", "decided", badge, 5.0, None, Some(set), Some(badge)).unwrap().is_some());
+    }
+}
+
+fn set_bulk(q: &Q, skip: f64, audit: i64) {
+    let admin = q.p("CG-4004");
+    let v = q.store.latest_config().unwrap().unwrap()["version"].as_i64().unwrap();
+    let mut set = serde_json::Map::new();
+    set.insert("bulk_confirm_skip_lower".into(), json!(skip));
+    set.insert("audit_percent".into(), json!(audit));
+    q.queue.set_config(&admin, &set, v).unwrap();
+}
+
+/// Ready claims whose only flagged finding is this rule, leased to the reviewer.
+fn leased_with(q: &Q, who: &str, n: usize, rule: &str) -> Vec<String> {
+    let mut ids = vec![];
+    for i in 0..n {
+        let id = format!("BULK-{who}-{rule}-{i}");
+        let d = json!({"claim_id": id, "version": 1, "input_hash": format!("h-{id}"), "claim": {"claim_id": id, "patient_id": "P1", "member_id": "M1"},
+                       "results": [{"rule_id": rule, "status": "FAIL", "severity": "medium", "affected_line_ids": [], "evidence": []}],
+                       "receipt": {"lane": "A", "eligibility": "decide", "created_at": 1.0}});
+        assert!(q.store.put_triaged(&d).unwrap());
+        assert!(q.store.transition(&id, 1, "triaged", "ready", "t", 2.0, None, None, None).unwrap().is_some());
+        q.lease_to(&id, who);
+        ids.push(id);
+    }
+    ids
+}
+
+#[test]
+fn bulk_confirm_is_off_until_an_administrator_turns_it_on_and_only_for_a_rule_reviewers_almost_always_uphold() {
+    let q = q();
+    seed_decided(&q, "R007", 60, 0);
+    seed_decided(&q, "R008", 10, 10);
+    let who = q.p("CG-2002");
+    let ids = leased_with(&q, "CG-2002", 3, "R007");
+    assert!(matches!(q.queue.bulk_confirm(&who, "R007", &ids), Err(QueueError::Invalid(m)) if m.contains("switched off")), "off by default");
+    assert!(q.queue.light_review_rules().is_empty());
+    set_bulk(&q, 0.9, 1);
+    assert_eq!(q.queue.light_review_rules().into_iter().collect::<Vec<_>>(), vec!["R007".to_string()], "R008 is upheld half the time: never eligible");
+    let ids8 = leased_with(&q, "CG-2002", 2, "R008");
+    assert!(matches!(q.queue.bulk_confirm(&who, "R008", &ids8), Err(QueueError::Forbidden(_))));
+    assert!(ids8.iter().all(|id| q.state(id) == "leased"), "a refused request changes nothing");
+    assert!(matches!(q.queue.bulk_confirm(&who, "R007", &[]), Err(QueueError::Invalid(_))));
+    assert!(matches!(q.queue.bulk_confirm(&who, "R007", &[ids[0].clone(), ids[0].clone()]), Err(QueueError::Invalid(m)) if m.contains("once")));
+}
+
+#[test]
+fn bulk_confirm_decides_through_the_ordinary_rules_and_its_decisions_are_not_evidence() {
+    let q = q();
+    seed_decided(&q, "R007", 60, 0);
+    set_bulk(&q, 0.9, 1);
+    let who = q.p("CG-2002");
+    let ids = leased_with(&q, "CG-2002", 12, "R007");
+    let r = q.queue.bulk_confirm(&who, "R007", &ids).unwrap();
+    let (confirmed, full) = (r["confirmed"].as_i64().unwrap(), r["left_for_full_review"].as_i64().unwrap());
+    assert_eq!(confirmed + full + r["refused"].as_i64().unwrap(), 12);
+    assert!(confirmed >= 9, "at a 1% audit almost all are confirmed (got {confirmed})");
+    for row in r["results"].as_array().unwrap() {
+        let id = row["claim_id"].as_str().unwrap();
+        let d = q.store.get(id, None).unwrap().unwrap();
+        match row["outcome"].as_str().unwrap() {
+            "confirmed" => {
+                assert_eq!(d["state"], "decided");
+                assert_eq!(d["decided_by"], "CG-2002", "decided by the person, never by the system");
+                assert_eq!(d["decisions"][0]["reason"], cg_queue::service::BULK_REASON);
+                assert_eq!(d["decisions"][0]["action"], "confirm_issue");
+            }
+            "full_review" => assert_eq!((d["state"].as_str(), d["decisions"].as_array().unwrap().len()), (Some("leased"), 0), "left for a person to decide"),
+            other => panic!("unexpected outcome {other}: {row}"),
+        }
+    }
+    let kinds = q.security_kinds();
+    assert!(kinds.iter().filter(|k| *k == "decision").count() as i64 >= confirmed, "every bulk decision is in the security log like any other");
+    // not evidence: the rule's counted decisions are still the 60 seeded ones
+    let decided = q.store.by_state("decided", 10_000).unwrap();
+    assert_eq!(cg_queue::reliability::counted_decisions(&decided).len(), 60);
+    // claims leased to someone else are refused one by one
+    let theirs = leased_with(&q, "CG-2003", 2, "R007");
+    let other = q.queue.bulk_confirm(&who, "R007", &theirs).unwrap();
+    assert_eq!(other["refused"].as_i64().unwrap() + other["left_for_full_review"].as_i64().unwrap(), 2);
+    assert!(theirs.iter().all(|id| q.state(id) == "leased"));
+}
+
+#[test]
+fn bulk_confirm_keeps_a_high_severity_finding_behind_a_senior() {
+    let q = q();
+    seed_decided(&q, "R007", 60, 0);
+    set_bulk(&q, 0.9, 1);
+    let id = "BULK-HIGH".to_string();
+    let d = json!({"claim_id": id, "version": 1, "input_hash": "h", "claim": {"claim_id": id}, "results": [{"rule_id": "R007", "status": "FAIL", "severity": "high", "affected_line_ids": [], "evidence": []}],
+                   "receipt": {"lane": "A", "eligibility": "decide_high", "created_at": 1.0}});
+    assert!(q.store.put_triaged(&d).unwrap());
+    assert!(q.store.transition(&id, 1, "triaged", "ready", "t", 2.0, None, None, None).unwrap().is_some());
+    q.lease_to(&id, "CG-2002");
+    let r = q.queue.bulk_confirm(&q.p("CG-2002"), "R007", &[id.clone()]).unwrap();
+    let outcome = r["results"][0]["outcome"].as_str().unwrap();
+    assert!(outcome == "refused" || outcome == "full_review", "a junior cannot confirm a high-severity finding, in bulk or one by one: {r}");
+    assert_eq!(q.state(&id), "leased");
+}
+
+#[test]
+fn bulk_confirm_at_a_100_percent_audit_confirms_nothing_and_leaves_every_claim_for_a_full_review() {
+    let q = q();
+    seed_decided(&q, "R007", 60, 0);
+    set_bulk(&q, 0.9, 100);
+    let who = q.p("CG-2002");
+    let ids = leased_with(&q, "CG-2002", 6, "R007");
+    let r = q.queue.bulk_confirm(&who, "R007", &ids).unwrap();
+    assert_eq!((r["confirmed"].as_i64(), r["left_for_full_review"].as_i64()), (Some(0), Some(6)));
+    assert!(ids.iter().all(|id| q.state(id) == "leased" && q.store.get(id, None).unwrap().unwrap()["decisions"].as_array().unwrap().is_empty()));
 }

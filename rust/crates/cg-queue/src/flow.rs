@@ -303,7 +303,7 @@ fn make_ready(store: &dyn QueueStore, claim_id: &str, version: i64, from: &str, 
 }
 
 /// A random number from 0 to 100 (two decimals) for the audit draw. Written on the claim, so every draw can be checked afterwards.
-fn audit_draw() -> f64 {
+pub(crate) fn audit_draw() -> f64 {
     use rand::{rngs::OsRng, RngCore};
     (OsRng.next_u64() % 10_000) as f64 / 100.0
 }

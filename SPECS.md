@@ -753,6 +753,16 @@ Effects: a doubtful rule makes a claim need a senior; the dispatcher priority ad
 
 Simulated evidence (seed 1): R006 (hidden true rate 0.35) is doubtful after 405 decisions; no rule with hidden rate 0.97 was ever doubtful; routing on raised the senior share from 76.2% to 87.5% with identical verdict hashes; the reviewer cap and minimum protect against an adversary deciding up to about 30% of claims or a fully captured queue, not 40% to 80%. All reviewers there are simulated.
 
+### 10i. Less work per operator
+
+Full note: `docs/50_Operator_Workload_Reduction.md`; plan `docs/superpowers/plans/2026-10-15-operator-workload-reduction.md`. Three new routing-configuration fields, all versioned and logged: `auto_clear_green` (bool, default false), `audit_percent` (1 to 100, default 5) and `bulk_confirm_skip_lower` (0 = off, else 0.8 to 0.999).
+
+Auto-clear: `flow::green_path` decides an intact green claim as `system:auto-clear` (new legal move `triaged -> decided`, field `auto_cleared`) unless a random draw below `audit_percent` sends it to a person (event `why: green_audit`, `audit_draw` on the claim). Damaged or flagged claims are never cleared. `workload::audit_report` / `cg queue audit` give the escalation rate of the audited sample with an exact 95% upper bound. Shadow agreement and the feedback report leave system-cleared claims out of "verified by a person".
+
+Confirm without a reason: `decide_finding` records the fixed text for a `confirm_issue` with no reason; dismissing still needs one. Bulk confirm: `POST /api/v1/work/bulk-confirm` {rule_id, claim_ids (1 to 25)}; the rule must be a light-review rule now (cached 5 minutes), each claim goes through `decide_finding`, a random `audit_percent` is left for full review, and decisions with the bulk reason are excluded from `reliability::counted_decisions`. `GET /work/inbox` also returns `light_review`. The workload report adds `time.breakdown` and `planning_per_500_claims`.
+
+Tests: `cargo test -p cg-queue` (config, auto-clear, audit report, time breakdown, planning, confirm, bulk confirm incl. high severity and not-evidence). Nothing here is measured on real reviewers.
+
 ## 11. Experiments in detail
 
 ### 11.1 Why and how

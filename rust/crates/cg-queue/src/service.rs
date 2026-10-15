@@ -35,6 +35,11 @@ pub const GREEN_ACTIONS: [&str; 2] = ["verify_clear", "escalate"];
 const ACTIONS: [&str; 4] = ["confirm_issue", "dismiss_with_reason", "request_information", "mark_corrected_for_recheck"];
 const LOG_VALUE_CHARS: usize = 400;
 pub const MAX_SUBMIT: usize = 25;
+/// Recorded when a person confirms a finding without typing a reason: confirming agrees with the engine, so only overriding it needs words.
+pub const CONFIRM_REASON: &str = "Confirmed: the finding matches the evidence.";
+/// Recorded on a finding confirmed in bulk after a light review. Such decisions are left out of the reliability evidence (`reliability::counted_decisions`).
+pub const BULK_REASON: &str = "Confirmed in bulk after a light review.";
+const LIGHT_TTL: f64 = 300.0;
 const CONFIG_FIELDS: [&str; 14] = ["points", "lane_b_flagged", "lane_b_score", "slice_size", "low_water", "lease_seconds", "aging_per_hour", "ai_per_minute", "ai_daily_budget", "on_shift", "exclusions", "auto_clear_green", "audit_percent", "bulk_confirm_skip_lower"];
 
 #[derive(Debug, thiserror::Error)]
@@ -139,11 +144,13 @@ pub struct QueueService {
     pub review_log: Arc<AuditLog>,
     pub clock: Clock,
     intake: Mutex<Option<Arc<Intake>>>,
+    /// (computed at, skip_lower it was computed for, rules): the light-review set is a read over every decided claim, so it is kept for five minutes.
+    light: Mutex<Option<(f64, f64, BTreeSet<String>)>>,
 }
 
 impl QueueService {
     pub fn new(store: Arc<dyn QueueStore>, dispatcher: Arc<Dispatcher>, access: Arc<AccessService>, securitylog: Arc<SecurityLog>, review_log: Arc<AuditLog>, clock: Clock) -> QueueService {
-        QueueService { store, dispatcher, access, securitylog, review_log, clock, intake: Mutex::new(None) }
+        QueueService { store, dispatcher, access, securitylog, review_log, clock, intake: Mutex::new(None), light: Mutex::new(None) }
     }
 
     /// Set by the wiring; only the submit route needs it.
@@ -267,6 +274,7 @@ impl QueueService {
 
     // ---- decisions ----------------------------------------------------------------------------------------------------
     pub fn decide_finding(&self, principal: &Principal, claim_id: &str, rule_id: &str, action: &str, reason: &str) -> R<Value> {
+        let reason = if action == "confirm_issue" && cg_core::text::blank(reason) { CONFIRM_REASON } else { reason };
         let now = self.now();
         let perms = self.require(principal, "claims.decide")?;
         let doc = self.mine(principal, claim_id, now)?;
@@ -391,6 +399,68 @@ impl QueueService {
         self.store.transition(claim_id, version, "leased", "ready", principal.badge(), now, Some(json!({"event": "escalated", "badge_id": principal.badge()})), Some(set), Some(principal.badge())).map_err(store_err)?.ok_or_else(lease_lost)?;
         self.access.record("claim_decided_green", json!({"badge_id": principal.badge(), "claim_id": claim_id, "action": "escalate"}))?;
         Ok(json!({"claim_state": "ready"}))
+    }
+
+    /// The rules whose findings reviewers almost always uphold (the exact lower bound of the upheld rate is at least `bulk_confirm_skip_lower`), from the
+    /// decided claims. Empty while bulk confirm is off, and for any rule without enough decisions from enough different reviewers.
+    pub fn light_review_rules(&self) -> BTreeSet<String> {
+        let cfg = self.routing_config();
+        if cfg.bulk_confirm_skip_lower <= 0.0 {
+            return BTreeSet::new();
+        }
+        let now = self.now();
+        if let Some((at, skip, set)) = self.light.lock().unwrap_or_else(|e| e.into_inner()).as_ref() {
+            if *skip == cfg.bulk_confirm_skip_lower && now - at < LIGHT_TTL {
+                return set.clone();
+            }
+        }
+        let decided = self.store.by_state("decided", 100_000).unwrap_or_default();
+        let report = crate::workload::report(&decided, &crate::reliability::Params::from_config(&cfg), cfg.bulk_confirm_skip_lower, cfg.lease_seconds as f64);
+        let set: BTreeSet<String> = report["rules"].as_array().into_iter().flatten().filter(|r| r["role"] == "light_review").filter_map(|r| r["rule"].as_str().map(str::to_string)).collect();
+        *self.light.lock().unwrap_or_else(|e| e.into_inner()) = Some((now, cfg.bulk_confirm_skip_lower, set.clone()));
+        set
+    }
+
+    /// Confirms one rule's finding on several claims the caller holds, after a light review. The server enforces what the screen shows: the rule must
+    /// be a light-review rule right now, each claim goes through the ordinary `decide_finding` (lease, clearance, countersign, masking and the logs all
+    /// apply), only confirm is possible, and a random `audit_percent` of the claims is left for a full review so evidence about the rule keeps coming.
+    pub fn bulk_confirm(&self, principal: &Principal, rule_id: &str, claim_ids: &[String]) -> R<Value> {
+        self.require(principal, "claims.decide")?;
+        let cfg = self.routing_config();
+        if cfg.bulk_confirm_skip_lower <= 0.0 {
+            return Err(QueueError::Invalid("bulk confirm is switched off".into()));
+        }
+        if claim_ids.is_empty() || claim_ids.len() > MAX_SUBMIT {
+            return Err(QueueError::Invalid(format!("send 1 to {MAX_SUBMIT} claims")));
+        }
+        let mut seen = BTreeSet::new();
+        if !claim_ids.iter().all(|c| seen.insert(c.as_str())) {
+            return Err(QueueError::Invalid("a claim may appear once".into()));
+        }
+        if !self.light_review_rules().contains(rule_id) {
+            return Err(QueueError::Forbidden("this rule is not eligible for bulk confirm".into()));
+        }
+        let (mut confirmed, mut full, mut refused) = (0, 0, 0);
+        let mut rows = vec![];
+        for id in claim_ids {
+            if crate::flow::audit_draw() < cfg.audit_percent as f64 {
+                full += 1;
+                rows.push(json!({"claim_id": id, "outcome": "full_review"}));
+                continue;
+            }
+            match self.decide_finding(principal, id, rule_id, "confirm_issue", BULK_REASON) {
+                Ok(v) => {
+                    confirmed += 1;
+                    rows.push(json!({"claim_id": id, "outcome": "confirmed", "claim_state": v["claim_state"]}));
+                }
+                Err(e @ QueueError::Auth(_)) => return Err(e),
+                Err(e) => {
+                    refused += 1;
+                    rows.push(json!({"claim_id": id, "outcome": "refused", "error": e.to_string()}));
+                }
+            }
+        }
+        Ok(json!({"rule_id": rule_id, "confirmed": confirmed, "left_for_full_review": full, "refused": refused, "results": rows}))
     }
 
     // ---- the administrator's side -------------------------------------------------------------------------------------

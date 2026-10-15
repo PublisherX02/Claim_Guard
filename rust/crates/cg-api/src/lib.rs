@@ -166,7 +166,15 @@ struct ChangePasswordBody {
 #[serde(deny_unknown_fields)]
 struct DecisionBody {
     action: String,
+    #[serde(default)]
     reason: String,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct BulkBody {
+    rule_id: String,
+    claim_ids: Vec<String>,
 }
 
 #[derive(Deserialize)]
@@ -508,6 +516,8 @@ impl Api {
             ["work", "heartbeat"] if self.queue.is_some() => if m == "POST" { self.work_heartbeat(req) } else { Err(wrong()) },
             ["work", "claims", id, "findings", rule, "decision"] if self.queue.is_some() => if m == "POST" { self.work_decide(req, id, rule) } else { Err(wrong()) },
             ["work", "claims", id, "verify"] if self.queue.is_some() => if m == "POST" { self.work_verify(req, id) } else { Err(wrong()) },
+            ["work", "bulk-confirm"] if self.queue.is_some() => if m == "POST" { self.work_bulk_confirm(req) } else { Err(wrong()) },
+            ["work", "bulk-confirm"] if self.queue.is_some() => if m == "POST" { self.work_bulk_confirm(req) } else { Err(wrong()) },
             ["queue", "dashboard"] if self.queue.is_some() => if m == "GET" { self.q_dashboard(req) } else { Err(wrong()) },
             ["queue", "feedback"] if self.queue.is_some() => if m == "GET" { self.q_feedback(req) } else { Err(wrong()) },
             ["queue", "import", "file"] => if m == "POST" { self.import_file(req) } else { Err(wrong()) },
@@ -950,8 +960,9 @@ impl Api {
     // ---- the queue --------------------------------------------------------------------------------------------------------
     fn work_inbox(&self, req: &ApiRequest) -> R {
         let p = self.need(req, "claims.decide")?;
-        let claims = self.queue()?.inbox(&p).map_err(|e| self.qerr(e, req, &p))?;
-        Ok(ApiResponse::json(200, &json!({"claims": claims})))
+        let q = self.queue()?;
+        let claims = q.inbox(&p).map_err(|e| self.qerr(e, req, &p))?;
+        Ok(ApiResponse::json(200, &json!({"claims": claims, "light_review": q.light_review_rules()})))
     }
 
     /// A fingerprint of what the caller's open page shows, for the live-update stream (server.rs): it changes when the caller's own inbox
@@ -1001,8 +1012,17 @@ impl Api {
 
     fn work_decide(&self, req: &ApiRequest, id: &str, rule: &str) -> R {
         let p = self.need(req, "claims.decide")?;
-        let b: DecisionBody = body_of(req).ok().filter(|b: &DecisionBody| ACTIONS.contains(&b.action.as_str()) && !b.reason.is_empty() && !too_long(&b.reason, 1000)).ok_or_else(invalid)?;
+        let b: DecisionBody = body_of(req).ok().filter(|b: &DecisionBody| ACTIONS.contains(&b.action.as_str()) && (!b.reason.is_empty() || b.action == "confirm_issue") && !too_long(&b.reason, 1000)).ok_or_else(invalid)?;
         self.queue()?.decide_finding(&p, id, rule, &b.action, &b.reason).map(|v| ApiResponse::json(200, &v)).map_err(|e| self.qerr(e, req, &p))
+    }
+
+    fn work_bulk_confirm(&self, req: &ApiRequest) -> R {
+        let p = self.need(req, "claims.decide")?;
+        let b: BulkBody = body_of(req)
+            .ok()
+            .filter(|b: &BulkBody| b.rule_id.len() <= 10 && (1..=25).contains(&b.claim_ids.len()) && b.claim_ids.iter().all(|c| !c.is_empty() && c.len() <= 64))
+            .ok_or_else(invalid)?;
+        self.queue()?.bulk_confirm(&p, &b.rule_id, &b.claim_ids).map(|v| ApiResponse::json(200, &v)).map_err(|e| self.qerr(e, req, &p))
     }
 
     fn work_verify(&self, req: &ApiRequest, id: &str) -> R {

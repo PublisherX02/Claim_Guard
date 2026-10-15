@@ -127,6 +127,9 @@ Priority follows MoSCoW (M must, S should, C could, W will not). Status: **Done*
 | FR-22 | Route by confidence | W | Not wired (built, archived 2026-10-15) | No model confidence exists (the engine is deterministic). Routing by measured per-rule reliability was built, raised senior load in simulation, and is at git tag archive/hitl-routing-2026-10-15 awaiting the mentor (docs/48). Read-only workload report instead: docs/49 |
 | FR-23 | Show administrators what is broken (system health panel: databases, broker, scheduled jobs, audit chains, disk, AI helper, request traffic) | S | Built (2026-10-09) | docs/37; `GET /api/v1/ops/health`; per-process traffic numbers, no alerts are sent |
 | FR-24 | Let administrators search and chart the audit log (filters by event, badge, claim and period; per-hour counts; CSV; on-demand chain verification) | S | Built (2026-10-09) | docs/37 |
+| FR-26 | Let the system decide a green claim except for a random audit sample, and report what the audit finds | C | Built (2026-10-15), default off | docs/50; `auto_clear_green`, `audit_percent`, `cg queue audit`; waits for the mentor |
+| FR-27 | Confirm a finding without typing a reason, in one click, and confirm all findings of a claim | S | Built (2026-10-15) | docs/50; dismissing still needs a reason |
+| FR-28 | Confirm many findings of a rule reviewers almost always uphold after a light look | C | Built (2026-10-15), default off | docs/50; `bulk_confirm_skip_lower`; waits for the mentor |
 | FR-25 | Trace one claim from intake to decision (versions, state history, decisions, hashes, security-log entries, no claim values) | S | Built (2026-10-09) | docs/37; `GET /api/v1/ops/trace/{claim_id}` |
 
 ### 4.2 Non-functional requirements
@@ -234,6 +237,8 @@ Status codes used by the reviewer API: `401` not signed in or invalid credential
 | UC24 | Replay a failed task | Administrator | `queue_admin deadletters`, `deadletter-replay` | Done |
 | UC25 | Manage users | Administrator | `/api/v1/users` routes; `scripts/access_admin.py` | Done |
 | UC27 | Review the workload report | Administrator | `queue_admin workload` (`cg queue workload`) | Done (read-only) |
+| UC28 | Clear green claims with an audit | Administrator | `PATCH /api/v1/queue/config`, `cg queue audit` | Done (off by default) |
+| UC29 | Bulk confirm a rule | Reviewer | `POST /api/v1/work/bulk-confirm`, console "By rule" | Done (off by default) |
 | UC26 | Verify the audit trail | Administrator | `GET /api/v1/audit/events`, `/audit/verify` | Done |
 
 ### 6.2 Automatic checking

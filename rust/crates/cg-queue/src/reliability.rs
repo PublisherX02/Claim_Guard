@@ -69,7 +69,8 @@ pub fn counted_decisions(docs: &[Value]) -> Vec<Counted> {
         let mut last: BTreeMap<&str, &Value> = BTreeMap::new();
         for d in doc["decisions"].as_array().into_iter().flatten() {
             let (rule, action) = (d["rule_id"].as_str().unwrap_or(""), d["action"].as_str().unwrap_or(""));
-            if flagged.contains(rule) && RESOLVING.contains(&action) {
+            // a bulk confirm is a lighter look, not evidence about the rule: counting it would keep a rule eligible by its own rubber stamp
+            if flagged.contains(rule) && RESOLVING.contains(&action) && d["reason"].as_str() != Some(crate::service::BULK_REASON) {
                 last.insert(rule, d);
             }
         }
