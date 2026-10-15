@@ -47,6 +47,27 @@ pub fn run(args: &[String]) -> i32 {
             }
         }
         Some("fast-forward") => fast_forward(args, &root, seed),
+        Some("automatic") => {
+            let out = PathBuf::from(flag(args, "--out").unwrap_or_else(|| "outputs/defense/automatic.json".into()));
+            let batches: u64 = flag(args, "--batches").and_then(|s| s.parse().ok()).unwrap_or(20);
+            let size: usize = flag(args, "--size").and_then(|s| s.parse().ok()).unwrap_or(500);
+            match cg_sim::experiments::automatic_batches(&root, seed, batches, size) {
+                Ok(v) => {
+                    if let Some(parent) = out.parent() {
+                        let _ = std::fs::create_dir_all(parent);
+                    }
+                    if std::fs::write(&out, serde_json::to_string_pretty(&v).unwrap_or_default()).is_err() {
+                        return 2;
+                    }
+                    println!("wrote {}", out.display());
+                    0
+                }
+                Err(e) => {
+                    eprintln!("error: {e}");
+                    2
+                }
+            }
+        }
         Some("workload") => {
             let out = PathBuf::from(flag(args, "--out").unwrap_or_else(|| "outputs/defense/workload.json".into()));
             let seeds: u64 = flag(args, "--seeds").and_then(|s| s.parse().ok()).unwrap_or(20);

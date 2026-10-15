@@ -55,3 +55,20 @@ What a wrong finding that skips full review means: it would be confirmed without
 ## 5. Open question for the mentor
 
 Is "reviewers almost always agree, so a lighter look" an acceptable way to cut review time in this domain, and at what residual error? And should the earlier idea of routing doubtful rules to a senior (`docs/48`, archived) be built at all, given that it adds senior work?
+
+## 6. Claims processed with no person, on random batches of 500
+
+`cg sim automatic` (evidence `outputs/defense/automatic.json`): 20 random batches of 500 claims drawn without replacement from the 600 labelled claims (development, validation, stress). Because the pool is only 600, batches overlap by about 83%, so the min-max ranges understate real batch-to-batch variation. The split into green and flagged claims is real (the engine matches the answer key on all of them, `docs/46`). Which flagged rules count as "almost always upheld", and whether an automatic flagged claim was wrong, come from simulated reviewers (3,000 simulated decisions per batch). The batch mix is the organizers' synthetic one, not a hospital's.
+
+| Policy | Processed with no person (mean, range) | Left for a person | Findings a person still reviews | Automatic claims that were wrong |
+|---|---|---|---|---|
+| Today | 0 of 500 | 500 | 645 | 0 |
+| Green claims only (no flagged finding) | 167 (160 to 179) = 33% | 333 | 645 | 0 on this data |
+| Green + light-review rules, `skip_lower` 0.95 | 174 (160 to 202) = 35% | 326 | 638 | 0.2 (0 to 2) |
+| Green + light-review rules, `skip_lower` 0.90 | 358 (302 to 393) = 72% | 142 | 420 | 6.5 (3 to 12) |
+| Green + light-review rules, `skip_lower` 0.85 | 388 (378 to 393) = 78% | 112 | 370 | 8.3 (4 to 14) |
+
+Reading it:
+- The 33% from green claims is the firm part: no flagged finding and no degraded result, nothing for a person to decide. It is the share of the dataset's claims that are valid, so a real queue would differ.
+- The extra 2% to 45% comes from flagged claims whose every finding is in a rule reviewers almost always uphold. It depends on simulated reviewers and on the threshold. The looser thresholds process 72% to 78% of a batch automatically at a cost of about 7 to 8 claims per 500 (roughly 2% of the automatic claims) that a person would have corrected: each is a valid claim sent back for a needless correction.
+- Under today's rules green claims are still verified by a person; automatic processing of green claims is a policy change the mentor has not been asked about.

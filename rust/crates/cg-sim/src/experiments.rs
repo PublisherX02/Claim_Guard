@@ -307,6 +307,120 @@ pub fn all(root: &Path, seed: u64) -> Result<Value, String> {
         "poisoning": poisoning(root, seed)?, "invariants": invariants(root)?}))
 }
 
+/// Every labelled claim with the engine's results (the organizers' answer key, which the engine matches exactly: docs/46).
+fn all_labelled(root: &Path) -> Result<Vec<(Value, Value)>, String> {
+    let mut out = vec![];
+    for dir in ["development", "validation", "stress"] {
+        let read = |name: &str| -> Result<Vec<Value>, String> {
+            std::fs::read_to_string(root.join("data").join(dir).join(name)).map_err(|e| e.to_string())?.lines().filter(|l| !l.trim().is_empty()).map(|l| serde_json::from_str(l).map_err(|e| e.to_string())).collect()
+        };
+        let (claims, results) = (read("claims.jsonl")?, read("expected_results.jsonl")?);
+        let mut by: BTreeMap<String, Vec<Value>> = BTreeMap::new();
+        for r in results {
+            by.entry(r["claim_id"].as_str().unwrap_or("").to_string()).or_default().push(r);
+        }
+        for c in claims {
+            if let Some(rows) = by.remove(c["claim_id"].as_str().unwrap_or("")) {
+                out.push((c, Value::Array(rows)));
+            }
+        }
+    }
+    Ok(out)
+}
+
+fn stat(v: &[f64]) -> Value {
+    json!({"mean": v.iter().sum::<f64>() / v.len().max(1) as f64, "min": v.iter().cloned().fold(f64::MAX, f64::min), "max": v.iter().cloned().fold(f64::MIN, f64::max)})
+}
+
+/// Random batches of claims, and how many would be processed with no person at all under each policy.
+/// today: none. green: claims with no flagged finding and no degraded result. green + light: also flagged claims whose every finding belongs to a
+/// rule reviewers almost always uphold (learned from 3,000 simulated decisions; threshold = lower bound of the upheld rate).
+/// "Wrong" = a claim sent on automatically that contains a finding a person should have dismissed (drawn from the hidden truth).
+pub fn automatic_batches(root: &Path, seed: u64, batches: u64, batch_size: usize) -> Result<Value, String> {
+    use cg_queue::workload;
+    use rand::seq::SliceRandom;
+    use rand::{Rng, SeedableRng};
+    let pool = all_labelled(root)?;
+    let corpus = load_corpus(root)?;
+    let truth = truth();
+    let thresholds = [0.85f64, 0.90, 0.95];
+    let (mut green_n, mut degraded_n, mut flagged_n, mut findings_today) = (vec![], vec![], vec![], vec![]);
+    // per threshold: automatic flagged claims, wrong ones, claims left for a person, findings left for a person
+    let mut per_t: Vec<[Vec<f64>; 4]> = thresholds.iter().map(|_| [vec![], vec![], vec![], vec![]]).collect();
+    for b in 0..batches {
+        let mut rng = rand_chacha::ChaCha8Rng::seed_from_u64(seed * 1000 + b);
+        let mut idx: Vec<usize> = (0..pool.len()).collect();
+        idx.shuffle(&mut rng);
+        let batch: Vec<&(Value, Value)> = idx.iter().take(batch_size.min(pool.len())).map(|i| &pool[*i]).collect();
+        let (mut g, mut d, mut f, mut findings) = (0usize, 0usize, 0usize, 0usize);
+        for (_, r) in &batch {
+            let fl = triage::flagged(r);
+            if triage::degraded(r) {
+                d += 1;
+                findings += fl.len();
+            } else if fl.is_empty() {
+                g += 1;
+            } else {
+                f += 1;
+                findings += fl.len();
+            }
+        }
+        green_n.push(g as f64);
+        degraded_n.push(d as f64);
+        flagged_n.push(f as f64);
+        findings_today.push(findings as f64);
+        // what the reviewers of a separate simulated history have taught about each rule
+        let store = MemoryQueueStore::new();
+        Lab::new(seed * 1000 + b, false).run(&store, &corpus, 3000, &RoutingConfig::default(), None)?;
+        let decided = store.by_state("decided", 1_000_000).map_err(|e| e.to_string())?;
+        for (ti, t) in thresholds.iter().enumerate() {
+            let rep = workload::report(&decided, &params(), *t, 1800.0);
+            let light: BTreeSet<String> = rep["rules"].as_array().into_iter().flatten().filter(|r| r["role"] == "light_review").filter_map(|r| r["rule"].as_str().map(str::to_string)).collect();
+            let (mut auto, mut wrong, mut human_claims, mut human_findings) = (0usize, 0usize, 0usize, 0usize);
+            for (_, r) in &batch {
+                let fl = triage::flagged(r);
+                let degraded = triage::degraded(r);
+                if fl.is_empty() && !degraded {
+                    continue; // green: counted separately
+                }
+                if !degraded && fl.iter().all(|x| x["rule_id"].as_str().is_some_and(|id| light.contains(id))) {
+                    auto += 1;
+                    // a person would have dismissed a finding with probability 1 - truth
+                    if fl.iter().any(|x| !rng.gen_bool(truth.get(x["rule_id"].as_str().unwrap_or("")).copied().unwrap_or(0.9))) {
+                        wrong += 1;
+                    }
+                } else {
+                    human_claims += 1;
+                    human_findings += fl.len();
+                }
+            }
+            let slot = &mut per_t[ti];
+            slot[0].push(auto as f64);
+            slot[1].push(wrong as f64);
+            slot[2].push(human_claims as f64);
+            slot[3].push(human_findings as f64);
+        }
+    }
+    let size = batch_size.min(pool.len()) as f64;
+    let for_a_person_green: Vec<f64> = green_n.iter().map(|g| size - g).collect();
+    let mut policies = vec![
+        json!({"policy": "today", "processed_automatically": 0, "claims_for_a_person": size, "note": "every claim goes to a person; a claim with no finding is verified by one"}),
+        json!({"policy": "green claims only", "processed_automatically": stat(&green_n), "claims_for_a_person": stat(&for_a_person_green), "automatic_claims_that_were_wrong": 0,
+               "note": "a green claim has no flagged finding; the engine matches the answer key exactly on all labelled claims, so none is wrong on this data"}),
+    ];
+    for (ti, t) in thresholds.iter().enumerate() {
+        let s = &per_t[ti];
+        let auto_total: Vec<f64> = green_n.iter().zip(&s[0]).map(|(g, a)| g + a).collect();
+        let humans: Vec<f64> = auto_total.iter().map(|a| size - a).collect();
+        let share: Vec<f64> = auto_total.iter().map(|a| 100.0 * a / size).collect();
+        policies.push(json!({"policy": "green + light-review rules", "skip_lower": t, "processed_automatically": stat(&auto_total), "percent_of_batch": stat(&share), "of_which_flagged_claims": stat(&s[0]),
+            "automatic_flagged_claims_that_were_wrong": stat(&s[1]), "claims_for_a_person": stat(&humans), "findings_a_person_still_reviews": stat(&s[3])}));
+    }
+    Ok(json!({"batches": batches, "batch_size": size, "pool": pool.len(), "green_claims_per_batch": stat(&green_n), "claims_with_a_flagged_finding_per_batch": stat(&flagged_n),
+        "claims_with_a_degraded_result_per_batch": stat(&degraded_n), "findings_in_a_batch_reviewed_by_people_today": stat(&findings_today), "policies": policies,
+        "note": "the claims and the green/flagged split are real (labelled claims); which flagged rules reviewers almost always uphold, and whether an automatic flagged claim was wrong, come from simulated reviewers. No time is measured."}))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
