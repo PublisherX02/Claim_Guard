@@ -180,6 +180,7 @@ fn xcheck() {
                 json!(m.pass1_prompt(&req["request"]).ok())
             }
             "pseudonym" => json!(masking::pseudonym(&s("key"), &s("prefix"), &s("value")).ok()),
+            "clopper_pearson" => json!(cg_queue::shadow::clopper_pearson(req["k"].as_i64().unwrap_or(0), req["n"].as_i64().unwrap_or(0), 0.95).map(|(l, u)| [l, u])),
             "provisioning_uri" => json!(totp::provisioning_uri(&s("secret"), &s("badge"), "ClaimGuard")),
             _ => Value::Null,
         };
