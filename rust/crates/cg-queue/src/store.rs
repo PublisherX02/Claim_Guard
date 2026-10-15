@@ -94,6 +94,28 @@ pub fn check_config_doc(doc: &Value, expected_version: i64) -> Result<()> {
     Ok(())
 }
 
+pub const RELIABILITY_MOVES: [(&str, &str); 3] = [("proposed", "approved"), ("proposed", "rejected"), ("approved", "superseded")];
+
+pub fn check_reliability_doc(doc: &Value, expected_version: i64) -> Result<()> {
+    check_config_doc(doc, expected_version)?;
+    if doc.get("status").and_then(Value::as_str) != Some("proposed") {
+        return invalid("a new reliability snapshot must have the status proposed");
+    }
+    Ok(())
+}
+
+pub fn check_reliability_move(from: &str, to: &str, actor: &str, now: f64) -> Result<()> {
+    check_number(now, "now")?;
+    if actor.is_empty() || !RELIABILITY_MOVES.contains(&(from, to)) {
+        return invalid("that reliability status change is not allowed");
+    }
+    Ok(())
+}
+
+pub fn reliability_event(from: &str, to: &str, actor: &str, now: f64, detail: Option<Value>) -> Value {
+    json!({"from": from, "to": to, "actor": actor, "at": now, "detail": detail.unwrap_or(Value::Null)})
+}
+
 pub fn check_id_doc(doc: &Value, key: &str) -> Result<()> {
     if doc.get(key).and_then(Value::as_str).is_some_and(|s| !s.is_empty()) { Ok(()) } else { invalid(format!("the document needs a text {key}")) }
 }
@@ -150,6 +172,10 @@ pub trait QueueStore: Send + Sync {
     fn put_config(&self, doc: &Value, expected_version: i64) -> Result<bool>;
     fn latest_config(&self) -> Result<Option<Value>>;
     fn config_history(&self) -> Result<Vec<Value>>;
+    // reliability snapshots (learned from reviewer decisions; see reliability.rs)
+    fn put_reliability(&self, doc: &Value, expected_version: i64) -> Result<bool>;
+    fn reliability_history(&self) -> Result<Vec<Value>>;
+    fn set_reliability_status(&self, version: i64, from: &str, to: &str, actor: &str, now: f64, detail: Option<Value>) -> Result<Option<Value>>;
     // deals, dead letters, cache, counters, jobs
     fn append_deal(&self, doc: &Value) -> Result<()>;
     fn get_deal(&self, deal_id: &str) -> Result<Option<Value>>;
@@ -169,6 +195,7 @@ pub trait QueueStore: Send + Sync {
 struct Inner {
     docs: BTreeMap<(String, i64), Value>,
     configs: Vec<Value>,
+    reliability: Vec<Value>,
     deals: Vec<Value>,
     dead: Vec<(String, Value)>,
     jobs: BTreeMap<String, Value>,
@@ -430,6 +457,36 @@ impl QueueStore for MemoryQueueStore {
 
     fn config_history(&self) -> Result<Vec<Value>> {
         Ok(self.lock().configs.clone())
+    }
+
+    fn put_reliability(&self, doc: &Value, expected_version: i64) -> Result<bool> {
+        check_reliability_doc(doc, expected_version)?;
+        let mut g = self.lock();
+        if g.reliability.last().and_then(|c| c["version"].as_i64()).unwrap_or(0) != expected_version {
+            return Ok(false);
+        }
+        let mut stored = doc.clone();
+        stored["history"] = json!([]);
+        g.reliability.push(stored);
+        Ok(true)
+    }
+
+    fn reliability_history(&self) -> Result<Vec<Value>> {
+        Ok(self.lock().reliability.clone())
+    }
+
+    fn set_reliability_status(&self, version: i64, from: &str, to: &str, actor: &str, now: f64, detail: Option<Value>) -> Result<Option<Value>> {
+        check_reliability_move(from, to, actor, now)?;
+        let mut g = self.lock();
+        let Some(d) = g.reliability.iter_mut().find(|d| d["version"].as_i64() == Some(version)) else { return Ok(None) };
+        if d["status"] != from {
+            return Ok(None);
+        }
+        d["status"] = json!(to);
+        if let Some(h) = d["history"].as_array_mut() {
+            h.push(reliability_event(from, to, actor, now, detail));
+        }
+        Ok(Some(d.clone()))
     }
 
     fn append_deal(&self, doc: &Value) -> Result<()> {

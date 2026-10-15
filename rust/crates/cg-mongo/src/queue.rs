@@ -13,7 +13,7 @@ use crate::bsonconv::{from_doc, to_bson, to_doc};
 use crate::crypt::FieldCrypt;
 use cg_access::store::StoreError;
 use cg_queue::states;
-use cg_queue::store::{check_config_doc, check_decision, check_id_doc, check_job, check_number, check_set_fields, check_version, lane_key, prepare_new_doc, project_history, QueueStore, Result, DEALABLE};
+use cg_queue::store::{check_config_doc, check_reliability_doc, check_reliability_move, reliability_event, check_decision, check_id_doc, check_job, check_number, check_set_fields, check_version, lane_key, prepare_new_doc, project_history, QueueStore, Result, DEALABLE};
 use mongodb::bson::{doc, Bson, DateTime, Document};
 use mongodb::options::{IndexOptions, ReturnDocument};
 use mongodb::sync::{Client, Collection};
@@ -50,6 +50,7 @@ pub struct MongoQueueStore {
     db_name: String,
     claims: Collection<Document>,
     configs: Collection<Document>,
+    reliability: Collection<Document>,
     deals: Collection<Document>,
     dead: Collection<Document>,
     cache: Collection<Document>,
@@ -121,6 +122,7 @@ impl MongoQueueStore {
         MongoQueueStore {
             claims: db.collection("claims"),
             configs: db.collection("configs"),
+            reliability: db.collection("reliability"),
             deals: db.collection("deals"),
             dead: db.collection("dead_letters"),
             cache: db.collection("cache"),
@@ -146,6 +148,7 @@ impl MongoQueueStore {
         go(&self.claims, plain(doc! {"claim.patient_id": 1}))?;
         go(&self.claims, plain(doc! {"patient_key": 1}))?;
         go(&self.configs, with(doc! {"version": 1}, unique()))?;
+        go(&self.reliability, with(doc! {"version": 1}, unique()))?;
         go(&self.dead, with(doc! {"dead_id": 1}, unique()))?;
         go(&self.cache, with(doc! {"key": 1}, unique()))?;
         go(&self.jobs, with(doc! {"name": 1}, unique()))?;
@@ -403,6 +406,38 @@ impl QueueStore for MongoQueueStore {
 
     fn config_history(&self) -> Result<Vec<Value>> {
         self.many(self.configs.find(doc! {}).sort(doc! {"version": 1}).run().map_err(unavailable)?)
+    }
+
+    fn put_reliability(&self, doc: &Value, expected_version: i64) -> Result<bool> {
+        check_reliability_doc(doc, expected_version)?;
+        let top = self.reliability.find_one(doc! {}).sort(doc! {"version": -1}).run().map_err(unavailable)?;
+        let current = top.and_then(|t| t.get("version").and_then(|v| v.as_i64().or_else(|| v.as_i32().map(i64::from)))).unwrap_or(0);
+        if current != expected_version {
+            return Ok(false);
+        }
+        let mut stored = doc.clone();
+        stored["history"] = json!([]);
+        match self.reliability.insert_one(to_doc(&stored)).run() {
+            Ok(_) => Ok(true),
+            Err(e) if duplicate(&e) => Ok(false),
+            Err(e) => Err(unavailable(e)),
+        }
+    }
+
+    fn reliability_history(&self) -> Result<Vec<Value>> {
+        self.many(self.reliability.find(doc! {}).sort(doc! {"version": 1}).run().map_err(unavailable)?)
+    }
+
+    fn set_reliability_status(&self, version: i64, from: &str, to: &str, actor: &str, now: f64, detail: Option<Value>) -> Result<Option<Value>> {
+        check_reliability_move(from, to, actor, now)?;
+        let event = to_doc(&reliability_event(from, to, actor, now, detail));
+        let updated = self
+            .reliability
+            .find_one_and_update(doc! {"version": version, "status": from}, doc! {"$set": {"status": to}, "$push": {"history": event}})
+            .return_document(mongodb::options::ReturnDocument::After)
+            .run()
+            .map_err(unavailable)?;
+        self.opt(updated)
     }
 
     fn append_deal(&self, d: &Value) -> Result<()> {

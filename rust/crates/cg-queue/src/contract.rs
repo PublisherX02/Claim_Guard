@@ -186,6 +186,52 @@ pub fn run(fresh: &dyn Fn() -> Box<dyn QueueStore>) {
     assert_eq!(hist[0]["claim_id"], "S");
     assert!(hist[0].get("member_id").is_none(), "only the fields the cross-claim rules need");
 
+    // ---- reliability snapshots
+    let s = fresh();
+    assert!(s.reliability_history().unwrap().is_empty());
+    let snap = |v: i64| json!({"version": v, "status": "proposed", "rules": {}});
+    assert!(s.put_reliability(&snap(1), 0).unwrap());
+    assert!(!s.put_reliability(&snap(1), 0).unwrap(), "a stale write loses");
+    assert!(s.put_reliability(&snap(2), 1).unwrap());
+    assert!(s.put_reliability(&snap(5), 2).is_err(), "must be exactly the next version");
+    assert!(s.put_reliability(&json!({"version": 3, "status": "approved"}), 2).is_err(), "a new snapshot is always proposed");
+    assert_eq!(s.reliability_history().unwrap().iter().map(|d| d["version"].as_i64().unwrap()).collect::<Vec<_>>(), vec![1, 2]);
+    assert!(s.set_reliability_status(1, "approved", "superseded", "a", NOW, None).unwrap().is_none(), "wrong current status: nothing happens");
+    assert!(s.set_reliability_status(9, "proposed", "approved", "a", NOW, None).unwrap().is_none(), "unknown version");
+    assert!(s.set_reliability_status(1, "proposed", "superseded", "a", NOW, None).is_err(), "an illegal move is refused");
+    let moved = s.set_reliability_status(1, "proposed", "approved", "CG-4004", NOW + 1.0, Some(json!({"requested_by": "CG-4005"}))).unwrap().unwrap();
+    assert_eq!((moved["status"].as_str(), moved["history"][0]["actor"].as_str(), moved["history"][0]["to"].as_str()), (Some("approved"), Some("CG-4004"), Some("approved")));
+    assert!(s.set_reliability_status(1, "proposed", "approved", "x", NOW + 2.0, None).unwrap().is_none(), "approved only once");
+    // two administrators approving the same proposal at once: exactly one wins
+    let s = fresh();
+    assert!(s.put_reliability(&snap(1), 0).unwrap());
+    let wins = AtomicUsize::new(0);
+    std::thread::scope(|t| {
+        for i in 0..6 {
+            let (s, wins) = (&s, &wins);
+            t.spawn(move || {
+                if s.set_reliability_status(1, "proposed", "approved", &format!("A{i}"), NOW, None).unwrap().is_some() {
+                    wins.fetch_add(1, Ordering::SeqCst);
+                }
+            });
+        }
+    });
+    assert_eq!(wins.load(Ordering::SeqCst), 1);
+    // two learners racing for the same version: exactly one stores it
+    let s = fresh();
+    let stored = AtomicUsize::new(0);
+    std::thread::scope(|t| {
+        for _ in 0..6 {
+            let (s, stored) = (&s, &stored);
+            t.spawn(move || {
+                if s.put_reliability(&snap(1), 0).unwrap() {
+                    stored.fetch_add(1, Ordering::SeqCst);
+                }
+            });
+        }
+    });
+    assert_eq!(stored.load(Ordering::SeqCst), 1);
+
     // ---- configuration
     let s = fresh();
     assert!(s.latest_config().unwrap().is_none());
