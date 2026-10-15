@@ -54,6 +54,8 @@ Naming: this is **learning from human feedback for routing**. It is not reinforc
 
 **Visibility.** `GET /api/v1/queue/reliability` (`queue.view`) and the operator tool show the snapshot; reviewers see only the plain-word reason in `attention`.
 
+> **Archived, not wired (2026-10-15):** see docs/48 and tag `archive/hitl-routing-2026-10-15`.
+
 ## 5a. Governance: learning never activates itself (added 2026-10-14)
 
 A snapshot made by `learn` is only a **proposal**. It becomes the one routing uses after (1) a **replay** and (2) approval by **two different administrators** through the existing approval gate (changed 2026-10-15: it is configuration of the system, level 4 owns dual control, and administrators cannot decide claims; a lone administrator acts alone and the security log says so), the same rule payer rules already use. Until then routing keeps using the last approved snapshot (or nothing). States: `proposed`, `approved`, `rejected`, `superseded`; every move is audited. `verify` runs on approval and again at every use.

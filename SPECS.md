@@ -743,9 +743,11 @@ file. The opt-in local-model file and the third-party comparison system's file h
 pins are kept in comments, for the frozen results); the comparison code's unit tests and an agent build and query pass on the new
 versions, GPU model loading was not re-run (`docs/32`, section 6).
 
-### 10h. Confidence routing and the learning loop
+### 10h. Confidence routing (archived) and the workload report
 
-Full note: `docs/48_HITL_Confidence_and_Learning_Loop.md`. Confidence is measured, not modelled: per rule, the share of flagged findings that reviewers uphold (last confirm or dismiss per claim and rule), with an exact 95% interval (checked against the Python oracle on 1,685 cases, largest difference 2.8e-13), one reviewer capped at 40% of a rule's decisions, at least 20 decisions from 3 reviewers before a rule is judged. A rule is doubtful when the interval's upper bound is below 0.6. Off by default (`learn_enabled`, `route_by_reliability`, `uncertainty_weight`).
+**Archived, not wired (2026-10-15):** the routing build below is at git tag `archive/hitl-routing-2026-10-15`; only the library and simulator remain in the tree. The current feature is the read-only workload report: `docs/49_Reviewer_Workload_Report.md`, `cg queue workload`, `cg sim workload` (rules that waste reviews, rules almost always upheld with the bounded price of skipping; simulated reviewers; no time measured yet).
+
+Archived design, full note: `docs/48_HITL_Confidence_and_Learning_Loop.md`. Confidence is measured, not modelled: per rule, the share of flagged findings that reviewers uphold (last confirm or dismiss per claim and rule), with an exact 95% interval (checked against the Python oracle on 1,685 cases, largest difference 2.8e-13), one reviewer capped at 40% of a rule's decisions, at least 20 decisions from 3 reviewers before a rule is judged. A rule is doubtful when the interval's upper bound is below 0.6. Off by default (`learn_enabled`, `route_by_reliability`, `uncertainty_weight`).
 
 Effects: a doubtful rule makes a claim need a senior; the dispatcher priority adds `uncertainty_weight x widest interval`; verdicts never change; reviewers see words only. Governance: `learn` stores a numbered proposal with a replay report; activation goes through the two-administrator approval gate used by payer rules; routing ignores a snapshot that fails `verify`. Code: `rust/crates/cg-queue/src/reliability.rs`, routes under `/api/v1/queue/reliability`, console page "Learned reliability", `cg queue learn|reliability|verify-reliability|replay-reliability|activate-reliability`, `cg sim` (simulated reviewers, experiments, fast-forward), evidence `outputs/defense/learning.json`.
 

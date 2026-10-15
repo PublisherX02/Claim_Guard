@@ -1,5 +1,7 @@
 # 48 | Human-in-the-loop confidence routing and the learning loop
 
+> **ARCHIVED, NOT WIRED (2026-10-15).** This describes a build that exists only at git tag `archive/hitl-routing-2026-10-15` (branch `archive/hitl-routing`). In the current tree the console panel, the `/queue/reliability` routes, the `cg queue learn|reliability|...` commands, the worker job, the approval hook and the intake hook are removed. What remains is the inert library (`reliability.rs`, store methods) and the simulator. Reason: its measured effect was to send more claims to seniors (76% to 88% in the simulation) and to add an approval step for administrators, which adds work. It stays on hold until the mentor answers. The work-saving use of the same measurements is `docs/49`.
+
 Design: `docs/superpowers/specs/2026-10-14-hitl-confidence-and-learning-design.md`. Plan: `docs/superpowers/plans/2026-10-14-hitl-confidence-and-learning.md`. Evidence file: `outputs/defense/learning.json` (re-create with `cg sim experiments`).
 
 **Read this first: the reviewers in every experiment below are simulated.** Their answers follow a hidden "true upheld rate" per rule that we chose (97% for most rules, 35% for R006, 50% for R013). The claims and the engine's findings are real (the 400-claim development set), recycled under new ids to reach thousands of decisions, so findings repeat. The numbers show how the mechanism behaves. They are not the accuracy the system would have with real people, and no real reviewer's decisions were used.
