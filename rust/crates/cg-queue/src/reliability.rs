@@ -125,8 +125,7 @@ fn capped<'a>(rows: &[&'a Counted], cap: f64) -> Vec<&'a Counted> {
 fn inputs_hash(counted: &[Counted]) -> String {
     let mut lines: Vec<String> = counted.iter().map(|c| format!("{}|{}|{}|{}|{}", c.rule_id, c.claim_id, c.version, c.actor, c.upheld)).collect();
     lines.sort();
-    hash_text(&lines.join("
-"))
+    hash_text(&lines.join("\n"))
 }
 
 pub fn hash_text(s: &str) -> String {
