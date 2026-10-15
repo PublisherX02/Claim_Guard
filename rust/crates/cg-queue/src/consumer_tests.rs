@@ -391,3 +391,126 @@ fn setting_the_stop_flag_ends_every_thread() {
     std::thread::sleep(Duration::from_millis(60));
     stop_and_join(pool, &stop); // join returns only if every thread has ended
 }
+
+// ---- green claims: auto-clear and the audit sample ---------------------------------------------------------------------------
+
+/// A green claim with a complete, clean set of fifteen results (the shape the engine produces), unlike `put_green`.
+fn put_intact_green(store: &MemoryQueueStore, i: usize) -> String {
+    let id = format!("IG{i}");
+    let mut d = doc(&id);
+    d["results"] = Value::Array(triage::rule_ids().into_iter().map(|r| json!({"rule_id": r, "status": "PASS", "severity": "medium", "affected_line_ids": [], "evidence": []})).collect());
+    d["receipt"]["lane"] = json!("green");
+    assert!(store.put_triaged(&d).unwrap());
+    id
+}
+
+fn set_config(store: &MemoryQueueStore, auto: bool, audit: i64) {
+    let cfg = RoutingConfig { auto_clear_green: auto, audit_percent: audit, ..RoutingConfig::default() };
+    assert!(store.put_config(&crate::routing_config::to_doc(&cfg).unwrap(), 0).unwrap());
+}
+
+fn run_all(w: &World, ids: &[String]) {
+    for id in ids {
+        crate::flow::process(&w.rt, id, 1, &format!("h-{id}"));
+    }
+}
+
+#[test]
+fn a_green_claim_still_goes_to_a_person_unless_an_administrator_switched_auto_clear_on() {
+    let w = world(probe(1, false));
+    let ids: Vec<String> = (0..20).map(|i| put_intact_green(&w.store, i)).collect();
+    run_all(&w, &ids);
+    assert!(ids.iter().all(|id| state_of(&w.store, id) == "ready"), "default: every green claim is verified by a person");
+}
+
+#[test]
+fn with_auto_clear_on_the_system_decides_green_claims_and_only_the_audit_sample_goes_to_a_person() {
+    let w = world(probe(1, false));
+    set_config(&w.store, true, 1);
+    let ids: Vec<String> = (0..300).map(|i| put_intact_green(&w.store, i)).collect();
+    run_all(&w, &ids);
+    let (mut cleared, mut audited) = (0, 0);
+    for id in &ids {
+        let d = w.store.get(id, None).unwrap().unwrap();
+        match d["state"].as_str().unwrap() {
+            "decided" => {
+                cleared += 1;
+                assert_eq!((d["decided_by"].as_str(), d["auto_cleared"].as_bool()), (Some(crate::flow::AUTO_CLEAR), Some(true)));
+                let last = d["events"].as_array().unwrap().last().unwrap();
+                assert_eq!((last["to"].as_str(), last["actor"].as_str(), last["detail"]["auto_cleared"].as_bool()), (Some("decided"), Some(crate::flow::AUTO_CLEAR), Some(true)));
+                assert!(last["detail"]["audit_draw"].as_f64().unwrap() >= 1.0, "a claim is cleared only when its draw is outside the audit sample");
+            }
+            "ready" => {
+                audited += 1;
+                let last = d["events"].as_array().unwrap().last().unwrap();
+                assert_eq!(last["detail"]["why"], "green_audit");
+                assert!(last["detail"]["audit_draw"].as_f64().unwrap() < 1.0, "a claim is audited only when its draw is inside the sample");
+                assert!(d["auto_cleared"].is_null() && d["decided_by"].is_null());
+            }
+            other => panic!("unexpected state {other}"),
+        }
+    }
+    assert_eq!(cleared + audited, 300);
+    assert!(cleared >= 270, "about 99% are cleared at a 1% sample (got {cleared})");
+}
+
+#[test]
+fn an_audit_percent_of_100_sends_every_green_claim_to_a_person() {
+    let w = world(probe(1, false));
+    set_config(&w.store, true, 100);
+    let ids: Vec<String> = (0..60).map(|i| put_intact_green(&w.store, i)).collect();
+    run_all(&w, &ids);
+    assert!(ids.iter().all(|id| state_of(&w.store, id) == "ready"));
+}
+
+#[test]
+fn the_system_never_clears_a_claim_that_is_not_both_clean_and_intact() {
+    let w = world(probe(1, false));
+    set_config(&w.store, true, 1);
+    // lane says green but the result set is damaged: fails closed, to a person
+    let damaged: Vec<String> = (0..40).map(|i| put_green(&w.store, i)).collect();
+    // lane says green but a finding is flagged: never cleared
+    let mut mislabeled = vec![];
+    for i in 0..40 {
+        let id = format!("MG{i}");
+        let mut d = doc(&id);
+        d["results"] = Value::Array(triage::rule_ids().into_iter().map(|r| json!({"rule_id": r, "status": if r == "R003" { "FAIL" } else { "PASS" }, "severity": "medium", "affected_line_ids": [], "evidence": []})).collect());
+        d["receipt"]["lane"] = json!("green");
+        assert!(w.store.put_triaged(&d).unwrap());
+        mislabeled.push(id);
+    }
+    run_all(&w, &damaged);
+    run_all(&w, &mislabeled);
+    for id in damaged.iter().chain(&mislabeled) {
+        assert_eq!(state_of(&w.store, id), "ready", "{id}");
+    }
+}
+
+#[test]
+fn processing_a_message_twice_clears_the_claim_once() {
+    let w = world(probe(1, false));
+    set_config(&w.store, true, 1);
+    let id = put_intact_green(&w.store, 0);
+    let first = crate::flow::process(&w.rt, &id, 1, &format!("h-{id}"));
+    let second = crate::flow::process(&w.rt, &id, 1, &format!("h-{id}"));
+    assert_eq!(second, "noop", "the second delivery finds the claim already moved");
+    assert!(["decided", "ready"].contains(&first));
+    let d = w.store.get(&id, None).unwrap().unwrap();
+    assert_eq!(d["events"].as_array().unwrap().iter().filter(|e| e["from"] == "triaged").count(), 1);
+}
+
+#[test]
+fn claims_the_system_cleared_are_not_counted_as_verified_by_a_person() {
+    let w = world(probe(1, false));
+    set_config(&w.store, true, 1);
+    let ids: Vec<String> = (0..120).map(|i| put_intact_green(&w.store, i)).collect();
+    for id in &ids {
+        let _ = crate::shadow::record(&*w.store, id, 1, 1.0, 1.0);
+    }
+    run_all(&w, &ids);
+    let cleared = ids.iter().filter(|id| state_of(&w.store, id) == "decided").count();
+    assert!(cleared > 0);
+    let report = crate::service::feedback_report(&*w.store, 20, 0.5, 0.95);
+    assert_eq!((report["auto_cleared"].as_i64(), report["verified_clear"].as_i64()), (Some(cleared as i64), Some(0)));
+    assert_eq!(crate::shadow::agreement(&*w.store, 0.95)["n"], 0, "the prediction is not compared with the system's own decision");
+}

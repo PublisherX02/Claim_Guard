@@ -302,6 +302,39 @@ fn make_ready(store: &dyn QueueStore, claim_id: &str, version: i64, from: &str, 
     }
 }
 
+/// A random number from 0 to 100 (two decimals) for the audit draw. Written on the claim, so every draw can be checked afterwards.
+fn audit_draw() -> f64 {
+    use rand::{rngs::OsRng, RngCore};
+    (OsRng.next_u64() % 10_000) as f64 / 100.0
+}
+
+/// Where a green claim goes. By default to a person (`ready`). With `auto_clear_green` on, the system decides it (`system:auto-clear`) unless the
+/// random audit sample (`audit_percent`) sends it to a person, which is how the miss rate is measured. A claim that is not both clean and intact
+/// is never cleared by the system, whatever the receipt says.
+fn green_path(store: &dyn QueueStore, doc: &Value, claim_id: &str, version: i64, now: f64) -> &'static str {
+    let cfg = routing_config(store);
+    if !cfg.auto_clear_green || triage::degraded(&doc["results"]) || !triage::flagged(&doc["results"]).is_empty() {
+        return make_ready(store, claim_id, version, "triaged", now, "green");
+    }
+    let draw = audit_draw();
+    if draw < cfg.audit_percent as f64 {
+        return match store.transition(claim_id, version, "triaged", "ready", "system:pipeline", now, Some(json!({"why": "green_audit", "audit_draw": draw})), None, None) {
+            Ok(Some(_)) => "ready",
+            _ => "noop",
+        };
+    }
+    let mut set = Map::new();
+    set.insert("decided_by".into(), json!(AUTO_CLEAR));
+    set.insert("auto_cleared".into(), json!(true));
+    match store.transition(claim_id, version, "triaged", "decided", AUTO_CLEAR, now, Some(json!({"auto_cleared": true, "findings": 0, "audit_draw": draw})), Some(set), None) {
+        Ok(Some(_)) => "decided",
+        _ => "noop",
+    }
+}
+
+/// The actor on a claim the system cleared without a person.
+pub const AUTO_CLEAR: &str = "system:auto-clear";
+
 /// Runs the claim up to `ready`. Idempotent: safe to run twice, out of order or after a crash. Returns "ready" when this call moved it
 /// there, otherwise "noop". Dealing is not a step here: the dispatcher owns the `ready` pool.
 pub fn advance(store: &dyn QueueStore, claim_id: &str, version: i64, explain: &ExplainStep, now: f64) -> &'static str {
@@ -313,7 +346,7 @@ pub fn advance(store: &dyn QueueStore, claim_id: &str, version: i64, explain: &E
     let mut state = state;
     if state == "triaged" {
         if doc["receipt"]["lane"] == "green" {
-            return make_ready(store, claim_id, version, "triaged", now, "green");
+            return green_path(store, &doc, claim_id, version, now);
         }
         if explain.run(claim_id, version) == "noop" {
             return "noop"; // another worker is handling it

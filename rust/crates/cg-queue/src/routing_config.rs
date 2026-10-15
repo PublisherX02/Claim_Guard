@@ -7,9 +7,10 @@ use serde_json::{json, Map, Value};
 
 pub const STATUSES: [&str; 2] = ["FAIL", "UNABLE_TO_ASSESS"];
 pub const SEVERITIES: [&str; 2] = ["high", "medium"];
-const NAMES: [&str; 19] = [
+const NAMES: [&str; 22] = [
     "version", "points", "lane_b_flagged", "lane_b_score", "slice_size", "low_water", "lease_seconds", "aging_per_hour", "ai_per_minute", "ai_daily_budget", "on_shift", "exclusions",
     "learn_enabled", "route_by_reliability", "reliability_min_decisions", "reliability_min_reviewers", "reliability_reviewer_cap", "doubtful_below", "uncertainty_weight",
+    "auto_clear_green", "audit_percent", "bulk_confirm_skip_lower",
 ];
 
 /// Points per flagged finding: `[status][severity]`, statuses in `STATUSES` order, severities in `SEVERITIES` order.
@@ -65,6 +66,12 @@ pub struct RoutingConfig {
     pub reliability_reviewer_cap: f64,
     pub doubtful_below: f64,
     pub uncertainty_weight: f64,
+    /// A green claim (nothing flagged, result set intact) is decided by the system instead of waiting for a person, except for the random audit sample.
+    pub auto_clear_green: bool,
+    /// Percent of green claims still sent to a person while `auto_clear_green` is on: the measurement of what the engine might miss.
+    pub audit_percent: i64,
+    /// 0 = no bulk confirm. Otherwise a rule whose exact lower bound of the upheld rate is at least this may be confirmed in bulk after a lighter look.
+    pub bulk_confirm_skip_lower: f64,
 }
 
 impl Default for RoutingConfig {
@@ -89,6 +96,9 @@ impl Default for RoutingConfig {
             reliability_reviewer_cap: 0.4,
             doubtful_below: 0.6,
             uncertainty_weight: 0.0,
+            auto_clear_green: false,
+            audit_percent: 5,
+            bulk_confirm_skip_lower: 0.0,
         }
     }
 }
@@ -147,6 +157,10 @@ pub fn validate(c: &RoutingConfig) -> Result<(), String> {
             return Err(format!("{name} must be a number from {low} to {high}"));
         }
     }
+    check_range("audit_percent", c.audit_percent, 1, 100)?;
+    if !c.bulk_confirm_skip_lower.is_finite() || !(c.bulk_confirm_skip_lower == 0.0 || (0.8..=0.999).contains(&c.bulk_confirm_skip_lower)) {
+        return Err("bulk_confirm_skip_lower must be 0 (off) or a number from 0.8 to 0.999".into());
+    }
     Ok(())
 }
 
@@ -157,7 +171,8 @@ pub fn to_doc(c: &RoutingConfig) -> Result<Value, String> {
         "low_water": c.low_water, "lease_seconds": c.lease_seconds, "aging_per_hour": c.aging_per_hour, "ai_per_minute": c.ai_per_minute, "ai_daily_budget": c.ai_daily_budget,
         "on_shift": c.on_shift, "exclusions": c.exclusions.iter().map(|(a, b)| json!([a, b])).collect::<Vec<_>>(),
         "learn_enabled": c.learn_enabled, "route_by_reliability": c.route_by_reliability, "reliability_min_decisions": c.reliability_min_decisions, "reliability_min_reviewers": c.reliability_min_reviewers,
-        "reliability_reviewer_cap": c.reliability_reviewer_cap, "doubtful_below": c.doubtful_below, "uncertainty_weight": c.uncertainty_weight}))
+        "reliability_reviewer_cap": c.reliability_reviewer_cap, "doubtful_below": c.doubtful_below, "uncertainty_weight": c.uncertainty_weight,
+        "auto_clear_green": c.auto_clear_green, "audit_percent": c.audit_percent, "bulk_confirm_skip_lower": c.bulk_confirm_skip_lower}))
 }
 
 /// Fields left out take their default; unknown fields are refused; the result is validated whole.
@@ -186,6 +201,9 @@ pub fn from_doc(doc: &Value) -> Result<RoutingConfig, String> {
     if let Some(v) = float("reliability_reviewer_cap")? { c.reliability_reviewer_cap = v; }
     if let Some(v) = float("doubtful_below")? { c.doubtful_below = v; }
     if let Some(v) = float("uncertainty_weight")? { c.uncertainty_weight = v; }
+    if let Some(v) = boolean("auto_clear_green")? { c.auto_clear_green = v; }
+    if let Some(v) = int("audit_percent", 1, 100)? { c.audit_percent = v; }
+    if let Some(v) = float("bulk_confirm_skip_lower")? { c.bulk_confirm_skip_lower = v; }
     if let Some(v) = obj.get("on_shift") {
         c.on_shift = v.as_array().ok_or("on_shift must be a tuple of non-empty badge ids")?.iter().map(|b| b.as_str().map(str::to_string).ok_or("on_shift must be a tuple of non-empty badge ids")).collect::<Result<_, _>>()?;
     }
@@ -241,6 +259,20 @@ mod tests {
         for bad in [json!({"reliability_min_decisions": 4}), json!({"reliability_min_decisions": 1001}), json!({"reliability_min_reviewers": 0}), json!({"reliability_min_reviewers": 51}),
                     json!({"reliability_reviewer_cap": 0.09}), json!({"reliability_reviewer_cap": 1.01}), json!({"doubtful_below": 0.04}), json!({"doubtful_below": 0.96}),
                     json!({"uncertainty_weight": -0.1}), json!({"uncertainty_weight": 20.1}), json!({"learn_enabled": 1}), json!({"route_by_reliability": "yes"}), json!({"uncertainty_weight": "x"})] {
+            assert!(from_doc(&bad).is_err(), "{bad}");
+        }
+    }
+
+    #[test]
+    fn the_workload_switches_default_off_round_trip_and_refuse_bad_values() {
+        let c = RoutingConfig::default();
+        assert!(!c.auto_clear_green && c.audit_percent == 5 && c.bulk_confirm_skip_lower == 0.0, "nothing changes who looks at a claim until an administrator says so");
+        assert_eq!(from_doc(&to_doc(&c).unwrap()).unwrap(), c);
+        let on = from_doc(&json!({"auto_clear_green": true, "audit_percent": 10, "bulk_confirm_skip_lower": 0.95})).unwrap();
+        assert!(on.auto_clear_green && on.audit_percent == 10 && on.bulk_confirm_skip_lower == 0.95);
+        assert!(from_doc(&json!({"slice_size": 6, "low_water": 3})).unwrap().audit_percent == 5, "a document written before the fields existed loads with the defaults");
+        for bad in [json!({"audit_percent": 0}), json!({"audit_percent": 101}), json!({"audit_percent": 2.5}), json!({"auto_clear_green": 1}), json!({"auto_clear_green": "yes"}),
+                    json!({"bulk_confirm_skip_lower": 0.5}), json!({"bulk_confirm_skip_lower": 0.79}), json!({"bulk_confirm_skip_lower": 1.0}), json!({"bulk_confirm_skip_lower": -0.1}), json!({"bulk_confirm_skip_lower": "x"})] {
             assert!(from_doc(&bad).is_err(), "{bad}");
         }
     }

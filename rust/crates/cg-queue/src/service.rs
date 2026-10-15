@@ -35,7 +35,7 @@ pub const GREEN_ACTIONS: [&str; 2] = ["verify_clear", "escalate"];
 const ACTIONS: [&str; 4] = ["confirm_issue", "dismiss_with_reason", "request_information", "mark_corrected_for_recheck"];
 const LOG_VALUE_CHARS: usize = 400;
 pub const MAX_SUBMIT: usize = 25;
-const CONFIG_FIELDS: [&str; 11] = ["points", "lane_b_flagged", "lane_b_score", "slice_size", "low_water", "lease_seconds", "aging_per_hour", "ai_per_minute", "ai_daily_budget", "on_shift", "exclusions"];
+const CONFIG_FIELDS: [&str; 14] = ["points", "lane_b_flagged", "lane_b_score", "slice_size", "low_water", "lease_seconds", "aging_per_hour", "ai_per_minute", "ai_daily_budget", "on_shift", "exclusions", "auto_clear_green", "audit_percent", "bulk_confirm_skip_lower"];
 
 #[derive(Debug, thiserror::Error)]
 pub enum QueueError {
@@ -557,9 +557,13 @@ pub fn feedback_report(store: &dyn QueueStore, min_decisions: i64, threshold: f6
     fn row<'a>(rules: &'a mut BTreeMap<String, BTreeMap<&'static str, i64>>, id: &str) -> &'a mut BTreeMap<&'static str, i64> {
         rules.entry(id.to_string()).or_insert_with(|| ["flagged", "confirmed", "dismissed", "request_information", "mark_corrected_for_recheck", "dismissals_with_reason"].iter().map(|k| (*k, 0)).collect())
     }
-    let (mut decided, mut escalated, mut verified_clear, mut agreed, mut tiebroken) = (0, 0, 0, 0, 0);
+    let (mut decided, mut escalated, mut verified_clear, mut agreed, mut tiebroken, mut auto_cleared) = (0, 0, 0, 0, 0, 0);
     for doc in store.by_state("decided", BIG).unwrap_or_default() {
         decided += 1;
+        if doc["auto_cleared"] == true {
+            auto_cleared += 1; // decided by the system, not verified by a person
+            continue;
+        }
         let flagged: Vec<&str> = doc["results"].as_array().into_iter().flatten().filter(|r| r["status"].as_str().is_some_and(|s| REVIEWABLE.contains(&s))).filter_map(|r| r["rule_id"].as_str()).collect();
         for id in &flagged {
             *row(&mut rules, id).get_mut("flagged").expect("key") += 1;
@@ -603,7 +607,7 @@ pub fn feedback_report(store: &dyn QueueStore, min_decisions: i64, threshold: f6
         out.insert(id.clone(), Value::Object(o));
     }
     let countersigned = agreed + tiebroken;
-    json!({"claims_decided": decided, "verified_clear": verified_clear, "escalated": escalated,
+    json!({"claims_decided": decided, "verified_clear": verified_clear, "auto_cleared": auto_cleared, "escalated": escalated,
            "signoff": {"countersigned": countersigned, "agreed": agreed, "disagreed": tiebroken, "disagreement_rate": if countersigned > 0 { json!(tiebroken as f64 / countersigned as f64) } else { Value::Null }},
            "rules": out, "parameters": {"min_decisions": min_decisions, "threshold": threshold, "confidence": confidence},
            "note": "counts only; dismissal reasons are not included. A review candidate is a prompt for a human to look at the rule, never a change to it."})
