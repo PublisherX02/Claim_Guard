@@ -7,24 +7,24 @@
       {
         "decisions": 105,
         "R001": {
-          "n": 8,
+          "n": 9,
           "rate": 1.0,
-          "lower": 0.6305833524471842,
+          "lower": 0.663732883120066,
           "upper": 1.0,
           "status": "unmeasured"
         },
         "R006": {
           "n": 8,
-          "rate": 0.5,
-          "lower": 0.15701277048705642,
-          "upper": 0.8429872295129424,
+          "rate": 0.375,
+          "lower": 0.08523341413725255,
+          "upper": 0.7551367836334484,
           "status": "unmeasured"
         },
         "R013": {
           "n": 11,
-          "rate": 0.45454545454545453,
-          "lower": 0.16748809406370319,
-          "upper": 0.7662064023406545,
+          "rate": 0.6363636363636364,
+          "lower": 0.30790471501167194,
+          "upper": 0.8907365561809018,
           "status": "unmeasured"
         }
       },
@@ -32,16 +32,16 @@
         "decisions": 205,
         "R001": {
           "n": 15,
-          "rate": 0.8666666666666667,
-          "lower": 0.5953973033966142,
-          "upper": 0.9834240865599164,
+          "rate": 1.0,
+          "lower": 0.7819806390894608,
+          "upper": 1.0,
           "status": "unmeasured"
         },
         "R006": {
           "n": 12,
-          "rate": 0.5833333333333334,
-          "lower": 0.2766696856820955,
-          "upper": 0.8483477701915696,
+          "rate": 0.4166666666666667,
+          "lower": 0.15165222980842458,
+          "upper": 0.723330314317894,
           "status": "unmeasured"
         },
         "R013": {
@@ -55,72 +55,72 @@
       {
         "decisions": 505,
         "R001": {
-          "n": 36,
-          "rate": 0.9166666666666666,
-          "lower": 0.7753102394430316,
-          "upper": 0.9824735040760655,
+          "n": 35,
+          "rate": 0.9428571428571428,
+          "lower": 0.808428593654767,
+          "upper": 0.9930032363716905,
           "status": "measured"
         },
         "R006": {
           "n": 33,
-          "rate": 0.48484848484848486,
-          "lower": 0.30796344360471606,
-          "upper": 0.6645555216114434,
-          "status": "measured"
+          "rate": 0.30303030303030304,
+          "lower": 0.15591660239697397,
+          "upper": 0.48711069753839287,
+          "status": "doubtful"
         },
         "R013": {
           "n": 56,
-          "rate": 0.5,
-          "lower": 0.3633554308247745,
-          "upper": 0.6366445691751887,
-          "status": "measured"
+          "rate": 0.44642857142857145,
+          "lower": 0.31343608328154393,
+          "upper": 0.5852833372475426,
+          "status": "doubtful"
         }
       },
       {
         "decisions": 1007,
         "R001": {
           "n": 73,
-          "rate": 0.9041095890410958,
-          "lower": 0.8123575734378292,
-          "upper": 0.9605709863752372,
+          "rate": 0.958904109589041,
+          "lower": 0.8845639212331373,
+          "upper": 0.9914435104922139,
           "status": "measured"
         },
         "R006": {
           "n": 65,
-          "rate": 0.4153846153846154,
-          "lower": 0.2943819982497343,
-          "upper": 0.5443553139924293,
+          "rate": 0.3384615384615385,
+          "lower": 0.22568542994341595,
+          "upper": 0.466493665865946,
           "status": "doubtful"
         },
         "R013": {
           "n": 113,
-          "rate": 0.5309734513274337,
-          "lower": 0.4347936889763939,
-          "upper": 0.6254900011303779,
-          "status": "measured"
+          "rate": 0.45132743362831856,
+          "lower": 0.35754135758365524,
+          "upper": 0.5477275431896538,
+          "status": "doubtful"
         }
       },
       {
         "decisions": 2018,
         "R001": {
           "n": 146,
-          "rate": 0.9178082191780822,
-          "lower": 0.8608290508124359,
-          "upper": 0.9568086087152348,
+          "rate": 0.9794520547945206,
+          "lower": 0.9411260725455979,
+          "upper": 0.9957423073774587,
           "status": "measured"
         },
         "R006": {
           "n": 130,
-          "rate": 0.36153846153846153,
-          "lower": 0.27914996204819087,
-          "upper": 0.45038920799582205,
+          "rate": 0.3230769230769231,
+          "lower": 0.2437482914276819,
+          "upper": 0.41067510732122203,
           "status": "doubtful"
         },
         "R013": {
           "n": 227,
-          "rate": 0.5198237885462555,
-          "lower": 0.452739338167767,
-          "upper": 0.5863838172336526,
+          "rate": 0.45374449339207046,
+          "lower": 0.3877594522027641,
+          "upper": 0.5209533618292013,
           "status": "doubtful"
         }
       },
@@ -128,9 +128,9 @@
         "decisions": 4039,
         "R001": {
           "n": 291,
-          "rate": 0.9450171821305842,
-          "lower": 0.9122453077601431,
-          "upper": 0.9682495688374164,
+          "rate": 0.9690721649484536,
+          "lower": 0.9421031825625548,
+          "upper": 0.9857622312150718,
           "status": "measured"
         },
         "R006": {
@@ -142,14 +142,14 @@
         },
         "R013": {
           "n": 454,
-          "rate": 0.5308370044052864,
-          "lower": 0.4837572080511885,
-          "upper": 0.5775125677691593,
+          "rate": 0.486784140969163,
+          "lower": 0.4399219867170847,
+          "upper": 0.5338195298758914,
           "status": "doubtful"
         }
       }
     ],
-    "r006_first_doubtful_at_decisions": 905,
+    "r006_first_doubtful_at_decisions": 405,
     "rules_wrongly_doubtful": [],
     "hidden_truth": {
       "R001": 0.97,
@@ -189,12 +189,12 @@
   },
   "active_learning": {
     "arrival": {
-      "mean_width_at_600_decisions": 0.16789675470403412,
+      "mean_width_at_600_decisions": 0.1923847738402896,
       "decisions_until_every_flagged_rule_is_known": 926
     },
     "uncertainty_first": {
-      "mean_width_at_600_decisions": 0.18839445241793776,
-      "decisions_until_every_flagged_rule_is_known": 1076
+      "mean_width_at_600_decisions": 0.17802472068257247,
+      "decisions_until_every_flagged_rule_is_known": 968
     },
     "note": "a demonstration on simulated reviewers, not a finding about real ones"
   },
@@ -207,28 +207,28 @@
       },
       {
         "adversary_share": 0.2,
-        "wrongly_doubtful_without_protection": 1,
+        "wrongly_doubtful_without_protection": 0,
         "wrongly_doubtful_with_protection": 0
       },
       {
         "adversary_share": 0.3,
-        "wrongly_doubtful_without_protection": 10,
-        "wrongly_doubtful_with_protection": 4
+        "wrongly_doubtful_without_protection": 9,
+        "wrongly_doubtful_with_protection": 0
       },
       {
         "adversary_share": 0.4,
-        "wrongly_doubtful_without_protection": 12,
-        "wrongly_doubtful_with_protection": 12
+        "wrongly_doubtful_without_protection": 11,
+        "wrongly_doubtful_with_protection": 8
       },
       {
         "adversary_share": 0.5,
         "wrongly_doubtful_without_protection": 13,
-        "wrongly_doubtful_with_protection": 12
+        "wrongly_doubtful_with_protection": 10
       },
       {
         "adversary_share": 0.6,
         "wrongly_doubtful_without_protection": 13,
-        "wrongly_doubtful_with_protection": 12
+        "wrongly_doubtful_with_protection": 13
       },
       {
         "adversary_share": 0.8,

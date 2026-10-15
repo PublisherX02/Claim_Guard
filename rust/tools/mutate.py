@@ -109,6 +109,16 @@ M = [
     ('broker-deadletter-ignores-in-flight-copy', 'cg-queue', 'cg-queue/src/consumer.rs', 'if in_flight.lock().unwrap_or_else(|p| p.into_inner()).contains(&key) {\n            return false;', 'if false {\n            return false;'),
     ('broker-client-panic-ends-the-thread', 'cg-queue', 'cg-queue/src/consumer.rs', 'match guarded(|| broker.read(&consumer, cfg.block_ms)) {', 'match broker.read(&consumer, cfg.block_ms) {'),
     ('broker-redis-credentials-not-masked', 'cg-redis', 'cg-redis/src/lib.rs', 'let msg = mask_credentials(&e.to_string().replace(&self.url, "<redis>"), &self.url);', 'let msg = e.to_string();'),
+    # learned reliability (docs/47)
+    ('rel-doubtful-boundary-inclusive', 'cg-queue', QUE + 'reliability.rs', '} else if upper < p.doubtful_below {', '} else if upper <= p.doubtful_below {'),
+    ('rel-min-reviewers-ignored', 'cg-queue', QUE + 'reliability.rs', ' || reviewers < p.min_reviewers {', ' {'),
+    ('rel-cap-without-floor-of-one', 'cg-queue', QUE + 'reliability.rs', '.floor() as usize).max(1);', '.floor() as usize);'),
+    ('rel-cap-rounds-up', 'cg-queue', QUE + 'reliability.rs', '(cap * rows.len() as f64).floor() as usize', '(cap * rows.len() as f64).ceil() as usize'),
+    ('rel-apply-trusts-the-snapshot', 'cg-queue', QUE + 'reliability.rs', '    verify(snap)?;\n    let rules = snap["rules"]', '    let rules = snap["rules"]'),
+    ('rel-upheld-inverted', 'cg-queue', QUE + 'reliability.rs', 'upheld: d["action"] == "confirm_issue",', 'upheld: d["action"] != "confirm_issue",'),
+    ('rel-unflagged-rule-counted', 'cg-queue', QUE + 'reliability.rs', 'if flagged.contains(rule) && RESOLVING.contains(&action) {', 'if RESOLVING.contains(&action) {'),
+    ('rel-activate-ignores-newer-active', 'cg-queue', QUE + 'reliability.rs', 'if previous.is_some_and(|v| v > version) {', 'if false && previous.is_some_and(|v| v > version) {'),
+    ('rel-activate-any-status', 'cg-queue', QUE + 'reliability.rs', 'if doc["status"] != "proposed" {', 'if false {'),
 ]
 
 

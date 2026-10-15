@@ -22,15 +22,15 @@ use std::path::PathBuf;
 
 const DEMO_USERS: [(i64, &str, &str); 4] = [(1, "CG-1001", "Demo Viewer"), (2, "CG-2002", "Demo Reviewer"), (3, "CG-3003", "Demo Senior Reviewer"), (4, "CG-4004", "Demo Administrator")];
 
-fn flag(args: &[String], name: &str) -> Option<String> {
+pub(crate) fn flag(args: &[String], name: &str) -> Option<String> {
     args.iter().position(|a| a == name).and_then(|i| args.get(i + 1)).cloned()
 }
 
-fn has(args: &[String], name: &str) -> bool {
+pub(crate) fn has(args: &[String], name: &str) -> bool {
     args.iter().any(|a| a == name)
 }
 
-fn secret_prompt(prompt: &str) -> String {
+pub(crate) fn secret_prompt(prompt: &str) -> String {
     rpassword::prompt_password(prompt).unwrap_or_default()
 }
 
@@ -43,7 +43,7 @@ fn demo_password(badge: &str) -> String {
     }
 }
 
-fn open(args: &[String], queue: bool) -> Result<Boot, String> {
+pub(crate) fn open(args: &[String], queue: bool) -> Result<Boot, String> {
     boot(&Options { dev: has(args, "--dev"), host: "127.0.0.1".into(), queue, demo: false, data_dir: flag(args, "--data-dir").map(PathBuf::from) })
 }
 

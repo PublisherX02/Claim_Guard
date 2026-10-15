@@ -80,12 +80,13 @@ impl Lab {
 
     /// Like `run`, but numbers the claims from `start` (so batches can be added to one store) and adds at least `target` more decisions.
     pub fn run_from(&self, store: &dyn QueueStore, corpus: &Corpus, start: usize, target: usize, cfg: &RoutingConfig, snapshot: Option<&Value>) -> Result<Summary, String> {
-        let mut rng = ChaCha8Rng::seed_from_u64(self.seed ^ (start as u64).wrapping_mul(0x9E37_79B9_7F4A_7C15));
         let (mut decisions, mut claims, mut t) = (0usize, 0usize, 1_000.0f64 + start as f64 * 0.01);
         let mut trail = String::new();
         while decisions < target {
             let (base, results) = &corpus.items[(start + claims) % corpus.items.len()];
             let id = format!("{}-{:06}", self.id_prefix, start + claims);
+            // one generator per claim: a run in slices makes exactly the decisions a single run would
+            let mut rng = ChaCha8Rng::seed_from_u64(self.seed ^ ((start + claims) as u64).wrapping_mul(0x9E37_79B9_7F4A_7C15));
             let mut claim = base.clone();
             claim["claim_id"] = json!(id);
             claim["simulated"] = json!(true);
@@ -168,6 +169,29 @@ mod tests {
         assert!(r006["lower"].as_f64().unwrap() < 0.35 && 0.35 < r006["upper"].as_f64().unwrap(), "the interval for R006 contains the hidden 0.35: {r006}");
         assert_eq!(r006["status"], "doubtful");
         assert_ne!(snap["rules"]["R001"]["status"], "doubtful");
+    }
+
+    #[test]
+    fn feeding_a_store_in_slices_gives_the_same_decisions_as_one_run() {
+        let corpus = load_corpus(&root()).unwrap();
+        let a = MemoryQueueStore::new();
+        let one = Lab::new(3, false).run(&a, &corpus, 300, &RoutingConfig::default(), None).unwrap();
+        let b = MemoryQueueStore::new();
+        let lab = Lab::new(3, false);
+        let (mut claims, mut decisions, mut trail) = (0usize, 0usize, String::new());
+        while decisions < one.decisions {
+            let part = lab.run_from(&b, &corpus, claims, 50, &RoutingConfig::default(), None).unwrap();
+            claims += part.claims;
+            decisions += part.decisions;
+            trail.push_str(&part.fingerprint);
+        }
+        let ids = |s: &MemoryQueueStore| {
+            let mut v: Vec<(String, String)> = s.by_state("decided", 100_000).unwrap().iter().map(|d| (d["claim_id"].as_str().unwrap().to_string(), d["decisions"].as_array().unwrap().iter().map(|x| format!("{}{}{}", x["rule_id"], x["action"], x["actor"])).collect::<String>())).collect();
+            v.sort();
+            v
+        };
+        assert_eq!(ids(&a)[..ids(&a).len().min(ids(&b).len())], ids(&b)[..ids(&a).len().min(ids(&b).len())], "the same claims get the same decisions, however the run is sliced");
+        assert!(!trail.is_empty());
     }
 
     #[test]
