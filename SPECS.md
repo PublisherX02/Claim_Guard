@@ -761,7 +761,11 @@ Auto-clear: `flow::green_path` decides an intact green claim as `system:auto-cle
 
 Confirm without a reason: `decide_finding` records the fixed text for a `confirm_issue` with no reason; dismissing still needs one. Bulk confirm: `POST /api/v1/work/bulk-confirm` {rule_id, claim_ids (1 to 25)}; the rule must be a light-review rule now (cached 5 minutes), each claim goes through `decide_finding`, a random `audit_percent` is left for full review, and decisions with the bulk reason are excluded from `reliability::counted_decisions`. `GET /work/inbox` also returns `light_review`. The workload report adds `time.breakdown` and `planning_per_500_claims`.
 
-Tests: `cargo test -p cg-queue` (config, auto-clear, audit report, time breakdown, planning, confirm, bulk confirm incl. high severity and not-evidence). Nothing here is measured on real reviewers.
+Auto-request: `auto_request_info` (off | medium | all, default off). `flow::advance` records `request_information` decisions as `system:auto-request` for UNABLE_TO_ASSESS findings of the configured severity (settable `decisions` and `auto_requested` on a transition): a claim with nothing else goes `triaged -> decided`; a claim with real findings goes on to `ready` with the requests attached and a person decides the rest (`service::targets` and the high-severity set skip system-requested findings, `decide_finding` refuses them). A random `audit_percent` is handled by a person (event `info_audit`). `workload::audit_report` adds the audit suggestion on `audit_percent` and the request audit (agreed / differed). System decisions are excluded from the feedback report, shadow agreement, reliability evidence and review timing.
+
+Console: Confirm button, Confirm all (button, or `c` twice), auto-open of the next claim, By rule inbox.
+
+Tests: `cargo test -p cg-queue` (config, auto-clear, auto-request, audit report and suggestion, time breakdown, planning, confirm, bulk confirm incl. high severity and not-evidence); `cargo test -p cg-queue --test auto_clear_run` measures auto-clear on the real pipeline. Nothing here is measured on real reviewers.
 
 ## 11. Experiments in detail
 

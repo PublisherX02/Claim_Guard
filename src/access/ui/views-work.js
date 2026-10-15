@@ -25,21 +25,53 @@
 
   function canConfirm(f) { return f.allowed_actions && f.allowed_actions.indexOf('confirm_issue') >= 0; }
 
+  var hotkeyOff = null;
+  function hotkey(key, fn) {
+    if (hotkeyOff) hotkeyOff();
+    function on(e) {
+      if (e.ctrlKey || e.metaKey || e.altKey || e.key !== key) return;
+      var tag = e.target && e.target.tagName;
+      if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return;
+      e.preventDefault(); fn();
+    }
+    function off() { document.removeEventListener('keydown', on); if (hotkeyOff === off) hotkeyOff = null; }
+    document.addEventListener('keydown', on);
+    hotkeyOff = off;
+    (CG.state.streams = CG.state.streams || []).push({ close: off });
+  }
+
+  // After the last finding of a claim, open the next claim at once instead of going back to the inbox: one click less per claim.
+  function goNext(back) {
+    CG.api('GET', '/work/inbox').then(function (d) {
+      if (d.claims && d.claims.length) { location.hash = '#/work/' + encodeURIComponent(d.claims[0].claim_id); return null; }
+      return CG.api('POST', '/work/next').then(function (n) { location.hash = n && n.claim ? '#/work/' + encodeURIComponent(n.claim.claim_id) : back; });
+    }).then(null, function () { location.hash = back; });
+  }
+
   // Confirming agrees with the engine, so it needs no typed reason (the server records a fixed one). Only overriding the engine needs words.
   function confirmNow(ctx, f) {
     return CG.api('POST', ctx.decisionPath(f.rule_id), { action: 'confirm_issue' });
   }
 
   function confirmAll(list, ctx, refresh) {
-    var n = list.length;
-    return h('div', { class: 'row' },
-      twoStep('Confirm all ' + n + ' findings', 'Click again to confirm all ' + n, function (b) {
-        b.disabled = true;
-        list.reduce(function (p, f) { return p.then(function () { return confirmNow(ctx, f); }); }, Promise.resolve()).then(function () {
-          CG.toast('Confirmed ' + n + ' findings.', 'good'); refresh();
-        }, function (e) { b.disabled = false; CG.fail(e); refresh(); });
-      }),
-      h('span', { class: 'muted small', text: 'Use this only when every finding below is right. It records one confirm per finding.' }));
+    var n = list.length, busy = false, armedAt = 0;
+    function run(b) {
+      if (busy) return;
+      busy = true; if (b) b.disabled = true;
+      list.reduce(function (p, f) { return p.then(function () { return confirmNow(ctx, f); }); }, Promise.resolve()).then(function () {
+        CG.toast('Confirmed ' + n + ' findings.', 'good'); refresh();
+      }, function (e) { busy = false; if (b) b.disabled = false; CG.fail(e); refresh(); });
+    }
+    var button = twoStep('Confirm all ' + n + ' findings', 'Click again to confirm all ' + n, run);
+    // keyboard: press c, then c again within five seconds (a single stray key does nothing)
+    hotkey('c', function () {
+      var now = Date.now();
+      if (now - armedAt < 5000) { armedAt = 0; run(button); return; }
+      armedAt = now;
+      CG.toast('Press c again within 5 seconds to confirm all ' + n + ' findings.', 'warn');
+    });
+    return h('div', { class: 'row' }, button,
+      h('span', { class: 'muted small', text: 'Use this only when every finding below is right. It records one confirm per finding. Keyboard: press c twice.' }));
   }
 
   // ---- one claim ------------------------------------------------------------------------------------------------------
@@ -157,7 +189,11 @@
     var flagged = view.findings.filter(function (f) { return f.status === 'FAIL' || f.status === 'UNABLE_TO_ASSESS'; });
     function refresh() {
       ctx.reload().then(function (v) {
-        if (!v) { CG.toast('This claim is finished and has left your inbox.', 'good'); location.hash = back; return; }
+        if (!v) {
+          CG.toast(ctx.mode === 'work' ? 'Claim finished. Opening the next one.' : 'This claim is finished and has left your inbox.', 'good');
+          if (ctx.mode === 'work') goNext(back); else location.hash = back;
+          return;
+        }
         CG.renderClaim(root, v, ctx);
       }, function (e) { CG.fail(e); });
     }
@@ -184,6 +220,7 @@
 
     root.appendChild(h('h2', { text: flagged.length ? flagged.length + ' flagged finding' + (flagged.length > 1 ? 's' : '') : 'Findings', style: null }));
     var confirmable = flagged.filter(canConfirm);
+    if (hotkeyOff) hotkeyOff();
     if (ctx.mode === 'work' && confirmable.length > 1) root.appendChild(confirmAll(confirmable, ctx, refresh));
     flagged.forEach(function (f) { root.appendChild(findingCard(f, ctx, refresh)); });
     var passed = view.findings.filter(function (f) { return flagged.indexOf(f) < 0; });
@@ -267,7 +304,14 @@
   CG.views = CG.views || {};
   CG.views.inbox = function (root) {
     var list = h('div'), status = h('p', { class: 'muted' });
-    var mode = CG.state.inboxMode || 'claim', light = [];
+    var mode = CG.state.inboxMode || 'claim', light = [], lastSig = '';
+    // The page refreshes itself every 20 seconds and on server pushes. In the by-rule view a redraw would close the list the person has open and
+    // forget that they looked at it, so it redraws only when something that matters changed.
+    function signature(d) {
+      return JSON.stringify([d.light_review || [], d.claims.map(function (v) {
+        return [v.claim_id, v.version, v.signoff_stage, v.findings.map(function (f) { return [f.rule_id, f.review_state, !!(f.allowed_actions && f.allowed_actions.length)]; })];
+      })]);
+    }
     function drawByRule(items) {
       var groups = ruleGroups(items), rules = Object.keys(groups).sort();
       if (!rules.length) { list.appendChild(h('div', { class: 'card' }, h('p', { text: 'No open findings to confirm in your inbox.' }))); return; }
@@ -292,7 +336,14 @@
       ], items.map(inboxRow), { onRow: function (r) { location.hash = '#/work/' + encodeURIComponent(r.id); } }));
     }
     function load() {
-      return CG.api('GET', '/work/inbox').then(function (d) { light = d.light_review || []; draw(d.claims); status.textContent = d.claims.length + ' claim' + (d.claims.length === 1 ? '' : 's') + ' waiting for you.'; }, CG.fail);
+      return CG.api('GET', '/work/inbox').then(function (d) {
+        light = d.light_review || [];
+        status.textContent = d.claims.length + ' claim' + (d.claims.length === 1 ? '' : 's') + ' waiting for you.';
+        var sig = signature(d);
+        if (mode === 'rule' && sig === lastSig && list.firstChild) { CG.state.inbox = d.claims; return; }
+        lastSig = sig;
+        draw(d.claims);
+      }, CG.fail);
     }
     var take = h('button', { class: 'btn primary', type: 'button', text: 'Take next claim', onclick: function () {
       CG.api('POST', '/work/next').then(function (d) {
@@ -302,7 +353,7 @@
     } });
     var byClaim = h('button', { class: 'btn small', type: 'button', text: 'By claim' }), byRule = h('button', { class: 'btn small', type: 'button', text: 'By rule' });
     function paint() { byClaim.className = 'btn small' + (mode === 'claim' ? ' primary' : ''); byRule.className = 'btn small' + (mode === 'rule' ? ' primary' : ''); }
-    function pick(m) { mode = m; CG.state.inboxMode = m; paint(); draw(CG.state.inbox || []); }
+    function pick(m) { mode = m; CG.state.inboxMode = m; lastSig = signature({ claims: CG.state.inbox || [], light_review: light }); paint(); draw(CG.state.inbox || []); }
     byClaim.addEventListener('click', function () { pick('claim'); });
     byRule.addEventListener('click', function () { pick('rule'); });
     paint();

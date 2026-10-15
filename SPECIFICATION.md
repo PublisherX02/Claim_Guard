@@ -130,6 +130,7 @@ Priority follows MoSCoW (M must, S should, C could, W will not). Status: **Done*
 | FR-26 | Let the system decide a green claim except for a random audit sample, and report what the audit finds | C | Built (2026-10-15), default off | docs/50; `auto_clear_green`, `audit_percent`, `cg queue audit`; waits for the mentor |
 | FR-27 | Confirm a finding without typing a reason, in one click, and confirm all findings of a claim | S | Built (2026-10-15) | docs/50; dismissing still needs a reason |
 | FR-28 | Confirm many findings of a rule reviewers almost always uphold after a light look | C | Built (2026-10-15), default off | docs/50; `bulk_confirm_skip_lower`; waits for the mentor |
+| FR-29 | Let the system record a request for missing information itself, with a random audit that checks a person would have asked too | C | Built (2026-10-15), default off | docs/50; `auto_request_info`; waits for the mentor |
 | FR-25 | Trace one claim from intake to decision (versions, state history, decisions, hashes, security-log entries, no claim values) | S | Built (2026-10-09) | docs/37; `GET /api/v1/ops/trace/{claim_id}` |
 
 ### 4.2 Non-functional requirements
@@ -239,6 +240,7 @@ Status codes used by the reviewer API: `401` not signed in or invalid credential
 | UC27 | Review the workload report | Administrator | `queue_admin workload` (`cg queue workload`) | Done (read-only) |
 | UC28 | Clear green claims with an audit | Administrator | `PATCH /api/v1/queue/config`, `cg queue audit` | Done (off by default) |
 | UC29 | Bulk confirm a rule | Reviewer | `POST /api/v1/work/bulk-confirm`, console "By rule" | Done (off by default) |
+| UC30 | Request missing information automatically | Administrator | `PATCH /api/v1/queue/config`, `cg queue audit` | Done (off by default) |
 | UC26 | Verify the audit trail | Administrator | `GET /api/v1/audit/events`, `/audit/verify` | Done |
 
 ### 6.2 Automatic checking
