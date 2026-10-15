@@ -315,8 +315,12 @@ pub fn activate(store: &dyn QueueStore, version: i64, requester: &str, approver:
     }
     let detail = json!({"requested_by": requester, "approved_by": approver});
     store.set_reliability_status(version, "proposed", "approved", approver.unwrap_or(requester), now, Some(detail)).map_err(|e| e.to_string())?.ok_or("the proposal changed while it was being approved")?;
-    if let Some(prev) = previous {
-        let _ = store.set_reliability_status(prev, "approved", "superseded", approver.unwrap_or(requester), now, None); // best effort: `active` takes the highest approved version anyway
+    // Re-read after our own write and supersede every approved snapshot except the newest. Two activations of different proposals can run
+    // at once and each read `previous` before the other wrote; whichever finishes last sees both and leaves exactly one approved.
+    let approved: Vec<i64> = store.reliability_history().map_err(|e| e.to_string())?.iter().filter(|d| d["status"] == "approved").filter_map(|d| d["version"].as_i64()).collect();
+    let newest = approved.iter().copied().max().unwrap_or(version);
+    for old in approved.into_iter().filter(|v| *v != newest) {
+        let _ = store.set_reliability_status(old, "approved", "superseded", approver.unwrap_or(requester), now, None); // `active` takes the highest approved version anyway
     }
     Ok(())
 }
@@ -414,6 +418,30 @@ mod tests {
         learn(&store, &RoutingConfig::default(), 4.0).unwrap().unwrap();
         reject(&store, 2, "CG-4005", 5.0, "no").unwrap();
         assert_eq!(activate(&store, 2, "CG-4004", None, 6.0).unwrap_err(), "only a proposed snapshot can be activated", "rejected");
+    }
+
+    #[test]
+    fn activating_different_proposals_at_once_leaves_exactly_one_approved() {
+        for round in 0..20 {
+            let store = MemoryQueueStore::new();
+            for v in 1..=4i64 {
+                let mut snap = make_snapshot(&[], &params(), v, 0.0, 1);
+                snap["status"] = json!("proposed");
+                assert!(store.put_reliability(&snap, v - 1).unwrap());
+            }
+            activate(&store, 1, "A", None, 1.0).unwrap();
+            std::thread::scope(|t| {
+                for v in 2..=4i64 {
+                    let store = &store;
+                    t.spawn(move || {
+                        let _ = activate(store, v, "A", Some("B"), 2.0); // an older one may lose to a newer one; that is fine
+                    });
+                }
+            });
+            let approved: Vec<i64> = store.reliability_history().unwrap().iter().filter(|d| d["status"] == "approved").map(|d| d["version"].as_i64().unwrap()).collect();
+            assert_eq!(approved.len(), 1, "round {round}: {approved:?}");
+            assert_eq!(active(&store).unwrap()["version"].as_i64(), approved.first().copied());
+        }
     }
 
     #[test]
