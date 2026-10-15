@@ -3,7 +3,8 @@
 #
 #   cp deploy/env.production.example .env      # then fill it in, or run deploy/install.sh which does it for you
 #   docker compose -f deploy/rust/compose.yml --env-file .env up -d --build
-#   docker compose -f deploy/rust/compose.yml --env-file .env --profile ai up -d     # also start the local model server
+#   docker compose -f deploy/rust/compose.yml --env-file .env --profile ai-fetch run --rm vllm-fetch   # once: download the model weights
+#   docker compose -f deploy/rust/compose.yml --env-file .env --profile ai up -d     # also start the local model server (vLLM)
 name: claimguard
 
 x-app: &app
@@ -21,12 +22,13 @@ x-app: &app
     PII_KEY: ${PII_KEY:?set PII_KEY in .env}
     MONGO_URI: mongodb://${MONGO_ROOT_USER:?set MONGO_ROOT_USER in .env}:${MONGO_ROOT_PASSWORD:?set MONGO_ROOT_PASSWORD in .env}@mongo:27017/?authSource=admin
     REDIS_URL: redis://:${REDIS_PASSWORD:?set REDIS_PASSWORD in .env}@redis:6379/0   # the worker's message broker (Redis Streams); empty = claims are processed inline
-    CG_WORKER_CONCURRENCY: ${CG_WORKER_CONCURRENCY:-4}   # claims processed at once = the most the model is ever asked at once; keep equal to OLLAMA_NUM_PARALLEL
+    CG_WORKER_CONCURRENCY: ${CG_WORKER_CONCURRENCY:-4}   # claims processed at once = the most the model is ever asked at once; the vLLM server's --max-num-seqs follows it
     CG_BROKER_MIN_IDLE_SECONDS: ${CG_BROKER_MIN_IDLE_SECONDS:-}   # empty: the explanation ceiling plus 30 s before another consumer takes a message over
     QUEUE_AI_PROVIDER: ${QUEUE_AI_PROVIDER:-}
     QUEUE_AI_TWO_PASS: ${QUEUE_AI_TWO_PASS:-}
-    OLLAMA_BASE_URL: ${OLLAMA_BASE_URL:-http://ollama:11434}
-    OLLAMA_MODEL: ${OLLAMA_MODEL:-}
+    VLLM_BASE_URL: ${VLLM_BASE_URL:-http://vllm:8000}
+    VLLM_MODEL: ${VLLM_MODEL:-google/gemma-3-4b-it}   # the name the server serves the model under (the Hugging Face repository id)
+    VLLM_API_KEY: ${VLLM_API_KEY:-}                   # the key the server was started with
     FEATHERLESS_API_KEY: ${FEATHERLESS_API_KEY:-}
     TRUSTED_PROXY_IPS: ${TRUSTED_PROXY_IPS:-*}
     # audit protection (docs/39): a second, append-only copy of both logs on its own volume (only the worker mounts it), and an optional
@@ -144,8 +146,9 @@ services:
       OCR_TOKEN: ${DOCUMENT_READER_TOKEN:?set DOCUMENT_READER_TOKEN in .env}
       OCR_ENGINE: ${DOCUMENT_READER_ENGINE:-auto}
       OCR_LANGS: ${DOCUMENT_READER_LANGS:-eng}
-      VLM_BASE_URL: ${VLM_BASE_URL:-}        # an OpenAI-compatible vision model on the private network, e.g. http://ollama:11434/v1
-      VLM_MODEL: ${VLM_MODEL:-}              # e.g. a build of baidu/Unlimited-OCR (docs/45); empty: Tesseract only
+      VLM_BASE_URL: ${VLM_BASE_URL:-}        # an OpenAI-compatible vision model on the private network, e.g. http://vllm-vision:8000/v1
+      VLM_MODEL: ${VLM_MODEL:-}              # the name that server serves it under; empty: Tesseract only
+      VLM_API_KEY: ${VLLM_API_KEY:-}         # the same key as the model servers
     networks: [reader]                       # a network with no route out: shared only with the API and the model server
     security_opt: ["no-new-privileges:true"]
     cap_drop: [ALL]
@@ -155,20 +158,80 @@ services:
     pids_limit: 128
     cpus: 2.0
 
-  ollama:                       # optional, on-premises model for the explanation drafts; start with --profile ai
+  vllm:                         # on-premises model for the explanation drafts: vLLM, OpenAI-compatible API on port 8000; start with --profile ai
     profiles: ["ai"]
-    image: ollama/ollama:latest@sha256:b86366bb528bbf7f1424435d165028497a5b69bf6ddb4fa5a87102e2b79f44fb
+    image: ${VLLM_IMAGE:-vllm/vllm-openai:v0.31.0-cu129@sha256:ff29e51a9457f191deb332b96fa6440584fa941aa2a548449b604e2b1e5e1eeb}   # pin a release; check the driver note in docs/40 section 12 before changing it
     restart: unless-stopped
     networks: [data, reader]
-    volumes: [ollama_data:/root/.ollama]
-    mem_limit: 5g              # host memory only; the model itself sits in the graphics card's memory
+    volumes: [model_cache:/models]
+    mem_limit: 8g              # host memory only; the weights and the cache sit in the graphics card's memory
     pids_limit: 512
+    shm_size: 2g
+    tmpfs: ["/tmp:size=2g"]    # compile and graph caches are rebuilt at every start; nothing persists here
     environment:
-      OLLAMA_NUM_PARALLEL: ${CG_WORKER_CONCURRENCY:-4}   # parallel slots, the same number as the worker's pool
-      OLLAMA_MAX_QUEUE: 64
-      OLLAMA_MAX_LOADED_MODELS: 2   # the explanation model and the vision reader sit in the card together (about 3.3 GB + 3 GB of 10 GB)
-      OLLAMA_KEEP_ALIVE: 24h        # never unload: a cold load costs more than the memory
-    # GPU: install.sh adds compose.gpu.yml when the host has the NVIDIA container toolkit (by hand: -f deploy/rust/compose.gpu.yml)
+      HOME: /tmp
+      VLLM_CACHE_ROOT: /tmp/vllm-cache
+      HF_HOME: /models/hf
+      HF_HUB_OFFLINE: "1"      # the weights were fetched once by vllm-fetch; this container has no route out and never asks the internet
+      VLLM_API_KEY: ${VLLM_API_KEY:?set VLLM_API_KEY in .env (install.sh generates one)}
+      VLLM_MODEL: ${VLLM_MODEL:-google/gemma-3-4b-it}
+      VLLM_MAX_LEN: ${VLLM_MAX_LEN:-2048}           # an explanation prompt is about 600 tokens and the answer at most 500
+      VLLM_GPU_UTIL: ${VLLM_GPU_UTIL:-0.55}         # the share of the card's memory this server may take (the vision server below takes its own)
+      VLLM_MAX_SEQS: ${CG_WORKER_CONCURRENCY:-4}    # sequences decoded together: the same number as the worker's pool
+      VLLM_EXTRA_ARGS: ${VLLM_EXTRA_ARGS:---quantization fp8}   # weight-only FP8 (an RTX 3080 is Ampere): halves the weights to fit the 10 GB card; set it to a space for a card with room
+    entrypoint: ["/bin/sh", "-c"]
+    command: ['exec vllm serve "$$VLLM_MODEL" --served-model-name "$$VLLM_MODEL" --api-key "$$VLLM_API_KEY" --host 0.0.0.0 --port 8000 --max-model-len "$$VLLM_MAX_LEN" --max-num-seqs "$$VLLM_MAX_SEQS" --gpu-memory-utilization "$$VLLM_GPU_UTIL" $$VLLM_EXTRA_ARGS']
+    healthcheck:
+      test: ["CMD-SHELL", "python3 -c \"import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health', timeout=5)\""]
+      interval: 15s
+      timeout: 10s
+      retries: 10
+      start_period: 600s       # loading the weights and capturing the graphs takes minutes
+
+  vllm-vision:                  # optional, the document reader's vision model: vLLM serves ONE model per process, so it has its own; start with --profile vision
+    profiles: ["vision"]
+    image: ${VLLM_IMAGE:-vllm/vllm-openai:v0.31.0-cu129@sha256:ff29e51a9457f191deb332b96fa6440584fa941aa2a548449b604e2b1e5e1eeb}
+    restart: unless-stopped
+    networks: [data, reader]
+    volumes: [model_cache:/models]
+    mem_limit: 8g
+    pids_limit: 512
+    shm_size: 2g
+    tmpfs: ["/tmp:size=2g"]
+    environment:
+      HOME: /tmp
+      VLLM_CACHE_ROOT: /tmp/vllm-cache
+      HF_HOME: /models/hf
+      HF_HUB_OFFLINE: "1"
+      VLLM_API_KEY: ${VLLM_API_KEY:?set VLLM_API_KEY in .env (install.sh generates one)}
+      VLLM_VLM_MODEL: ${VLLM_VLM_MODEL:?set VLLM_VLM_MODEL in .env (the Hugging Face repository of the vision model)}
+      VLLM_VLM_MAX_LEN: ${VLLM_VLM_MAX_LEN:-4096}
+      VLLM_VLM_GPU_UTIL: ${VLLM_VLM_GPU_UTIL:-0.30}   # 0.55 + 0.30 leaves 15% of the card free; the two must not add up to more than 1
+      VLLM_VLM_EXTRA_ARGS: ${VLLM_VLM_EXTRA_ARGS:- }
+    entrypoint: ["/bin/sh", "-c"]
+    command: ['exec vllm serve "$$VLLM_VLM_MODEL" --served-model-name "$$VLLM_VLM_MODEL" --api-key "$$VLLM_API_KEY" --host 0.0.0.0 --port 8000 --max-model-len "$$VLLM_VLM_MAX_LEN" --max-num-seqs 2 --gpu-memory-utilization "$$VLLM_VLM_GPU_UTIL" $$VLLM_VLM_EXTRA_ARGS']
+    healthcheck:
+      test: ["CMD-SHELL", "python3 -c \"import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health', timeout=5)\""]
+      interval: 15s
+      timeout: 10s
+      retries: 10
+      start_period: 600s
+
+  vllm-fetch:                   # one-shot: downloads the model weights into the model volume. The ONLY container here with a route to the internet; install.sh runs it
+    profiles: ["ai-fetch"]
+    image: ${VLLM_IMAGE:-vllm/vllm-openai:v0.31.0-cu129@sha256:ff29e51a9457f191deb332b96fa6440584fa941aa2a548449b604e2b1e5e1eeb}
+    restart: "no"
+    networks: [egress]
+    volumes: [model_cache:/models, ./fetch_model.py:/fetch_model.py:ro]
+    mem_limit: 1g
+    pids_limit: 128
+    environment:
+      HOME: /tmp
+      HF_HOME: /models/hf
+      HF_TOKEN: ${HF_TOKEN:-}                 # for a gated model (Gemma): a read token of an account that accepted the licence
+      VLLM_MODEL_REVISION: ${VLLM_MODEL_REVISION:-}   # optional commit hash that pins the explanation model
+      FETCH_MODELS: ${CG_FETCH_MODELS:-google/gemma-3-4b-it}
+    entrypoint: ["python3", "/fetch_model.py"]
 
 # The proxy is the only thing on the edge with the outside world; the database, the cache and the model are on a network with no route out
 # (internal), so a compromised proxy cannot reach MongoDB and a compromised database cannot call out.
@@ -187,4 +250,4 @@ volumes:
   redis_data:
   caddy_data:
   caddy_config:
-  ollama_data:
+  model_cache:

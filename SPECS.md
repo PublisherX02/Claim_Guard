@@ -220,7 +220,7 @@ change only visible as a whole-file diff) — both real but secondary to the two
 
 ### 6a. Local models
 
-`OllamaExplanationProvider` (`src/llm_adapter.py`) serves any model through a locally-running Ollama instance
+**Note (2026-10-15): the deployed Rust build now serves the model with vLLM (`docs/40` section 12); no vLLM server has been started yet, and every figure below was measured through Ollama (a 4-bit build) and has not been repeated.** `OllamaExplanationProvider` (`src/llm_adapter.py`) serves any model through a locally-running Ollama instance
 (`http://localhost:11434`), fully offline: no API key leaves the machine, no per-call cost, and it goes through the
 exact same schema, grounding and fallback path as every hosted provider — nothing about the safety net changes for a
 local model. Motivation: the hosted Mistral-Nemo default costs money per call and needs internet access; a model that

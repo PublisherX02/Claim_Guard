@@ -1,7 +1,15 @@
-# GPU override for the model server. install.sh adds it automatically when the host has an NVIDIA driver and the NVIDIA container toolkit;
+# GPU override for the model servers (vLLM). install.sh adds it automatically when the host has an NVIDIA driver and the NVIDIA container toolkit;
 # by hand: docker compose -f deploy/rust/compose.yml -f deploy/rust/compose.gpu.yml --env-file .env --profile ai up -d
 services:
-  ollama:
+  vllm:
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+  vllm-vision:
     deploy:
       resources:
         reservations:

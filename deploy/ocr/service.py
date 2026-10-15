@@ -218,7 +218,7 @@ def run_vlm(img):
     data = 'data:image/png;base64,' + base64.b64encode(buf.getvalue()).decode()
     body = json.dumps({'model': VLM_MODEL, 'temperature': 0, 'max_tokens': VLM_MAX_TOKENS, 'stream': False,
                        'messages': [{'role': 'user', 'content': [{'type': 'text', 'text': VLM_PROMPT}, {'type': 'image_url', 'image_url': {'url': data}}]}]}).encode()
-    req = urllib.request.Request(VLM_URL + '/chat/completions', data=body, headers={'Content-Type': 'application/json', 'Authorization': 'Bearer ollama-local'})
+    req = urllib.request.Request(VLM_URL + '/chat/completions', data=body, headers={'Content-Type': 'application/json', 'Authorization': 'Bearer ' + os.environ.get('VLM_API_KEY', 'ollama-local')})
     try:
         with urllib.request.urlopen(req, timeout=PAGE_TIMEOUT) as r:
             out = json.loads(r.read())

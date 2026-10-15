@@ -27,9 +27,9 @@ data:
   UNMASK_PER_HOUR: "60"
   # the proxy in front is the ingress controller: trust the address it forwards (set to the controller's pod network, not "*", in production)
   TRUSTED_PROXY_IPS: "*"
-  QUEUE_AI_PROVIDER: ""            # "ollama" to use the on-premises model below
-  OLLAMA_BASE_URL: http://ollama:11434
-  OLLAMA_MODEL: ""
+  QUEUE_AI_PROVIDER: ""            # "vllm" to use the on-premises model below
+  VLLM_BASE_URL: http://vllm:8000
+  VLLM_MODEL: google/gemma-3-4b-it
   QUEUE_AI_TWO_PASS: ""
   TSA_URL: ""
 ---
@@ -229,36 +229,53 @@ spec:
   selector: { app: redis }
   ports: [{ name: redis, port: 6379 }]
 ---
-# --- Optional on-premises model (apply only if you use the AI explanation step; set QUEUE_AI_PROVIDER=ollama and OLLAMA_MODEL above).
-# --- GPU: add the NVIDIA device plugin's resource request under resources.limits ("nvidia.com/gpu": 1) on a GPU node.
+# --- Optional on-premises model, served by vLLM (apply only if you use the AI explanation step; set QUEUE_AI_PROVIDER=vllm and VLLM_MODEL above, and
+# --- VLLM_API_KEY in the Secret). The weights are downloaded once by deploy/k8s/vllm-fetch-job.yaml, the only pod allowed to reach the internet.
+# --- It needs a GPU node with the NVIDIA device plugin (the limit below).
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: ollama
+  name: vllm
   namespace: claimguard
-  labels: { app: ollama, tier: data }
+  labels: { app: vllm, tier: data }
 spec:
-  replicas: 0            # scale to 1 to turn the model on: kubectl -n claimguard scale deploy/ollama --replicas=1
-  selector: { matchLabels: { app: ollama } }
+  replicas: 0            # scale to 1 to turn the model on: kubectl -n claimguard scale deploy/vllm --replicas=1
+  selector: { matchLabels: { app: vllm } }
   template:
     metadata:
-      labels: { app: ollama, tier: data }
+      labels: { app: vllm, tier: data }
     spec:
       automountServiceAccountToken: false
-      # the image runs as root by default; the "restricted" profile does not allow that, so it runs as 1000 with the models in /models
-      # (untested on a cluster: if your model server needs root, give it its own namespace with the "baseline" profile instead)
+      # the image runs as root by default; the "restricted" profile does not allow that, so it runs as 1000 with every cache pointed at /tmp
+      # and the weights in /models (untested on a cluster: if the server needs root, give it its own namespace with the "baseline" profile instead)
       securityContext: { runAsNonRoot: true, runAsUser: 1000, runAsGroup: 1000, fsGroup: 1000, seccompProfile: { type: RuntimeDefault } }
       containers:
-        - name: ollama
-          image: ollama/ollama:latest@sha256:b86366bb528bbf7f1424435d165028497a5b69bf6ddb4fa5a87102e2b79f44fb
-          ports: [{ name: ollama, containerPort: 11434 }]
-          env: [{ name: OLLAMA_MODELS, value: /models }, { name: HOME, value: /tmp }]
+        - name: vllm
+          image: vllm/vllm-openai:v0.31.0-cu129@sha256:ff29e51a9457f191deb332b96fa6440584fa941aa2a548449b604e2b1e5e1eeb     # pin by digest; the CUDA 12.9 build; check the driver with nvidia-smi first (docs/40 section 12)
+          command: ["/bin/sh", "-c"]
+          args: ['exec vllm serve "$VLLM_MODEL" --served-model-name "$VLLM_MODEL" --api-key "$VLLM_API_KEY" --host 0.0.0.0 --port 8000 --max-model-len "$VLLM_MAX_LEN" --max-num-seqs "$VLLM_MAX_SEQS" --gpu-memory-utilization "$VLLM_GPU_UTIL" $VLLM_EXTRA_ARGS']
+          ports: [{ name: vllm, containerPort: 8000 }]
+          envFrom:
+            - configMapRef: { name: claimguard-settings }
+            - secretRef: { name: claimguard-secrets }
+          env:
+            - { name: HOME, value: /tmp }
+            - { name: VLLM_CACHE_ROOT, value: /tmp/vllm-cache }
+            - { name: HF_HOME, value: /models/hf }
+            - { name: HF_HUB_OFFLINE, value: "1" }
+            - { name: VLLM_MAX_LEN, value: "2048" }
+            - { name: VLLM_MAX_SEQS, value: "4" }          # the same number as CG_WORKER_CONCURRENCY
+            - { name: VLLM_GPU_UTIL, value: "0.85" }       # this pod serves one model; lower it if the card is shared
+            - { name: VLLM_EXTRA_ARGS, value: "--quantization fp8" }   # weight-only FP8 on an Ampere card such as the RTX 3080
           securityContext: { allowPrivilegeEscalation: false, capabilities: { drop: ["ALL"] } }
-          resources: { requests: { cpu: "1", memory: 4Gi }, limits: { cpu: "8", memory: 16Gi } }
-          volumeMounts: [{ name: models, mountPath: /models }, { name: tmp, mountPath: /tmp }]
+          resources: { requests: { cpu: "1", memory: 4Gi }, limits: { cpu: "8", memory: 16Gi, nvidia.com/gpu: 1 } }
+          startupProbe: { httpGet: { path: /health, port: vllm }, periodSeconds: 10, failureThreshold: 90 }
+          readinessProbe: { httpGet: { path: /health, port: vllm }, periodSeconds: 15, failureThreshold: 3 }
+          volumeMounts: [{ name: models, mountPath: /models }, { name: tmp, mountPath: /tmp }, { name: shm, mountPath: /dev/shm }]
       volumes:
         - { name: models, persistentVolumeClaim: { claimName: claimguard-models } }
-        - { name: tmp, emptyDir: { sizeLimit: 64Mi } }
+        - { name: tmp, emptyDir: { sizeLimit: 2Gi } }
+        - { name: shm, emptyDir: { medium: Memory, sizeLimit: 2Gi } }
 ---
 apiVersion: v1
 kind: PersistentVolumeClaim
@@ -272,13 +289,13 @@ spec:
 apiVersion: v1
 kind: Service
 metadata:
-  name: ollama
+  name: vllm
   namespace: claimguard
 spec:
-  selector: { app: ollama }
-  ports: [{ name: ollama, port: 11434 }]
+  selector: { app: vllm }
+  ports: [{ name: vllm, port: 8000 }]
 ---
-# --- Network policy: deny everything, then allow only what is listed. The data tier (mongo, redis, ollama) has no egress except DNS.
+# --- Network policy: deny everything, then allow only what is listed. The data tier (mongo, redis, vllm) has no egress except DNS.
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
 metadata:
@@ -325,8 +342,8 @@ spec:
       ports: [{ protocol: TCP, port: 27017 }]
     - to: [{ podSelector: { matchLabels: { app: redis } } }]
       ports: [{ protocol: TCP, port: 6379 }]
-    - to: [{ podSelector: { matchLabels: { app: ollama } } }]
-      ports: [{ protocol: TCP, port: 11434 }]
+    - to: [{ podSelector: { matchLabels: { app: vllm } } }]
+      ports: [{ protocol: TCP, port: 8000 }]
 ---
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy

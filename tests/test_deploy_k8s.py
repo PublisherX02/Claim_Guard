@@ -67,7 +67,7 @@ class Manifests(unittest.TestCase):
         self.assertEqual(into_data["podSelector"]["matchLabels"], {"tier": "data"})
         self.assertEqual(into_data["ingress"], [{"from": [{"podSelector": {"matchLabels": {"tier": "app"}}}]}])
         ports = sorted(p["port"] for r in of("NetworkPolicy", "app-to-data")[0]["spec"]["egress"] for p in r["ports"])
-        self.assertEqual(ports, [6379, 11434, 27017])
+        self.assertEqual(ports, [6379, 8000, 27017])
         for d in of("NetworkPolicy"):  # the data tier is granted no egress rule of its own
             if d["spec"]["podSelector"].get("matchLabels", {}).get("tier") == "data":
                 self.assertNotIn("Egress", d["spec"]["policyTypes"])

@@ -16,7 +16,8 @@ kubectl -n claimguard create secret tls claimguard-tls --cert=tls.crt --key=tls.
 kubectl -n claimguard get pods -w
 # the first administrator (level 4), from inside the cluster:
 kubectl -n claimguard exec -it deploy/api -- cg admin create-admin --badge CG-4004 --name "First Admin"   # asks for the password; --password-stdin for scripts
-# model (optional): kubectl -n claimguard scale deploy/ollama --replicas=1 ; set QUEUE_AI_PROVIDER/OLLAMA_MODEL in the ConfigMap and restart api and worker
+# model (optional, vLLM on a GPU node): put VLLM_API_KEY in the Secret (a long random value), download the weights once with deploy/k8s/vllm-fetch-job.yaml
+# (its header says how; Gemma needs an HF_TOKEN), then: kubectl -n claimguard scale deploy/vllm --replicas=1 ; set QUEUE_AI_PROVIDER=vllm and VLLM_MODEL in the ConfigMap and restart api and worker
 ```
 The `.env` must hold `MONGO_ROOT_USER`, `MONGO_ROOT_PASSWORD` and `REDIS_PASSWORD` as well as the application secrets, because the pods read them from the one Secret. Add a second administrator early: dangerous administrator actions need two (`docs/40` section 5b).
 

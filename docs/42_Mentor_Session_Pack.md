@@ -16,7 +16,7 @@ ClaimGuard reads a health-insurance claim, checks it against the fifteen rules o
 | 5 | Task queue: Celery or ARQ | **Partly** | the Python build ran Celery on Redis. The Rust build has the same safe design (an outbox in the database, a relay, idempotent tasks, retries, dead letters, leases) **on a Redis Stream with a consumer group** (`docs/38` section 9): a pool of consumers, a hard cap on how many claims are processed (and so asked of the model) at once, takeover of a dead consumer's work, repair of lost messages. It is not Celery or ARQ, which are Python libraries (section 7, question 2) |
 | 6 | Respect Middle East data-protection law (PDPL) | **Mapped, two gaps** | `docs/41`: each obligation against what the system does. Not built: subject access/erasure and retention |
 | 7 | Near-production, not a proof of concept (K8s, Redis) | **Compose tested; Kubernetes written, not run** | `deploy/rust/` (50-check attack test, encrypted backup/restore tested end to end, runbook `docs/40`); `deploy/k8s/` (manifests with network policies and the restricted pod profile, structural test, **no cluster to apply them to**) |
-| 8 | Fully on premises | **Done by design** | local model (Ollama), no outside call in the deployed system, data network with no route out (`deploy_attack.py`), the Rust build refuses a cloud model provider |
+| 8 | Fully on premises | **Done by design** | local model (vLLM), no outside call in the deployed system, data network with no route out (`deploy_attack.py`), the Rust build refuses a cloud model provider |
 | 9 | NoSQL, not SQL | **Done** | MongoDB for users, claims, queue, approvals; the same contract suite runs against the in-memory twin and the real database |
 
 ## 3. The judging weights, and what proves each one

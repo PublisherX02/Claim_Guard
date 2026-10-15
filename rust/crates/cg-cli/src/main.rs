@@ -259,7 +259,7 @@ fn timestamp(args: &[String]) -> i32 {
     if st["state"] == "invalid" { 1 } else { 0 }
 }
 
-/// `cg model-check`: asks the configured model (QUEUE_AI_PROVIDER=ollama, OLLAMA_BASE_URL, OLLAMA_MODEL) for the explanation template of
+/// `cg model-check`: asks the configured model (QUEUE_AI_PROVIDER=vllm, VLLM_BASE_URL, VLLM_MODEL, VLLM_API_KEY; or the OLLAMA_ ones) for the explanation template of
 /// each rule and reports how many came back in the required shape and how long each took. Exit 0 only if all were accepted. No claim data
 /// is involved: the model sees the rulebook's own text.
 fn model_check() -> i32 {
@@ -275,7 +275,7 @@ fn model_check() -> i32 {
     let model = match cg_queue::model::model_from_env(&env, rules.clone()) {
         Ok(Some(m)) => m,
         Ok(None) => {
-            println!("QUEUE_AI_PROVIDER is not set: the queue would use no model. Set it to ollama.");
+            println!("QUEUE_AI_PROVIDER is not set: the queue would use no model. Set it to vllm.");
             return 2;
         }
         Err(e) => {

@@ -10,8 +10,8 @@ DEPLOY = ROOT / 'deploy' / 'rust'
 
 def services(text):
     body = text.split('\nservices:\n', 1)[1].split('\nnetworks:\n', 1)[0].split('\nvolumes:\n', 1)[0]
-    parts = re.split(r'\n(?=  [a-z]+:[^\n]*\n)', '\n' + body)
-    return {re.match(r'\s*([a-z]+):', p).group(1): p for p in parts if re.match(r'\s*[a-z]+:[^\n]*\n', p)}
+    parts = re.split(r'\n(?=  [a-z][a-z-]*:[^\n]*\n)', '\n' + body)
+    return {re.match(r'\s*([a-z][a-z-]*):', p).group(1): p for p in parts if re.match(r'\s*[a-z][a-z-]*:[^\n]*\n', p)}
 
 
 class RustCompose(unittest.TestCase):
@@ -21,7 +21,7 @@ class RustCompose(unittest.TestCase):
         cls.svc = services(cls.text)
 
     def test_the_same_services_as_the_python_stack(self):
-        self.assertEqual(set(self.svc), {'proxy', 'api', 'worker', 'mongo', 'redis', 'ollama', 'reader'})
+        self.assertEqual(set(self.svc), {'proxy', 'api', 'worker', 'mongo', 'redis', 'vllm', 'vllm-vision', 'vllm-fetch', 'reader'})
 
     def test_only_the_proxy_publishes_ports(self):
         for name, block in self.svc.items():
@@ -48,7 +48,8 @@ class RustCompose(unittest.TestCase):
         self.assertIn('"cg", "serve"', self.svc['api'])
         self.assertIn('"--behind-proxy"', self.svc['api'])
         self.assertIn('"cg", "worker"', self.svc['worker'])
-        self.assertNotIn('python', self.text.lower().replace('# ', ' '))
+        for name in ('proxy', 'api', 'worker', 'mongo', 'redis'):  # the model servers and the reader are Python programs; the Rust build is not
+            self.assertNotIn('python', self.svc[name].lower().replace('# ', ' '), name)
         self.assertNotIn('replicas', self.text)
         self.assertNotIn('"--demo"', self.text)
         self.assertNotIn('"--dev"', self.text)
@@ -75,13 +76,67 @@ class RustCompose(unittest.TestCase):
     def test_every_container_has_a_memory_limit_and_the_database_and_broker_are_capped_inside_it(self):
         head = self.text.split('\nservices:\n', 1)[0]
         self.assertIn('mem_limit:', head)  # api and worker share it
-        for name in ('proxy', 'mongo', 'redis', 'ollama'):
+        for name in ('proxy', 'mongo', 'redis', 'vllm', 'vllm-vision', 'vllm-fetch'):
             self.assertIn('mem_limit:', self.svc[name], name)
         # MongoDB would otherwise take half of the machine for its cache
         self.assertRegex(self.svc['mongo'], r'--wiredTigerCacheSizeGB\W+\$\{MONGO_CACHE_GB:-1\}')
         # and Redis refuses to publish rather than silently evicting queued work
         self.assertIn('--maxmemory 200mb', self.svc['redis'])
         self.assertIn('--maxmemory-policy noeviction', self.svc['redis'])
+
+    def test_the_model_servers_are_vllm_off_by_default_pinned_keyed_and_offline(self):
+        for name, profile in (('vllm', 'ai'), ('vllm-vision', 'vision'), ('vllm-fetch', 'ai-fetch')):
+            self.assertIn(f'profiles: ["{profile}"]', self.svc[name], name)
+        for name in ('vllm', 'vllm-vision', 'vllm-fetch'):
+            self.assertRegex(self.svc[name], r'image: \$\{VLLM_IMAGE:-vllm/vllm-openai:v\d+\.\d+\.\d+[^}]*\}', name)
+        self.assertNotIn(':latest', self.text.split('services:', 1)[1].replace('# ', ' ').split('reader:', 1)[0].split('vllm:', 1)[-1])
+        for name in ('vllm', 'vllm-vision'):
+            block = self.svc[name]
+            self.assertIn('HF_HUB_OFFLINE: "1"', block, name)           # the server never asks the internet for weights
+            self.assertRegex(block, r'VLLM_API_KEY: \$\{VLLM_API_KEY:\?', name)   # the key is demanded, never defaulted
+            self.assertIn('--api-key', block, name)
+            self.assertIn('--served-model-name', block, name)
+            self.assertIn('--host 0.0.0.0', block, name)
+        self.assertIn('--max-num-seqs "$$VLLM_MAX_SEQS"', self.svc['vllm'])
+        self.assertRegex(self.svc['vllm'], r'VLLM_MAX_SEQS: \$\{CG_WORKER_CONCURRENCY:-4\}')   # the server's slots follow the worker's pool
+        self.assertIn('VLLM_EXTRA_ARGS: ${VLLM_EXTRA_ARGS:---quantization fp8}', self.svc['vllm'])
+        gpu = float(re.search(r'VLLM_GPU_UTIL:-([0-9.]+)', self.svc['vllm']).group(1)) + float(re.search(r'VLLM_VLM_GPU_UTIL:-([0-9.]+)', self.svc['vllm-vision']).group(1))
+        self.assertLess(gpu, 1.0, 'the two servers share one card: their memory shares must stay below the whole card')
+
+    def test_the_model_servers_have_no_route_out_and_only_the_download_job_does(self):
+        for name in ('vllm', 'vllm-vision'):
+            self.assertRegex(self.svc[name], r'networks: \[data, reader\]', name)
+            self.assertNotRegex(self.svc[name], r'networks:[^\n]*(edge|egress)', name)
+        self.assertIn('networks: [egress]', self.svc['vllm-fetch'])
+        on_egress = {n for n, b in self.svc.items() if re.search(r'networks:[^\n]*egress', b)}
+        # the worker is on it too (the timestamp authority); what matters is that no model server is, and that the download job is
+        self.assertEqual(on_egress, {'worker', 'vllm-fetch'}, 'the download job is the only model container allowed to reach the internet')
+        self.assertTrue((DEPLOY / 'fetch_model.py').exists())
+        self.assertIn('./fetch_model.py:/fetch_model.py:ro', self.svc['vllm-fetch'])
+        self.assertIn('restart: "no"', self.svc['vllm-fetch'])
+        gpu = (DEPLOY / 'compose.gpu.yml').read_text(encoding='utf-8')
+        for name in ('vllm', 'vllm-vision'):
+            self.assertIn(f'  {name}:', gpu, name)
+        self.assertNotIn('ollama', gpu)
+
+    def test_the_application_asks_the_vllm_server_with_its_key(self):
+        head = self.text.split('\nservices:\n', 1)[0]
+        for needle in ('VLLM_BASE_URL: ${VLLM_BASE_URL:-http://vllm:8000}', 'VLLM_MODEL:', 'VLLM_API_KEY: ${VLLM_API_KEY:-}'):
+            self.assertIn(needle, head)
+        self.assertNotIn('OLLAMA', self.text)
+        self.assertIn('VLM_API_KEY: ${VLLM_API_KEY:-}', self.svc['reader'])
+        example = (ROOT / 'deploy' / 'env.production.example').read_text(encoding='utf-8')
+        self.assertIn('QUEUE_AI_PROVIDER=vllm', example)
+        self.assertIn('VLLM_API_KEY=', example)
+
+    def test_the_installer_downloads_the_weights_first_then_starts_the_servers_and_never_pulls_with_ollama(self):
+        sh = (DEPLOY / 'install.sh').read_text(encoding='utf-8')
+        self.assertNotIn('ollama', sh.lower())
+        self.assertIn('QUEUE_AI_PROVIDER=vllm', sh)
+        self.assertLess(sh.index('vllm-fetch'), sh.index('$COMPOSE up -d --build'), 'the weights are fetched before the servers start offline')
+        self.assertIn('--profile ai-fetch', sh)
+        self.assertIn('HF_TOKEN', sh)
+        self.assertIn('wait_healthy vllm', sh)
 
     def test_only_the_worker_mounts_the_audit_mirror(self):
         self.assertIn('audit_mirror:/mirror', self.svc['worker'])

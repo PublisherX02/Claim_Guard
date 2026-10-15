@@ -63,9 +63,9 @@ cg timestamp stamp --log audit.jsonl --tsa-url https://tsa.example/tsr   # RFC 3
 cg extensions claims.jsonl                          # the 8 advisory results, history taken from the same file
 ```
 
-- **Container stack:** `bash deploy/rust/install.sh <address> internal|public [ai]` (generates the secrets, starts the stack, waits for health, creates the first administrator, and with `ai` hosts and checks the Ollama model with `cg model-check`), or by hand `docker compose -f deploy/rust/compose.yml --env-file .env up -d --build`. The stack was brought up from the built image with throw-away secrets on 2026-10-09: all five containers healthy, the console and `/healthz` answered through the TLS proxy with the HSTS header (same proxy, MongoDB, Redis and optional Ollama as `deploy/compose.yml`, with `cg serve` and `cg worker` in place of the Python server and Celery). The image has a health check that needs no extra tools (`cg health`).
+- **Container stack:** `bash deploy/rust/install.sh <address> internal|public [ai]` (generates the secrets, starts the stack, waits for health, creates the first administrator, and with `ai` downloads the model once, hosts it with vLLM and checks it with `cg model-check`), or by hand `docker compose -f deploy/rust/compose.yml --env-file .env up -d --build`. The stack was brought up from the built image with throw-away secrets on 2026-10-09: all five containers healthy, the console and `/healthz` answered through the TLS proxy with the HSTS header (same proxy, MongoDB, Redis and optional Ollama as `deploy/compose.yml`, with `cg serve` and `cg worker` in place of the Python server and Celery). The image has a health check that needs no extra tools (`cg health`).
 - **Desktop:** `desktop/dist/ClaimGuard.exe` contains the window, the Rust server, the rule files and the sample claims, so "local demo" runs from the exe alone; the server stops with the window, even if the window is killed.
-- **Model:** set `QUEUE_AI_PROVIDER=ollama` and `OLLAMA_BASE_URL=http://ollama:11434` (plain HTTP on the private network, by design). Without it, every claim keeps the engine's own explanation.
+- **Model:** set `QUEUE_AI_PROVIDER=vllm`, `VLLM_BASE_URL=http://vllm:8000`, `VLLM_MODEL` and `VLLM_API_KEY` (plain HTTP on the private network, by design; `ollama` and the `OLLAMA_` variables still work on a laptop). Without it, every claim keeps the engine's own explanation. See `docs/40` section 12.
 
 ## 4. Behaviour compared at the HTTP boundary
 
@@ -129,7 +129,7 @@ Most of a request here is opening a connection on Windows, not the work; the rul
 
 ## 7. What is not done
 
-- **Cloud model providers.** Only an on-premises OpenAI-compatible server (Ollama) is supported, over plain HTTP on the private network. Sending even rule text to a cloud service is not wanted for a hospital.
+- **Cloud model providers.** Only an on-premises OpenAI-compatible server (vLLM in production, Ollama on a laptop) is supported, over plain HTTP on the private network. Sending even rule text to a cloud service is not wanted for a hospital.
 - **Recheck route.** Answers 501 in both builds; a correction is resubmitted as a new version of the claim.
 - **Redis.** Now a real broker (section 9). Without `REDIS_URL` the worker processes claims inline as before. Whether Redis Streams is acceptable in place of Celery or ARQ is an open question for the mentor.
 - **TLS inside the server.** Terminated by the proxy only (`--behind-proxy`).
