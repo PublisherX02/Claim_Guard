@@ -1,0 +1,33 @@
+{
+  "train": {
+    "cases": 2486,
+    "claims": 399,
+    "labels": {
+      "PASS": 1500,
+      "FAIL": 319,
+      "NOT_APPLICABLE": 487,
+      "UNABLE_TO_ASSESS": 180
+    }
+  },
+  "test": {
+    "cases": 2250,
+    "claims": 150,
+    "labels": {
+      "PASS": 1879,
+      "NOT_APPLICABLE": 181,
+      "UNABLE_TO_ASSESS": 73,
+      "FAIL": 117
+    }
+  },
+  "stress": {
+    "cases": 750,
+    "claims": 50,
+    "labels": {
+      "PASS": 599,
+      "NOT_APPLICABLE": 63,
+      "FAIL": 26,
+      "UNABLE_TO_ASSESS": 62
+    }
+  },
+  "note": "Real labelled claims from the organizers' answer key; labels are rule results, not reviewer decisions. Train PASS capped at 1500; test and stress are complete."
+}
