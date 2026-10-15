@@ -17,6 +17,7 @@ mod ingest_cmd;
 mod ledger_cmd;
 mod selfcheck;
 mod serve;
+mod sim_cmd;
 mod tools;
 
 fn arg(args: &[String], name: &str) -> Option<String> {
@@ -30,6 +31,7 @@ fn main() {
         Some("audit-verify") => audit_verify(&args),
         Some("audit-append") => audit_append(&args),
         Some("xcheck") => xcheck(),
+        Some("sim") => std::process::exit(sim_cmd::run(&args[2..])),
         Some("ledger") => std::process::exit(ledger_cmd::run(&args[2..])),
         Some("ingest") => std::process::exit(ingest_cmd::ingest(&args[2..])),
         Some("ingest-doc") => std::process::exit(ingest_cmd::ingest_doc(&args[2..])),

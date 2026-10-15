@@ -1,0 +1,273 @@
+{
+  "simulated": true,
+  "seed": 1,
+  "decisions_note": "Reviewers are simulated with a hidden true upheld rate per rule; claims and findings are the real development set, recycled under new ids. The curves show how the mechanism behaves, not accuracy with real people.",
+  "convergence": {
+    "curve": [
+      {
+        "decisions": 105,
+        "R001": {
+          "n": 8,
+          "rate": 1.0,
+          "lower": 0.6305833524471842,
+          "upper": 1.0,
+          "status": "unmeasured"
+        },
+        "R006": {
+          "n": 8,
+          "rate": 0.5,
+          "lower": 0.15701277048705642,
+          "upper": 0.8429872295129424,
+          "status": "unmeasured"
+        },
+        "R013": {
+          "n": 11,
+          "rate": 0.45454545454545453,
+          "lower": 0.16748809406370319,
+          "upper": 0.7662064023406545,
+          "status": "unmeasured"
+        }
+      },
+      {
+        "decisions": 205,
+        "R001": {
+          "n": 15,
+          "rate": 0.8666666666666667,
+          "lower": 0.5953973033966142,
+          "upper": 0.9834240865599164,
+          "status": "unmeasured"
+        },
+        "R006": {
+          "n": 12,
+          "rate": 0.5833333333333334,
+          "lower": 0.2766696856820955,
+          "upper": 0.8483477701915696,
+          "status": "unmeasured"
+        },
+        "R013": {
+          "n": 20,
+          "rate": 0.55,
+          "lower": 0.3152781330405423,
+          "upper": 0.7694221032240758,
+          "status": "measured"
+        }
+      },
+      {
+        "decisions": 505,
+        "R001": {
+          "n": 36,
+          "rate": 0.9166666666666666,
+          "lower": 0.7753102394430316,
+          "upper": 0.9824735040760655,
+          "status": "measured"
+        },
+        "R006": {
+          "n": 33,
+          "rate": 0.48484848484848486,
+          "lower": 0.30796344360471606,
+          "upper": 0.6645555216114434,
+          "status": "measured"
+        },
+        "R013": {
+          "n": 56,
+          "rate": 0.5,
+          "lower": 0.3633554308247745,
+          "upper": 0.6366445691751887,
+          "status": "measured"
+        }
+      },
+      {
+        "decisions": 1007,
+        "R001": {
+          "n": 73,
+          "rate": 0.9041095890410958,
+          "lower": 0.8123575734378292,
+          "upper": 0.9605709863752372,
+          "status": "measured"
+        },
+        "R006": {
+          "n": 65,
+          "rate": 0.4153846153846154,
+          "lower": 0.2943819982497343,
+          "upper": 0.5443553139924293,
+          "status": "doubtful"
+        },
+        "R013": {
+          "n": 113,
+          "rate": 0.5309734513274337,
+          "lower": 0.4347936889763939,
+          "upper": 0.6254900011303779,
+          "status": "measured"
+        }
+      },
+      {
+        "decisions": 2018,
+        "R001": {
+          "n": 146,
+          "rate": 0.9178082191780822,
+          "lower": 0.8608290508124359,
+          "upper": 0.9568086087152348,
+          "status": "measured"
+        },
+        "R006": {
+          "n": 130,
+          "rate": 0.36153846153846153,
+          "lower": 0.27914996204819087,
+          "upper": 0.45038920799582205,
+          "status": "doubtful"
+        },
+        "R013": {
+          "n": 227,
+          "rate": 0.5198237885462555,
+          "lower": 0.452739338167767,
+          "upper": 0.5863838172336526,
+          "status": "doubtful"
+        }
+      },
+      {
+        "decisions": 4039,
+        "R001": {
+          "n": 291,
+          "rate": 0.9450171821305842,
+          "lower": 0.9122453077601431,
+          "upper": 0.9682495688374164,
+          "status": "measured"
+        },
+        "R006": {
+          "n": 259,
+          "rate": 0.3359073359073359,
+          "lower": 0.2786316250545299,
+          "upper": 0.39698912284578125,
+          "status": "doubtful"
+        },
+        "R013": {
+          "n": 454,
+          "rate": 0.5308370044052864,
+          "lower": 0.4837572080511885,
+          "upper": 0.5775125677691593,
+          "status": "doubtful"
+        }
+      }
+    ],
+    "r006_first_doubtful_at_decisions": 905,
+    "rules_wrongly_doubtful": [],
+    "hidden_truth": {
+      "R001": 0.97,
+      "R002": 0.97,
+      "R003": 0.97,
+      "R004": 0.97,
+      "R005": 0.97,
+      "R006": 0.35,
+      "R007": 0.97,
+      "R008": 0.97,
+      "R009": 0.97,
+      "R010": 0.97,
+      "R011": 0.97,
+      "R012": 0.97,
+      "R013": 0.5,
+      "R014": 0.97,
+      "R015": 0.97
+    },
+    "note": "simulated reviewers; shows the mechanism, not real-world accuracy"
+  },
+  "routing_effect": {
+    "doubtful_rules": [
+      "R006",
+      "R013"
+    ],
+    "claims": 793,
+    "senior_share_off": 0.7616645649432535,
+    "senior_share_on": 0.8751576292559899,
+    "senior_queue_off": 604,
+    "senior_queue_on": 694,
+    "per_senior_off": 151.0,
+    "per_senior_on": 173.5,
+    "newly_senior": 90,
+    "verdict_hashes_equal": true,
+    "note": "simulated reviewers; shows the mechanism, not real-world accuracy",
+    "load_note": "The senior queue grows from 604 to 694 of 793 claims when routing uses the snapshot."
+  },
+  "active_learning": {
+    "arrival": {
+      "mean_width_at_600_decisions": 0.16789675470403412,
+      "decisions_until_every_flagged_rule_is_known": 926
+    },
+    "uncertainty_first": {
+      "mean_width_at_600_decisions": 0.18839445241793776,
+      "decisions_until_every_flagged_rule_is_known": 1076
+    },
+    "note": "a demonstration on simulated reviewers, not a finding about real ones"
+  },
+  "poisoning": {
+    "sweep": [
+      {
+        "adversary_share": 0.1,
+        "wrongly_doubtful_without_protection": 0,
+        "wrongly_doubtful_with_protection": 0
+      },
+      {
+        "adversary_share": 0.2,
+        "wrongly_doubtful_without_protection": 1,
+        "wrongly_doubtful_with_protection": 0
+      },
+      {
+        "adversary_share": 0.3,
+        "wrongly_doubtful_without_protection": 10,
+        "wrongly_doubtful_with_protection": 4
+      },
+      {
+        "adversary_share": 0.4,
+        "wrongly_doubtful_without_protection": 12,
+        "wrongly_doubtful_with_protection": 12
+      },
+      {
+        "adversary_share": 0.5,
+        "wrongly_doubtful_without_protection": 13,
+        "wrongly_doubtful_with_protection": 12
+      },
+      {
+        "adversary_share": 0.6,
+        "wrongly_doubtful_without_protection": 13,
+        "wrongly_doubtful_with_protection": 12
+      },
+      {
+        "adversary_share": 0.8,
+        "wrongly_doubtful_without_protection": 13,
+        "wrongly_doubtful_with_protection": 13
+      },
+      {
+        "adversary_share": 1.0,
+        "wrongly_doubtful_without_protection": 13,
+        "wrongly_doubtful_with_protection": 0
+      }
+    ],
+    "without_protection": {
+      "wrongly_doubtful": [
+        "rule",
+        "rule",
+        "rule",
+        "rule",
+        "rule",
+        "rule",
+        "rule",
+        "rule",
+        "rule",
+        "rule",
+        "rule",
+        "rule",
+        "rule"
+      ]
+    },
+    "with_cap_and_minimum": {
+      "wrongly_doubtful": []
+    },
+    "reading": "The two cases are the last sweep row (the adversary decides every claim): the minimum of three different reviewers keeps every rule unmeasured. A reviewer's cap on one rule limits a minority adversary but cannot out-vote an adversary who decides more than the cap and more than the honest reviewers together; see the sweep.",
+    "note": "simulated reviewers; shows the mechanism, not real-world accuracy"
+  },
+  "invariants": {
+    "feature_off_receipts_equal_baseline": true,
+    "tampered_snapshot_detected": true,
+    "verdicts_unchanged_by_apply": true,
+    "replay_of_uncertainty_deal_matches": true
+  }
+}

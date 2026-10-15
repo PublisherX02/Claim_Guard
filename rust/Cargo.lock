@@ -530,6 +530,7 @@ dependencies = [
  "cg-mongo",
  "cg-queue",
  "cg-redis",
+ "cg-sim",
  "cg-timestamp",
  "rpassword",
  "serde",

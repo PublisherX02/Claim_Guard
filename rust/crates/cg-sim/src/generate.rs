@@ -51,11 +51,14 @@ pub struct Summary {
 pub struct Lab {
     pub seed: u64,
     pub reviewers: Vec<Persona>,
+    /// When set, the adversarial senior (if any) is chosen with this probability for every claim a senior may take.
+    pub adversary_share: Option<f64>,
+    pub id_prefix: String,
 }
 
 impl Lab {
     pub fn new(seed: u64, with_adversary: bool) -> Lab {
-        Lab { seed, reviewers: default_reviewers(with_adversary) }
+        Lab { seed, reviewers: default_reviewers(with_adversary), adversary_share: None, id_prefix: "SIM".into() }
     }
 
     /// The simulated answer of one person to one finding: the truth (confirm with probability `truth[rule]`), shifted by their bias, or a coin flip.
@@ -72,12 +75,17 @@ impl Lab {
     /// Feeds claims until at least `target` decisions exist. Each claim gets a receipt (with `snapshot` applied when given, which is how routing
     /// changes who may take it), then is leased to a simulated reviewer allowed to take it, decided finding by finding, and marked decided.
     pub fn run(&self, store: &dyn QueueStore, corpus: &Corpus, target: usize, cfg: &RoutingConfig, snapshot: Option<&Value>) -> Result<Summary, String> {
-        let mut rng = ChaCha8Rng::seed_from_u64(self.seed);
-        let (mut decisions, mut claims, mut t) = (0usize, 0usize, 1_000.0f64);
+        self.run_from(store, corpus, 0, target, cfg, snapshot)
+    }
+
+    /// Like `run`, but numbers the claims from `start` (so batches can be added to one store) and adds at least `target` more decisions.
+    pub fn run_from(&self, store: &dyn QueueStore, corpus: &Corpus, start: usize, target: usize, cfg: &RoutingConfig, snapshot: Option<&Value>) -> Result<Summary, String> {
+        let mut rng = ChaCha8Rng::seed_from_u64(self.seed ^ (start as u64).wrapping_mul(0x9E37_79B9_7F4A_7C15));
+        let (mut decisions, mut claims, mut t) = (0usize, 0usize, 1_000.0f64 + start as f64 * 0.01);
         let mut trail = String::new();
         while decisions < target {
-            let (base, results) = &corpus.items[claims % corpus.items.len()];
-            let id = format!("SIM-{:06}", claims);
+            let (base, results) = &corpus.items[(start + claims) % corpus.items.len()];
+            let id = format!("{}-{:06}", self.id_prefix, start + claims);
             let mut claim = base.clone();
             claim["claim_id"] = json!(id);
             claim["simulated"] = json!(true);
@@ -95,7 +103,11 @@ impl Lab {
             }
             let senior_needed = receipt["eligibility"] == "decide_high";
             let pool: Vec<&Persona> = self.reviewers.iter().filter(|p| p.senior || !senior_needed).collect();
-            let who = pool[rng.gen_range(0..pool.len())];
+            let adversary = pool.iter().find(|p| p.adversarial).copied();
+            let who = match (adversary, self.adversary_share) {
+                (Some(a), Some(share)) if rng.gen_bool(share.clamp(0.0, 1.0)) => a,
+                _ => pool[rng.gen_range(0..pool.len())],
+            };
             t += 0.001;
             store.lease(&id, 1, &who.badge, t, t + 1800.0).map_err(|e| e.to_string())?.ok_or("lease refused")?;
             for f in triage::flagged(results) {
