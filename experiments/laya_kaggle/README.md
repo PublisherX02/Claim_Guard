@@ -37,3 +37,33 @@ Class mix in test: PASS 83.5%, so **the majority-class baseline is 0.835 accurac
 - `eval_zero_shot.json` vs `eval_finetuned.json`: accuracy, macro-F1, FAIL recall, ECE.
 - The **auto-accept table**: at confidence >= t, how many cases a person would not need to touch, how many of those are wrong, and how many real FAILs would be waved through as PASS. That last number is the price of any shortcut.
 - Honest limits (from the model card): base Laya is near chance zero-shot and ships over-confident, so the temperatures fitted in training matter; Laya cannot see past its token budget; its confidence is not a safety guarantee.
+
+## Result of the first run (Kaggle, 2x T4, 2026-10-15, notebook version 1)
+
+One run, one seed, 6 epochs, about 41 minutes end to end (training 6 x ~5 min). Trained on 2,238 cases (248 held out for calibration), tested on claims it never saw.
+
+| Split | Model | Accuracy | Macro-F1 | Always-PASS baseline | ECE (lower is better) |
+|---|---|---|---|---|---|
+| test (150 claims, 2,250 cases) | base Laya, zero-shot | 0.631 | 0.289 | 0.835 | 0.276 |
+| test | **fine-tuned** | **0.971** | **0.915** | 0.835 | **0.027** |
+| stress (50 claims, 750 cases) | base Laya, zero-shot | 0.595 | 0.316 | 0.799 | 0.242 |
+| stress | **fine-tuned** | **0.973** | **0.907** | 0.799 | **0.035** |
+
+Per class, test: PASS recall 0.990 / precision 0.976; NOT_APPLICABLE 0.978 / 1.000; UNABLE_TO_ASSESS 0.986 / 0.935; **FAIL recall 0.641 / precision 0.843** (75 of 117 real FAILs found; all 42 missed ones were called PASS).
+
+Auto-accept table, test (answers at or above a calibrated confidence, accepted without a person):
+
+| Min confidence | Cases accepted | Share | Wrong | Real FAILs accepted as PASS |
+|---|---|---|---|---|
+| 0 (everything) | 2,250 | 100% | 65 | 42 |
+| 0.90 | 2,117 | 94.1% | 37 | 26 |
+| 0.95 | 1,356 | 60.3% | 2 | 1 |
+| 0.99 | 256 | 11.4% | 0 | 0 |
+
+Weakest rules by accuracy on test: R007 0.887, R006 0.933, R014 0.933, R013 0.947, R012 0.953. Latency about 55 ms per case on a T4.
+
+What this does and does not show:
+- It does show a 421M-parameter open model learns the fictional rulebook from 2,486 real labelled cases, and that its calibration fits well (ECE 0.027).
+- It does **not** beat the engine: the engine is exact on these labels, the model is not. As a stand-alone checker it is unsafe, because 36% of real FAILs are called PASS. Only the high-confidence slice is clean: at 0.95 it keeps 60% of cases with 2 wrong.
+- The labels are rule results, not reviewer decisions, so nothing here says how reviewers behave.
+- One seed and 150 test claims: the numbers carry real noise (FAIL has only 117 test cases). The 0.95 row rests on 2 errors.
