@@ -232,6 +232,96 @@ pub fn active(store: &dyn QueueStore) -> Option<Value> {
     store.reliability_history().ok()?.into_iter().filter(|d| d["status"] == "approved").max_by_key(|d| d["version"].as_i64().unwrap_or(0))
 }
 
+const BIG: usize = 100_000;
+pub const REPLAY_LIMIT: usize = 500;
+
+/// What would change if this snapshot were routing: the latest claims, re-routed on their stored results. Reads only; the verdict hash is
+/// compared claim by claim to show that no verdict moves.
+pub fn replay_report(store: &dyn QueueStore, snap: &Value, limit: usize) -> Value {
+    let mut docs: Vec<Value> = ["ready", "awaiting_countersign", "leased", "decided"].iter().flat_map(|s| store.by_state(s, BIG).unwrap_or_default()).collect();
+    docs.sort_by(|a, b| b["receipt"]["created_at"].as_f64().partial_cmp(&a["receipt"]["created_at"].as_f64()).unwrap_or(Ordering::Equal).then_with(|| a["claim_id"].as_str().cmp(&b["claim_id"].as_str())));
+    docs.truncate(limit);
+    let (mut before, mut after, mut changed, mut newly, mut intact, mut unc) = (0i64, 0i64, 0i64, 0i64, true, 0.0f64);
+    for d in &docs {
+        let was = triage::eligibility(&d["results"]) == "decide_high";
+        let mut receipt = d["receipt"].clone();
+        receipt["eligibility"] = json!(triage::eligibility(&d["results"]));
+        if apply(&mut receipt, &d["results"], snap).is_err() {
+            continue;
+        }
+        let now = receipt["eligibility"] == "decide_high";
+        before += i64::from(was);
+        after += i64::from(now);
+        changed += i64::from(was != now);
+        newly += i64::from(!was && now);
+        unc += receipt["uncertainty"].as_f64().unwrap_or(0.0);
+        intact &= triage::result_hash(&d["results"]) == d["receipt"]["result_hash"].as_str().unwrap_or("");
+    }
+    let n = docs.len() as i64;
+    let mut out = json!({"claims": n, "senior_before": before, "senior_after": after, "newly_senior": newly, "changed": changed,
+        "senior_share_before": if n > 0 { before as f64 / n as f64 } else { 0.0 }, "senior_share_after": if n > 0 { after as f64 / n as f64 } else { 0.0 },
+        "mean_uncertainty": if n > 0 { unc / n as f64 } else { 0.0 }, "verdicts_unchanged": intact});
+    if after > before {
+        out["note"] = json!(format!("The senior load rises from {before} to {after} of {n} claims under this snapshot. A lower doubtful_below, or leaving route_by_reliability off, limits this."));
+    }
+    out
+}
+
+fn fingerprint(snap: &Value) -> (Value, Value, BTreeMap<String, String>) {
+    let statuses = snap["rules"].as_object().into_iter().flatten().map(|(k, r)| (k.clone(), r["status"].as_str().unwrap_or("").to_string())).collect();
+    (snap["inputs_hash"].clone(), snap["parameters"].clone(), statuses)
+}
+
+/// Computes the next snapshot from the decided dossiers and stores it as a PROPOSAL (with its replay report). Returns None when nothing
+/// has been decided, when the newest snapshot (whatever its status) already has the same inputs, parameters and statuses, or when another
+/// learner stored the same version first. A proposal changes no routing: see `activate`.
+pub fn learn(store: &dyn QueueStore, cfg: &RoutingConfig, now: f64) -> Result<Option<Value>, String> {
+    let p = Params::from_config(cfg);
+    let decided = store.by_state("decided", BIG).map_err(|e| e.to_string())?;
+    let counted = counted_decisions(&decided);
+    if counted.is_empty() {
+        return Ok(None);
+    }
+    let history = store.reliability_history().map_err(|e| e.to_string())?;
+    let version = history.last().and_then(|d| d["version"].as_i64()).unwrap_or(0) + 1;
+    let mut snap = make_snapshot(&counted, &p, version, now, cfg.version);
+    if history.last().is_some_and(|last| fingerprint(last) == fingerprint(&snap)) {
+        return Ok(None);
+    }
+    snap["replay"] = replay_report(store, &snap, REPLAY_LIMIT);
+    match store.put_reliability(&snap, version - 1) {
+        Ok(true) => Ok(Some(snap)),
+        Ok(false) => Ok(None),
+        Err(e) => Err(e.to_string()),
+    }
+}
+
+/// Makes a proposal the one routing uses. The proposal must verify, still be `proposed`, and be newer than the active one; the previous
+/// active snapshot is then marked superseded. `approver` is the second administrator (None when a lone administrator acts alone).
+pub fn activate(store: &dyn QueueStore, version: i64, requester: &str, approver: Option<&str>, now: f64) -> Result<(), String> {
+    let history = store.reliability_history().map_err(|e| e.to_string())?;
+    let doc = history.iter().find(|d| d["version"].as_i64() == Some(version)).ok_or("unknown snapshot")?;
+    if doc["status"] != "proposed" {
+        return Err("only a proposed snapshot can be activated".into());
+    }
+    verify(doc)?;
+    let previous = history.iter().filter(|d| d["status"] == "approved").filter_map(|d| d["version"].as_i64()).max();
+    if previous.is_some_and(|v| v > version) {
+        return Err("a newer snapshot is already active".into());
+    }
+    let detail = json!({"requested_by": requester, "approved_by": approver});
+    store.set_reliability_status(version, "proposed", "approved", approver.unwrap_or(requester), now, Some(detail)).map_err(|e| e.to_string())?.ok_or("the proposal changed while it was being approved")?;
+    if let Some(prev) = previous {
+        let _ = store.set_reliability_status(prev, "approved", "superseded", approver.unwrap_or(requester), now, None); // best effort: `active` takes the highest approved version anyway
+    }
+    Ok(())
+}
+
+pub fn reject(store: &dyn QueueStore, version: i64, actor: &str, now: f64, note: &str) -> Result<(), String> {
+    store.set_reliability_status(version, "proposed", "rejected", actor, now, Some(json!({"note": note.chars().take(200).collect::<String>()}))).map_err(|e| e.to_string())?.ok_or("only a proposed snapshot can be rejected")?;
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -410,5 +500,78 @@ mod tests {
         let mixed = json!({"results": results_with(&[("R001", "UNABLE_TO_ASSESS", "high")]), "receipt": {"degraded": false, "doubtful_rules": ["R001"]}, "escalated": true});
         assert_eq!(attention(&mixed), vec!["high_severity", "low_confidence", "could_not_assess", "disagreement"]);
         assert_eq!(attention(&json!({"results": json!([]), "receipt": {"degraded": true}})), vec!["degraded"]);
+    }
+
+    use crate::store::{MemoryQueueStore, QueueStore};
+
+    /// A decided dossier: `n` findings of `rule`, decided by `who`, `upheld` of them confirmed.
+    fn fill(store: &MemoryQueueStore, rule: &str, who: &[&str], n: usize, upheld: usize, offset: usize) {
+        for i in 0..n {
+            let id = format!("{rule}-{}", offset + i);
+            let mut d = crate::contract::make_doc(&id, 1, &format!("h-{id}"), "A", "decide", 2, "P1", 1000.0, None);
+            d["results"] = results_with(&[(rule, "FAIL", "medium")]);
+            d["receipt"]["result_hash"] = json!(triage::result_hash(&d["results"]));
+            assert!(store.put_triaged(&d).unwrap());
+            let actor = who[i % who.len()];
+            store.transition(&id, 1, "triaged", "explanation_skipped", "system:t", 1001.0, None, None, None).unwrap().unwrap();
+            store.transition(&id, 1, "explanation_skipped", "ready", "system:t", 1002.0, None, None, None).unwrap().unwrap();
+            store.lease(&id, 1, actor, 1003.0, 9000.0).unwrap().unwrap();
+            let action = if i < upheld { "confirm_issue" } else { "dismiss_with_reason" };
+            store.add_decision(&id, 1, actor, 1004.0 + i as f64, &json!({"rule_id": rule, "action": action, "actor": actor, "reason": "x", "at": 1004.0 + i as f64, "round": 1})).unwrap().unwrap();
+            let mut set = serde_json::Map::new();
+            set.insert("decided_by".into(), json!(actor));
+            store.transition(&id, 1, "leased", "decided", actor, 1005.0 + i as f64, None, Some(set), Some(actor)).unwrap().unwrap();
+        }
+    }
+
+    #[test]
+    fn learn_proposes_once_and_only_when_something_changed() {
+        let store = MemoryQueueStore::new();
+        let cfg = RoutingConfig::default();
+        assert!(learn(&store, &cfg, 10.0).unwrap().is_none(), "nothing decided yet");
+        fill(&store, "R006", &["U1", "U2", "U3", "U4"], 40, 6, 0);
+        let first = learn(&store, &cfg, 11.0).unwrap().expect("a proposal");
+        assert_eq!((first["version"].as_i64(), first["status"].as_str(), first["rules"]["R006"]["status"].as_str()), (Some(1), Some("proposed"), Some("doubtful")));
+        assert!(first["replay"]["claims"].as_i64().unwrap() > 0 && first["replay"]["verdicts_unchanged"] == true);
+        assert!(verify(&first).is_ok(), "the replay report is not part of what verify checks");
+        assert!(learn(&store, &cfg, 12.0).unwrap().is_none(), "the same data again writes nothing");
+        fill(&store, "R006", &["U1", "U2", "U3", "U4"], 4, 4, 100);
+        let second = learn(&store, &cfg, 13.0).unwrap().expect("new decisions, new proposal");
+        assert_eq!(second["version"], 2);
+    }
+
+    #[test]
+    fn a_proposal_changes_nothing_until_it_is_activated_and_a_stale_one_cannot_be() {
+        let store = MemoryQueueStore::new();
+        let cfg = RoutingConfig::default();
+        fill(&store, "R006", &["U1", "U2", "U3"], 30, 3, 0);
+        learn(&store, &cfg, 1.0).unwrap().unwrap();
+        assert!(active(&store).is_none(), "proposed is not active");
+        activate(&store, 1, "CG-4004", Some("CG-4005"), 2.0).unwrap();
+        assert_eq!(active(&store).unwrap()["version"], 1);
+        assert!(activate(&store, 1, "CG-4004", Some("CG-4005"), 3.0).is_err(), "only a proposed snapshot can be activated");
+        fill(&store, "R006", &["U1", "U2", "U3"], 6, 6, 200);
+        learn(&store, &cfg, 4.0).unwrap().unwrap();
+        fill(&store, "R006", &["U1", "U2", "U3"], 6, 6, 300);
+        learn(&store, &cfg, 5.0).unwrap().unwrap(); // v3
+        activate(&store, 3, "CG-4004", Some("CG-4005"), 6.0).unwrap();
+        assert_eq!(active(&store).unwrap()["version"], 3);
+        assert!(activate(&store, 2, "CG-4004", Some("CG-4005"), 7.0).is_err(), "an older proposal cannot replace a newer active one");
+        let h = store.reliability_history().unwrap();
+        assert_eq!(h[0]["status"], "superseded", "the previous active snapshot is marked superseded");
+        reject(&store, 2, "CG-4005", 8.0, "not needed").unwrap();
+        assert_eq!(store.reliability_history().unwrap()[1]["status"], "rejected");
+    }
+
+    #[test]
+    fn the_replay_report_counts_senior_load_before_and_after_and_says_so_when_it_rises() {
+        let store = MemoryQueueStore::new();
+        fill(&store, "R006", &["U1", "U2", "U3", "U4"], 40, 6, 0);
+        let counted = counted_decisions(&store.by_state("decided", 1000).unwrap());
+        let snap = make_snapshot(&counted, &params(), 1, 0.0, 1);
+        let rep = replay_report(&store, &snap, 500);
+        assert_eq!((rep["claims"].as_i64(), rep["senior_before"].as_i64(), rep["senior_after"].as_i64(), rep["newly_senior"].as_i64()), (Some(40), Some(0), Some(40), Some(40)));
+        assert!(rep["note"].as_str().unwrap().contains("senior"), "a rise in senior load is stated in words");
+        assert_eq!(rep["verdicts_unchanged"], true);
     }
 }
