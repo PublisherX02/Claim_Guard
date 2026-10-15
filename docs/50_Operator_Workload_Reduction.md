@@ -34,7 +34,7 @@ A green claim (nothing flagged and an intact set of fifteen results) is today ve
 
 `cg queue audit` reports how it is doing: claims cleared by the system, the audited sample (verified clear, escalated, still open), the escalation rate with an exact 95% upper bound, and the most auto-cleared claims that could carry a sign the engine missed. Every escalation is counted as a possible miss, so the bound is conservative.
 
-How big the audit must be to say anything. With zero escalations among n audited claims, the 95% upper bound on the miss rate is 1 - 0.05^(1/n):
+How big the audit must be to say anything. With zero escalations among n audited claims, the one-sided 95% upper bound on the miss rate ("with 95% confidence it is at most this") is 1 - 0.05^(1/n), which is also what `cg queue audit` reports:
 
 | Audited claims | 30 | 60 | 150 | 300 | 600 | 1,000 | 3,000 |
 |---|---|---|---|---|---|---|---|

@@ -514,3 +514,152 @@ fn claims_the_system_cleared_are_not_counted_as_verified_by_a_person() {
     assert_eq!((report["auto_cleared"].as_i64(), report["verified_clear"].as_i64()), (Some(cleared as i64), Some(0)));
     assert_eq!(crate::shadow::agreement(&*w.store, 0.95)["n"], 0, "the prediction is not compared with the system's own decision");
 }
+
+// ---- missing-data findings: the system records the request for information itself ------------------------------------------------
+
+/// A claim whose flagged findings are exactly `flags` ((rule, status, severity)), the rest passing: the full, intact set of fifteen results.
+fn put_with(store: &MemoryQueueStore, id: &str, flags: &[(&str, &str, &str)]) -> String {
+    let mut d = doc(id);
+    d["results"] = Value::Array(
+        triage::rule_ids()
+            .into_iter()
+            .map(|r| match flags.iter().find(|f| f.0 == r) {
+                Some((_, status, sev)) => json!({"rule_id": r, "status": status, "severity": sev, "affected_line_ids": [], "evidence": [], "corrective_action": "Request the missing source information."}),
+                None => json!({"rule_id": r, "status": "PASS", "severity": "medium", "affected_line_ids": [], "evidence": []}),
+            })
+            .collect(),
+    );
+    d["receipt"]["lane"] = json!(if flags.is_empty() { "green" } else { "A" });
+    assert!(store.put_triaged(&d).unwrap());
+    id.to_string()
+}
+
+fn set_request(store: &MemoryQueueStore, scope: &str, audit: i64) {
+    let cfg = RoutingConfig { auto_request_info: scope.into(), audit_percent: audit, ..RoutingConfig::default() };
+    assert!(store.put_config(&crate::routing_config::to_doc(&cfg).unwrap(), 0).unwrap());
+}
+
+fn is_audited(d: &Value) -> bool {
+    d["events"].as_array().unwrap().iter().any(|e| e["detail"]["info_audit"] == true)
+}
+
+#[test]
+fn missing_data_findings_are_left_to_a_person_unless_an_administrator_switched_auto_request_on() {
+    let w = world(probe(1, false));
+    let ids: Vec<String> = (0..10).map(|i| put_with(&w.store, &format!("U{i}"), &[("R009", "UNABLE_TO_ASSESS", "medium")])).collect();
+    run_all(&w, &ids);
+    for id in &ids {
+        let d = w.store.get(id, None).unwrap().unwrap();
+        assert_eq!(d["state"], "ready");
+        assert!(d["auto_requested"].is_null() && d["decisions"].as_array().unwrap().is_empty());
+    }
+}
+
+#[test]
+fn a_claim_with_only_missing_data_is_decided_by_the_system_which_records_one_request_per_finding() {
+    let w = world(probe(1, false));
+    set_request(&w.store, "medium", 1);
+    let ids: Vec<String> = (0..200).map(|i| put_with(&w.store, &format!("U{i}"), &[("R009", "UNABLE_TO_ASSESS", "medium"), ("R010", "UNABLE_TO_ASSESS", "medium")])).collect();
+    run_all(&w, &ids);
+    let (mut asked, mut audited) = (0, 0);
+    for id in &ids {
+        let d = w.store.get(id, None).unwrap().unwrap();
+        if d["state"] == "decided" {
+            asked += 1;
+            assert_eq!((d["decided_by"].as_str(), d["auto_requested"].as_bool()), (Some(crate::flow::AUTO_REQUEST), Some(true)));
+            let decisions = d["decisions"].as_array().unwrap();
+            assert_eq!(decisions.len(), 2, "one request per missing-data finding");
+            for x in decisions {
+                assert_eq!((x["action"].as_str(), x["actor"].as_str(), x["round"].as_i64()), (Some("request_information"), Some(crate::flow::AUTO_REQUEST), Some(1)));
+                assert!(x["reason"].as_str().unwrap().starts_with("Requested automatically"));
+            }
+            assert!(d["events"].as_array().unwrap().last().unwrap()["detail"]["audit_draw"].as_f64().unwrap() >= 1.0);
+        } else {
+            audited += 1;
+            assert_eq!(d["state"], "ready");
+            assert!(is_audited(&d) && d["decisions"].as_array().unwrap().is_empty(), "the audit sample is handled by a person, with nothing recorded by the system");
+        }
+    }
+    assert_eq!(asked + audited, 200);
+    assert!(asked >= 170, "about 99% are handled by the system at a 1% sample (got {asked})");
+    // the reports do not take these for reviewer work
+    let report = crate::service::feedback_report(&*w.store, 20, 0.5, 0.95);
+    assert_eq!((report["auto_requested_claims"].as_i64(), report["verified_clear"].as_i64(), report["claims_decided"].as_i64()), (Some(asked), Some(0), Some(asked)));
+    assert_eq!(report["rules"]["R009"]["request_information"].as_i64().unwrap_or(0), 0, "a request the system wrote is not a reviewer's judgment");
+    assert_eq!(crate::shadow::agreement(&*w.store, 0.95)["n"], 0);
+    assert!(crate::reliability::counted_decisions(&w.store.by_state("decided", 1000).unwrap()).is_empty(), "and it is not evidence about a rule");
+}
+
+#[test]
+fn an_audit_percent_of_100_sends_every_missing_data_claim_to_a_person() {
+    let w = world(probe(1, false));
+    set_request(&w.store, "all", 100);
+    let ids: Vec<String> = (0..40).map(|i| put_with(&w.store, &format!("U{i}"), &[("R009", "UNABLE_TO_ASSESS", "high")])).collect();
+    run_all(&w, &ids);
+    for id in &ids {
+        let d = w.store.get(id, None).unwrap().unwrap();
+        assert!(d["state"] == "ready" && is_audited(&d) && d["decisions"].as_array().unwrap().is_empty());
+    }
+}
+
+#[test]
+fn the_medium_scope_leaves_high_severity_findings_to_a_person_and_the_all_scope_does_not() {
+    for (scope, expect_system) in [("medium", false), ("all", true)] {
+        let w = world(probe(1, false));
+        set_request(&w.store, scope, 1);
+        let ids: Vec<String> = (0..60).map(|i| put_with(&w.store, &format!("H{i}"), &[("R009", "UNABLE_TO_ASSESS", "high")])).collect();
+        run_all(&w, &ids);
+        let decided = ids.iter().filter(|id| state_of(&w.store, id) == "decided").count();
+        if expect_system {
+            assert!(decided >= 50, "scope all: {decided}");
+        } else {
+            assert_eq!(decided, 0, "scope medium never asks for a high-severity finding by itself");
+        }
+    }
+}
+
+#[test]
+fn a_claim_with_real_findings_too_keeps_them_for_a_person_and_only_the_missing_data_is_requested() {
+    let w = world(probe(1, false));
+    set_request(&w.store, "medium", 1);
+    let ids: Vec<String> = (0..100).map(|i| put_with(&w.store, &format!("M{i}"), &[("R003", "FAIL", "medium"), ("R009", "UNABLE_TO_ASSESS", "medium")])).collect();
+    run_all(&w, &ids);
+    let mut asked = 0;
+    for id in &ids {
+        let d = w.store.get(id, None).unwrap().unwrap();
+        assert_eq!(d["state"], "ready", "a person still decides the real finding");
+        let decisions = d["decisions"].as_array().unwrap();
+        if is_audited(&d) {
+            assert!(decisions.is_empty());
+        } else {
+            asked += 1;
+            assert_eq!(decisions.len(), 1, "only the missing-data finding is requested");
+            assert_eq!((decisions[0]["rule_id"].as_str(), decisions[0]["actor"].as_str()), (Some("R009"), Some(crate::flow::AUTO_REQUEST)));
+            assert_eq!(d["auto_requested"], true);
+        }
+    }
+    assert!(asked >= 85, "{asked}");
+}
+
+#[test]
+fn a_real_finding_alone_and_a_damaged_result_set_are_never_touched_by_auto_request() {
+    let w = world(probe(1, false));
+    set_request(&w.store, "all", 1);
+    let fails: Vec<String> = (0..40).map(|i| put_with(&w.store, &format!("F{i}"), &[("R003", "FAIL", "medium")])).collect();
+    // a damaged set: one row only, with a missing-data finding in it
+    let damaged: Vec<String> = (0..40)
+        .map(|i| {
+            let id = format!("D{i}");
+            let mut d = doc(&id);
+            d["results"] = json!([{"rule_id": "R009", "status": "UNABLE_TO_ASSESS", "severity": "medium"}]);
+            assert!(w.store.put_triaged(&d).unwrap());
+            id
+        })
+        .collect();
+    run_all(&w, &fails);
+    run_all(&w, &damaged);
+    for id in fails.iter().chain(&damaged) {
+        let d = w.store.get(id, None).unwrap().unwrap();
+        assert!(d["state"] == "ready" && d["decisions"].as_array().unwrap().is_empty() && d["auto_requested"].is_null(), "{id}");
+    }
+}

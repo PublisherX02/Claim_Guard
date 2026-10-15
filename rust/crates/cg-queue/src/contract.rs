@@ -95,6 +95,13 @@ pub fn run(fresh: &dyn Fn() -> Box<dyn QueueStore>) {
     assert_eq!(s.by_state("decided", 10).unwrap().len(), 1);
     assert!(s.put_triaged(&doc("G2")).unwrap());
     assert!(s.transition("G2", 1, "ready", "decided", "x", NOW, None, None, None).is_err(), "ready -> decided is still illegal");
+    // the system records requests for information on a transition: the decisions and the marker are settable, and survive a read back
+    assert!(s.put_triaged(&doc("G3")).unwrap());
+    let asked = json!([{"rule_id": "R009", "action": "request_information", "actor": "system:auto-request", "reason": "Requested automatically", "at": 5.0, "round": 1}]);
+    let moved = s.transition("G3", 1, "triaged", "decided", "system:auto-request", NOW + 2.0, Some(json!({"auto_requested": true, "findings": 1})),
+                             fields(&[("decided_by", json!("system:auto-request")), ("auto_requested", json!(true)), ("decisions", asked.clone())]), None).unwrap().unwrap();
+    assert_eq!((moved["auto_requested"].as_bool(), moved["decisions"].clone()), (Some(true), asked.clone()));
+    assert_eq!(s.get("G3", None).unwrap().unwrap()["decisions"], asked);
 
     // ---- outbox, by_state, counts
     let s = fresh();

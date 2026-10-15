@@ -7,11 +7,12 @@ use serde_json::{json, Map, Value};
 
 pub const STATUSES: [&str; 2] = ["FAIL", "UNABLE_TO_ASSESS"];
 pub const SEVERITIES: [&str; 2] = ["high", "medium"];
-const NAMES: [&str; 22] = [
+const NAMES: [&str; 23] = [
     "version", "points", "lane_b_flagged", "lane_b_score", "slice_size", "low_water", "lease_seconds", "aging_per_hour", "ai_per_minute", "ai_daily_budget", "on_shift", "exclusions",
     "learn_enabled", "route_by_reliability", "reliability_min_decisions", "reliability_min_reviewers", "reliability_reviewer_cap", "doubtful_below", "uncertainty_weight",
-    "auto_clear_green", "audit_percent", "bulk_confirm_skip_lower",
+    "auto_clear_green", "audit_percent", "bulk_confirm_skip_lower", "auto_request_info",
 ];
+pub const REQUEST_SCOPES: [&str; 3] = ["off", "medium", "all"];
 
 /// Points per flagged finding: `[status][severity]`, statuses in `STATUSES` order, severities in `SEVERITIES` order.
 #[derive(Debug, Clone, PartialEq)]
@@ -72,6 +73,9 @@ pub struct RoutingConfig {
     pub audit_percent: i64,
     /// 0 = no bulk confirm. Otherwise a rule whose exact lower bound of the upheld rate is at least this may be confirmed in bulk after a lighter look.
     pub bulk_confirm_skip_lower: f64,
+    /// Findings that only say data is missing (UNABLE_TO_ASSESS): the system records the request for information itself, so a person does not have to.
+    /// "off", "medium" (medium-severity findings only) or "all". The random audit sample (`audit_percent`) is still handled by a person.
+    pub auto_request_info: String,
 }
 
 impl Default for RoutingConfig {
@@ -99,6 +103,7 @@ impl Default for RoutingConfig {
             auto_clear_green: false,
             audit_percent: 5,
             bulk_confirm_skip_lower: 0.0,
+            auto_request_info: "off".into(),
         }
     }
 }
@@ -161,6 +166,9 @@ pub fn validate(c: &RoutingConfig) -> Result<(), String> {
     if !c.bulk_confirm_skip_lower.is_finite() || !(c.bulk_confirm_skip_lower == 0.0 || (0.8..=0.999).contains(&c.bulk_confirm_skip_lower)) {
         return Err("bulk_confirm_skip_lower must be 0 (off) or a number from 0.8 to 0.999".into());
     }
+    if !REQUEST_SCOPES.contains(&c.auto_request_info.as_str()) {
+        return Err("auto_request_info must be off, medium or all".into());
+    }
     Ok(())
 }
 
@@ -172,7 +180,8 @@ pub fn to_doc(c: &RoutingConfig) -> Result<Value, String> {
         "on_shift": c.on_shift, "exclusions": c.exclusions.iter().map(|(a, b)| json!([a, b])).collect::<Vec<_>>(),
         "learn_enabled": c.learn_enabled, "route_by_reliability": c.route_by_reliability, "reliability_min_decisions": c.reliability_min_decisions, "reliability_min_reviewers": c.reliability_min_reviewers,
         "reliability_reviewer_cap": c.reliability_reviewer_cap, "doubtful_below": c.doubtful_below, "uncertainty_weight": c.uncertainty_weight,
-        "auto_clear_green": c.auto_clear_green, "audit_percent": c.audit_percent, "bulk_confirm_skip_lower": c.bulk_confirm_skip_lower}))
+        "auto_clear_green": c.auto_clear_green, "audit_percent": c.audit_percent, "bulk_confirm_skip_lower": c.bulk_confirm_skip_lower,
+        "auto_request_info": c.auto_request_info}))
 }
 
 /// Fields left out take their default; unknown fields are refused; the result is validated whole.
@@ -204,6 +213,9 @@ pub fn from_doc(doc: &Value) -> Result<RoutingConfig, String> {
     if let Some(v) = boolean("auto_clear_green")? { c.auto_clear_green = v; }
     if let Some(v) = int("audit_percent", 1, 100)? { c.audit_percent = v; }
     if let Some(v) = float("bulk_confirm_skip_lower")? { c.bulk_confirm_skip_lower = v; }
+    if let Some(v) = obj.get("auto_request_info") {
+        c.auto_request_info = v.as_str().filter(|s| REQUEST_SCOPES.contains(s)).ok_or("auto_request_info must be off, medium or all")?.to_string();
+    }
     if let Some(v) = obj.get("on_shift") {
         c.on_shift = v.as_array().ok_or("on_shift must be a tuple of non-empty badge ids")?.iter().map(|b| b.as_str().map(str::to_string).ok_or("on_shift must be a tuple of non-empty badge ids")).collect::<Result<_, _>>()?;
     }
@@ -271,7 +283,9 @@ mod tests {
         let on = from_doc(&json!({"auto_clear_green": true, "audit_percent": 10, "bulk_confirm_skip_lower": 0.95})).unwrap();
         assert!(on.auto_clear_green && on.audit_percent == 10 && on.bulk_confirm_skip_lower == 0.95);
         assert!(from_doc(&json!({"slice_size": 6, "low_water": 3})).unwrap().audit_percent == 5, "a document written before the fields existed loads with the defaults");
-        for bad in [json!({"audit_percent": 0}), json!({"audit_percent": 101}), json!({"audit_percent": 2.5}), json!({"auto_clear_green": 1}), json!({"auto_clear_green": "yes"}),
+        assert_eq!(c.auto_request_info, "off");
+        assert_eq!(from_doc(&json!({"auto_request_info": "medium"})).unwrap().auto_request_info, "medium");
+        for bad in [json!({"auto_request_info": "high"}), json!({"auto_request_info": true}), json!({"auto_request_info": 1}), json!({"audit_percent": 0}), json!({"audit_percent": 101}), json!({"audit_percent": 2.5}), json!({"auto_clear_green": 1}), json!({"auto_clear_green": "yes"}),
                     json!({"bulk_confirm_skip_lower": 0.5}), json!({"bulk_confirm_skip_lower": 0.79}), json!({"bulk_confirm_skip_lower": 1.0}), json!({"bulk_confirm_skip_lower": -0.1}), json!({"bulk_confirm_skip_lower": "x"})] {
             assert!(from_doc(&bad).is_err(), "{bad}");
         }

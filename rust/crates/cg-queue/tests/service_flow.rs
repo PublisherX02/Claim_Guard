@@ -554,3 +554,82 @@ fn bulk_confirm_at_a_100_percent_audit_confirms_nothing_and_leaves_every_claim_f
     assert_eq!((r["confirmed"].as_i64(), r["left_for_full_review"].as_i64()), (Some(0), Some(6)));
     assert!(ids.iter().all(|id| q.state(id) == "leased" && q.store.get(id, None).unwrap().unwrap()["decisions"].as_array().unwrap().is_empty()));
 }
+
+// ---- a person on a claim where the system already asked for the missing data -------------------------------------------------------
+
+/// A real stress claim with crafted results (the flagged findings are exactly `flags`), stored as triaged and run through the pipeline.
+fn crafted(q: &Q, id: &str, flags: &[(&str, &str, &str)]) -> String {
+    let mut claim = q.find("green");
+    claim["claim_id"] = json!(id);
+    let results: Vec<Value> = triage::rule_ids()
+        .into_iter()
+        .map(|r| match flags.iter().find(|f| f.0 == r) {
+            Some((_, status, sev)) => json!({"rule_id": r, "status": status, "severity": sev, "affected_line_ids": [], "evidence": [], "explanation": "engine text", "corrective_action": "Request the missing source information."}),
+            None => json!({"rule_id": r, "status": "PASS", "severity": "medium", "affected_line_ids": [], "evidence": [], "explanation": "ok"}),
+        })
+        .collect();
+    let results = Value::Array(results);
+    let receipt = triage::make_receipt(&claim, &results, &cg_queue::flow::routing_config(&*q.store), "pack", "eng", 1.0);
+    let ihash = triage::input_hash(&claim);
+    let d = json!({"claim_id": id, "version": 1, "input_hash": ihash, "claim": claim, "results": results, "receipt": receipt, "advisory": []});
+    assert!(q.store.put_triaged(&d).unwrap());
+    process(&q.rt, id, 1, &ihash);
+    id.to_string()
+}
+
+fn set_request_info(q: &Q, scope: &str) {
+    let admin = q.p("CG-4004");
+    let v = q.store.latest_config().unwrap().unwrap()["version"].as_i64().unwrap();
+    let mut set = serde_json::Map::new();
+    set.insert("auto_request_info".into(), json!(scope));
+    set.insert("audit_percent".into(), json!(1));
+    q.queue.set_config(&admin, &set, v).unwrap();
+}
+
+#[test]
+fn a_person_decides_the_real_finding_and_the_requested_information_does_not_block_the_claim() {
+    let q = q();
+    set_request_info(&q, "medium");
+    // retry until the claim is not in the 1% audit sample
+    let mut id = String::new();
+    for i in 0..30 {
+        let candidate = crafted(&q, &format!("MIX-{i}"), &[("R003", "FAIL", "medium"), ("R009", "UNABLE_TO_ASSESS", "medium")]);
+        if q.store.get(&candidate, None).unwrap().unwrap()["auto_requested"] == true {
+            id = candidate;
+            break;
+        }
+    }
+    assert!(!id.is_empty(), "30 draws at a 1% sample cannot all be audited");
+    assert_eq!(q.state(&id), "ready");
+    q.lease_to(&id, "CG-2002");
+    let who = q.p("CG-2002");
+    let view = q.queue.inbox(&who).unwrap().into_iter().find(|v| v["claim_id"] == id.as_str()).unwrap();
+    let row = |rule: &str| view["findings"].as_array().unwrap().iter().find(|f| f["rule_id"] == rule).unwrap().clone();
+    assert_eq!(row("R009")["review_state"], "info_requested_automatically");
+    assert!(row("R009")["allowed_actions"].is_null(), "the person is not offered the finding the system already asked about");
+    assert!(row("R003")["allowed_actions"].is_array());
+    assert!(matches!(q.queue.decide_finding(&who, &id, "R009", "confirm_issue", ""), Err(QueueError::Invalid(m)) if m.contains("requested automatically")));
+    let r = q.queue.decide_finding(&who, &id, "R003", "confirm_issue", "").unwrap();
+    assert_eq!(r["claim_state"], "decided", "the claim is decided once the real finding is: the request for data stays on record");
+    let d = q.store.get(&id, None).unwrap().unwrap();
+    assert_eq!(d["decided_by"], "CG-2002");
+    assert_eq!(d["decisions"].as_array().unwrap().len(), 2);
+}
+
+#[test]
+fn a_high_severity_request_the_system_wrote_does_not_send_the_claim_to_a_second_senior() {
+    let q = q();
+    set_request_info(&q, "all");
+    let mut id = String::new();
+    for i in 0..30 {
+        let candidate = crafted(&q, &format!("HMIX-{i}"), &[("R003", "FAIL", "medium"), ("R009", "UNABLE_TO_ASSESS", "high")]);
+        if q.store.get(&candidate, None).unwrap().unwrap()["auto_requested"] == true {
+            id = candidate;
+            break;
+        }
+    }
+    assert!(!id.is_empty());
+    q.lease_to(&id, "CG-2002");
+    let r = q.queue.decide_finding(&q.p("CG-2002"), &id, "R003", "confirm_issue", "").unwrap();
+    assert_eq!(r["claim_state"], "decided", "the only high-severity finding was asked about by the system, so no countersignature is waiting on it");
+}

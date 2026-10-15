@@ -40,7 +40,7 @@ pub const CONFIRM_REASON: &str = "Confirmed: the finding matches the evidence.";
 /// Recorded on a finding confirmed in bulk after a light review. Such decisions are left out of the reliability evidence (`reliability::counted_decisions`).
 pub const BULK_REASON: &str = "Confirmed in bulk after a light review.";
 const LIGHT_TTL: f64 = 300.0;
-const CONFIG_FIELDS: [&str; 14] = ["points", "lane_b_flagged", "lane_b_score", "slice_size", "low_water", "lease_seconds", "aging_per_hour", "ai_per_minute", "ai_daily_budget", "on_shift", "exclusions", "auto_clear_green", "audit_percent", "bulk_confirm_skip_lower"];
+const CONFIG_FIELDS: [&str; 15] = ["points", "lane_b_flagged", "lane_b_score", "slice_size", "low_water", "lease_seconds", "aging_per_hour", "ai_per_minute", "ai_daily_budget", "on_shift", "exclusions", "auto_clear_green", "audit_percent", "bulk_confirm_skip_lower", "auto_request_info"];
 
 #[derive(Debug, thiserror::Error)]
 pub enum QueueError {
@@ -102,6 +102,11 @@ fn round(doc: &Value) -> i64 {
     }
 }
 
+/// True when the system itself recorded the request for information on this rule (`flow::request_decisions`): a person does not decide it.
+fn auto_requested(doc: &Value, rule: &str) -> bool {
+    doc["decisions"].as_array().into_iter().flatten().any(|d| d["rule_id"] == rule && d["actor"] == crate::flow::AUTO_REQUEST)
+}
+
 fn is_high(finding: &Value) -> bool {
     finding["severity"] != "medium" // an unknown severity counts as high, as in triage
 }
@@ -113,7 +118,7 @@ fn flagged_rows(doc: &Value) -> Vec<&Value> {
 /// The rule ids still to be decided in this claim's current round: every flagged finding in round one, then only the high-severity ones
 /// (the medium ones were settled by one person).
 fn targets(doc: &Value) -> Vec<String> {
-    flagged_rows(doc).into_iter().filter(|r| stage(doc).is_none() || is_high(r)).filter_map(|r| r["rule_id"].as_str().map(str::to_string)).collect()
+    flagged_rows(doc).into_iter().filter(|r| stage(doc).is_none() || is_high(r)).filter(|r| !auto_requested(doc, r["rule_id"].as_str().unwrap_or(""))).filter_map(|r| r["rule_id"].as_str().map(str::to_string)).collect()
 }
 
 /// The latest action per rule, from all rounds or from one.
@@ -235,7 +240,7 @@ impl QueueService {
                         row["allowed_actions"] = json!(actions);
                     }
                 } else {
-                    row["review_state"] = json!("resolved"); // settled in an earlier round
+                    row["review_state"] = json!(if auto_requested(doc, id) { "info_requested_automatically" } else { "resolved" }); // else: settled in an earlier round
                 }
             }
             findings.push(row);
@@ -283,6 +288,9 @@ impl QueueService {
             return Err(QueueError::Conflict("same_person".into())); // the first signer never countersigns, nor the second the tie-break
         }
         let finding = doc["results"].as_array().into_iter().flatten().find(|r| r["rule_id"] == rule_id).ok_or_else(|| QueueError::NotFound(rule_id.into()))?;
+        if auto_requested(&doc, rule_id) {
+            return Err(QueueError::Invalid("information was requested automatically for this finding".into()));
+        }
         if masking::text_leaks_identifier(reason, &doc["claim"], &self.access.settings.pii_key) {
             return Err(QueueError::Invalid("the reason must not contain the patient or member identifier".into()));
         }
@@ -330,7 +338,7 @@ impl QueueService {
     fn finish(&self, principal: &Principal, doc: &Value, rnd: i64, tgt: &[String], latest: &BTreeMap<String, String>, now: f64) -> R<String> {
         let badge = principal.badge();
         let sign = if doc["signoff"].is_null() { json!({}) } else { doc["signoff"].clone() };
-        let high: BTreeSet<String> = flagged_rows(doc).into_iter().filter(|r| is_high(r)).filter_map(|r| r["rule_id"].as_str().map(str::to_string)).collect();
+        let high: BTreeSet<String> = flagged_rows(doc).into_iter().filter(|r| is_high(r)).filter(|r| !auto_requested(doc, r["rule_id"].as_str().unwrap_or(""))).filter_map(|r| r["rule_id"].as_str().map(str::to_string)).collect();
         let detail = json!({"findings": tgt.len()});
         if rnd == 1 {
             if high.is_empty() {
@@ -628,10 +636,15 @@ pub fn feedback_report(store: &dyn QueueStore, min_decisions: i64, threshold: f6
         rules.entry(id.to_string()).or_insert_with(|| ["flagged", "confirmed", "dismissed", "request_information", "mark_corrected_for_recheck", "dismissals_with_reason"].iter().map(|k| (*k, 0)).collect())
     }
     let (mut decided, mut escalated, mut verified_clear, mut agreed, mut tiebroken, mut auto_cleared) = (0, 0, 0, 0, 0, 0);
+    let (mut auto_requested_claims, mut auto_requested_findings) = (0, 0);
     for doc in store.by_state("decided", BIG).unwrap_or_default() {
         decided += 1;
         if doc["auto_cleared"] == true {
             auto_cleared += 1; // decided by the system, not verified by a person
+            continue;
+        }
+        if doc["decided_by"] == crate::flow::AUTO_REQUEST {
+            auto_requested_claims += 1; // the system asked for the missing data; no person decided anything
             continue;
         }
         let flagged: Vec<&str> = doc["results"].as_array().into_iter().flatten().filter(|r| r["status"].as_str().is_some_and(|s| REVIEWABLE.contains(&s))).filter_map(|r| r["rule_id"].as_str()).collect();
@@ -644,6 +657,10 @@ pub fn feedback_report(store: &dyn QueueStore, min_decisions: i64, threshold: f6
         let mut last_final: BTreeMap<&str, &str> = BTreeMap::new();
         for d in doc["decisions"].as_array().into_iter().flatten() {
             let (id, action) = (d["rule_id"].as_str().unwrap_or(""), d["action"].as_str().unwrap_or(""));
+            if d["actor"] == crate::flow::AUTO_REQUEST {
+                auto_requested_findings += 1; // written by the system, not a reviewer's judgment
+                continue;
+            }
             if resolving(action) {
                 last_final.insert(id, action);
             }
@@ -677,7 +694,7 @@ pub fn feedback_report(store: &dyn QueueStore, min_decisions: i64, threshold: f6
         out.insert(id.clone(), Value::Object(o));
     }
     let countersigned = agreed + tiebroken;
-    json!({"claims_decided": decided, "verified_clear": verified_clear, "auto_cleared": auto_cleared, "escalated": escalated,
+    json!({"claims_decided": decided, "verified_clear": verified_clear, "auto_cleared": auto_cleared, "auto_requested_claims": auto_requested_claims, "auto_requested_findings": auto_requested_findings, "escalated": escalated,
            "signoff": {"countersigned": countersigned, "agreed": agreed, "disagreed": tiebroken, "disagreement_rate": if countersigned > 0 { json!(tiebroken as f64 / countersigned as f64) } else { Value::Null }},
            "rules": out, "parameters": {"min_decisions": min_decisions, "threshold": threshold, "confidence": confidence},
            "note": "counts only; dismissal reasons are not included. A review candidate is a prompt for a human to look at the rule, never a change to it."})

@@ -97,7 +97,7 @@ pub fn agreement(store: &dyn QueueStore, confidence: f64) -> Value {
     let (mut n, mut agree) = (0i64, 0i64);
     for doc in store.by_state("decided", BIG).unwrap_or_default() {
         let Some(p) = doc["shadow"]["predicted_clear"].as_f64() else { continue };
-        if doc["auto_cleared"] == true {
+        if doc["auto_cleared"] == true || doc["decided_by"] == crate::flow::AUTO_REQUEST {
             continue; // the system decided this one: counting it would compare the prediction with itself
         }
         n += 1;

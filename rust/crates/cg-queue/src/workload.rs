@@ -126,7 +126,7 @@ pub fn time_breakdown(decided: &[Value], max_hold: f64) -> Value {
             }
             continue;
         }
-        let mut decisions: Vec<&Value> = d["decisions"].as_array().into_iter().flatten().filter(|x| x["round"].as_i64().unwrap_or(1) == 1 && x["reason"].as_str() != Some(crate::service::BULK_REASON)).filter(|x| x["at"].as_f64().is_some()).collect();
+        let mut decisions: Vec<&Value> = d["decisions"].as_array().into_iter().flatten().filter(|x| x["round"].as_i64().unwrap_or(1) == 1 && x["reason"].as_str() != Some(crate::service::BULK_REASON) && x["actor"].as_str() != Some(crate::flow::AUTO_REQUEST)).filter(|x| x["at"].as_f64().is_some()).collect();
         decisions.sort_by(|a, b| a["at"].as_f64().partial_cmp(&b["at"].as_f64()).unwrap_or(std::cmp::Ordering::Equal));
         let mut previous = leased;
         for (i, x) in decisions.iter().enumerate() {
@@ -156,7 +156,7 @@ pub fn time_breakdown(decided: &[Value], max_hold: f64) -> Value {
 /// What each saving is worth in reviewer hours per 500 claims, from this queue's own mix and measured seconds. Null where a number it needs has not been
 /// measured. `look` is the share of the normal time a lighter look takes: it is an input (0, 0.25, 0.5), never a measured figure.
 pub fn planning(decided: &[Value], breakdown: &Value, table: &Value, audit_percent: f64) -> Value {
-    let people: Vec<&Value> = decided.iter().filter(|d| d["auto_cleared"] != true).collect();
+    let people: Vec<&Value> = decided.iter().filter(|d| d["auto_cleared"] != true && d["decided_by"] != crate::flow::AUTO_REQUEST).collect();
     if people.is_empty() {
         return json!({"note": "no decided claims yet"});
     }
@@ -192,21 +192,51 @@ pub fn planning(decided: &[Value], breakdown: &Value, table: &Value, audit_perce
            "assumes": {"audit_percent": audit_percent, "note": "bulk confirm and retune savings are independent estimates and may overlap; the look fraction is an input, not a measurement"}})
 }
 
-/// How well auto-clear is doing, from the claims that were audited (the random sample a person still looked at). An escalation of a green claim
-/// means a person saw something the engine did not flag; every escalation is counted as a possible miss, so the bound is conservative.
+/// The upper end of a two-sided 90% interval is the one-sided 95% upper bound: "with 95% confidence the rate is at most this". It is the natural bound for
+/// a miss rate, and with no miss in n audited claims it is 1 - 0.05^(1/n) (0.99% at n = 300), the table in docs/50.
+const ONE_SIDED_95: f64 = 0.90;
+
+/// What the audit sample says about each automatic step, from the claims a person handled in full while the system held back.
+///
+/// * auto-clear: the audited green claims. An escalation means a person saw something the engine did not flag; every escalation counts as a possible
+///   miss, so the bound is conservative. `suggestion` says what the evidence supports for `audit_percent` (an administrator decides; nothing changes by itself).
+/// * auto-request: the audited claims with missing-data findings. The person either asked for the information too (agreed) or confirmed or dismissed
+///   the finding instead (differed): a difference means the system would have asked for something a person would not have.
 pub fn audit_report(docs: &[Value]) -> Value {
     let (mut auto_cleared, mut audited, mut clear, mut escalated, mut escalated_cleared, mut pending) = (0i64, 0i64, 0i64, 0i64, 0i64, 0i64);
+    let (mut requested_claims, mut requested_findings) = (0i64, 0i64);
+    let (mut info_audited, mut agreed, mut differed, mut info_pending) = (0i64, 0i64, 0i64, 0i64);
     for d in docs {
         if d["auto_cleared"] == true {
             auto_cleared += 1;
             continue;
         }
-        let was_audit = d["events"].as_array().into_iter().flatten().any(|e| e["to"] == "ready" && e["detail"]["why"] == "green_audit");
-        if !was_audit {
+        requested_findings += d["decisions"].as_array().into_iter().flatten().filter(|x| x["actor"] == crate::flow::AUTO_REQUEST).count() as i64;
+        if d["decided_by"] == crate::flow::AUTO_REQUEST {
+            requested_claims += 1;
+            continue;
+        }
+        let events = d["events"].as_array().cloned().unwrap_or_default();
+        if events.iter().any(|e| e["detail"]["info_audit"] == true) {
+            info_audited += 1;
+            let missing: Vec<&str> = triage::flagged(&d["results"]).into_iter().filter(|r| r["status"] == "UNABLE_TO_ASSESS").filter_map(|r| r["rule_id"].as_str()).collect();
+            let mut last: BTreeMap<&str, &str> = BTreeMap::new();
+            for x in d["decisions"].as_array().into_iter().flatten() {
+                last.insert(x["rule_id"].as_str().unwrap_or(""), x["action"].as_str().unwrap_or(""));
+            }
+            if missing.iter().any(|r| !last.contains_key(r)) {
+                info_pending += 1;
+            } else if missing.iter().all(|r| last[r] == "request_information") {
+                agreed += 1;
+            } else {
+                differed += 1;
+            }
+        }
+        if !events.iter().any(|e| e["to"] == "ready" && e["detail"]["why"] == "green_audit") {
             continue;
         }
         audited += 1;
-        let went_up = d["escalated"] == true || d["events"].as_array().into_iter().flatten().any(|e| e["detail"]["event"] == "escalated");
+        let went_up = d["escalated"] == true || events.iter().any(|e| e["detail"]["event"] == "escalated");
         match (went_up, d["state"].as_str()) {
             (true, Some("decided")) => {
                 escalated += 1;
@@ -218,14 +248,28 @@ pub fn audit_report(docs: &[Value]) -> Value {
         }
     }
     let resolved = clear + escalated;
-    let ci = crate::shadow::clopper_pearson(escalated, resolved, reliability::CONFIDENCE);
+    let ci = crate::shadow::clopper_pearson(escalated, resolved, ONE_SIDED_95);
     let upper = ci.map(|c| c.1);
+    let suggestion = match upper {
+        None => "no audited green claims have been resolved yet: keep audit_percent as it is",
+        Some(_) if resolved < 300 => "keep audit_percent as it is: fewer than 300 audited claims have been resolved, too few to bound the miss rate at 1%",
+        Some(u) if u <= 0.01 => "the audit supports lowering audit_percent: with 95% confidence at most 1% of cleared claims carry a sign the engine missed something",
+        Some(u) if u >= 0.05 => "the escalation rate is high: read the escalated claims and consider switching auto-clear off",
+        Some(_) => "keep audit_percent as it is: the miss rate is not yet bounded below 1%",
+    };
+    let info_resolved = agreed + differed;
+    let info_ci = crate::shadow::clopper_pearson(differed, info_resolved, ONE_SIDED_95);
     json!({"auto_cleared": auto_cleared,
            "audited": {"total": audited, "verified_clear": clear, "escalated": escalated, "escalated_then_cleared_by_a_senior": escalated_cleared, "still_open": pending},
            "escalation_rate": if resolved > 0 { json!(escalated as f64 / resolved as f64) } else { Value::Null },
            "escalation_rate_upper_95": upper,
            "auto_cleared_with_a_sign_the_engine_missed_at_most": upper.map(|u| u * auto_cleared as f64),
-           "note": "every escalation of an audited green claim is counted as a possible miss, so the bound is conservative; it needs audited claims to exist, and says nothing before they do"})
+           "suggestion": suggestion,
+           "auto_request": {"claims_the_system_requested_information_for": requested_claims, "findings_the_system_requested": requested_findings,
+                            "audited": {"total": info_audited, "agreed": agreed, "differed": differed, "still_open": info_pending},
+                            "differed_rate": if info_resolved > 0 { json!(differed as f64 / info_resolved as f64) } else { Value::Null },
+                            "differed_rate_upper_95": info_ci.map(|c| c.1)},
+           "note": "every escalation of an audited green claim is counted as a possible miss, so the bound is conservative; it needs audited claims to exist, and says nothing before they do. A person who differs on a missing-data finding confirmed or dismissed it where the system would have asked for information"})
 }
 
 #[cfg(test)]
@@ -351,5 +395,48 @@ mod tests {
         let (rate, upper, expected) = (r["escalation_rate"].as_f64().unwrap(), r["escalation_rate_upper_95"].as_f64().unwrap(), r["auto_cleared_with_a_sign_the_engine_missed_at_most"].as_f64().unwrap());
         assert!((rate - 2.0 / 11.0).abs() < 1e-9 && upper > rate && (expected - upper * 200.0).abs() < 1e-9);
         assert!(audit_report(&[])["escalation_rate"].is_null(), "nothing audited, nothing claimed");
+        assert!(r["suggestion"].as_str().unwrap().contains("fewer than 300"), "12 audited claims bound nothing");
+    }
+
+    fn audited_green(escalated: bool) -> Value {
+        let mut ev = vec![json!({"to": "ready", "detail": {"why": "green_audit"}})];
+        if escalated {
+            ev.push(json!({"to": "ready", "detail": {"event": "escalated"}}));
+        }
+        json!({"state": "decided", "escalated": escalated, "events": ev})
+    }
+
+    #[test]
+    fn the_suggestion_to_lower_the_audit_needs_enough_clean_audited_claims_and_a_tight_bound() {
+        let mut docs: Vec<Value> = (0..1000).map(|_| json!({"auto_cleared": true, "state": "decided"})).collect();
+        docs.extend((0..299).map(|_| audited_green(false)));
+        assert!(audit_report(&docs)["suggestion"].as_str().unwrap().contains("fewer than 300"), "299 clean claims are one short");
+        docs.push(audited_green(false));
+        assert!(audit_report(&docs)["suggestion"].as_str().unwrap().contains("supports lowering"), "300 clean audited claims bound the miss rate under 1%");
+        docs.push(audited_green(true));
+        assert!(audit_report(&docs)["suggestion"].as_str().unwrap().contains("not yet bounded below 1%"), "one escalation in 301 is no longer under 1%");
+        let mut bad: Vec<Value> = (0..300).map(|_| audited_green(false)).collect();
+        bad.extend((0..30).map(|_| audited_green(true)));
+        assert!(audit_report(&bad)["suggestion"].as_str().unwrap().contains("switching auto-clear off"), "a high escalation rate says to stop");
+    }
+
+    #[test]
+    fn the_request_audit_counts_where_a_person_asked_too_and_where_they_did_not() {
+        let missing = |rule: &str| json!({"rule_id": rule, "status": "UNABLE_TO_ASSESS", "severity": "medium"});
+        let doc = |rules: &[&str], actions: &[(&str, &str)]| json!({"state": "leased", "results": rules.iter().map(|r| missing(r)).collect::<Vec<_>>(),
+            "events": [{"to": "ready", "detail": {"why": "explained", "info_audit": true}}],
+            "decisions": actions.iter().map(|(r, a)| json!({"rule_id": r, "action": a, "actor": "CG-2002"})).collect::<Vec<_>>()});
+        let docs = vec![
+            doc(&["R009"], &[("R009", "request_information")]),
+            doc(&["R009", "R010"], &[("R009", "request_information"), ("R010", "request_information")]),
+            doc(&["R009"], &[("R009", "dismiss_with_reason")]),
+            doc(&["R009", "R010"], &[("R009", "request_information")]),
+            json!({"decided_by": crate::flow::AUTO_REQUEST, "decisions": [{"rule_id": "R009", "actor": crate::flow::AUTO_REQUEST}, {"rule_id": "R010", "actor": crate::flow::AUTO_REQUEST}]}),
+        ];
+        let r = audit_report(&docs);
+        let a = &r["auto_request"];
+        assert_eq!((a["audited"]["total"].as_i64(), a["audited"]["agreed"].as_i64(), a["audited"]["differed"].as_i64(), a["audited"]["still_open"].as_i64()), (Some(4), Some(2), Some(1), Some(1)));
+        assert_eq!((a["claims_the_system_requested_information_for"].as_i64(), a["findings_the_system_requested"].as_i64()), (Some(1), Some(2)));
+        assert!((a["differed_rate"].as_f64().unwrap() - 1.0 / 3.0).abs() < 1e-9 && a["differed_rate_upper_95"].as_f64().unwrap() > 1.0 / 3.0);
     }
 }

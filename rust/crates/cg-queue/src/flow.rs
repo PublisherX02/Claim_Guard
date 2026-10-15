@@ -296,10 +296,34 @@ pub fn reconcile(store: &dyn QueueStore, now: f64, actor: &str) -> Report {
 const PIPELINE_STATES: [&str; 3] = ["triaged", "explained", "explanation_skipped"];
 
 fn make_ready(store: &dyn QueueStore, claim_id: &str, version: i64, from: &str, now: f64, why: &str) -> &'static str {
-    match store.transition(claim_id, version, from, "ready", "system:pipeline", now, Some(json!({"why": why})), None, None) {
+    make_ready_with(store, claim_id, version, from, now, json!({"why": why}), None)
+}
+
+fn make_ready_with(store: &dyn QueueStore, claim_id: &str, version: i64, from: &str, now: f64, detail: Value, set: Option<Map<String, Value>>) -> &'static str {
+    match store.transition(claim_id, version, from, "ready", "system:pipeline", now, Some(detail), set, None) {
         Ok(Some(_)) => "ready",
         _ => "noop",
     }
+}
+
+/// The actor on a request for information the system recorded itself.
+pub const AUTO_REQUEST: &str = "system:auto-request";
+
+/// Findings that only say data is missing, and that the configured scope lets the system ask about: UNABLE_TO_ASSESS, medium severity or any severity.
+fn requestable<'a>(results: &'a Value, scope: &str) -> Vec<&'a Value> {
+    triage::flagged(results).into_iter().filter(|r| r["status"] == "UNABLE_TO_ASSESS" && (scope == "all" || r["severity"] == "medium")).collect()
+}
+
+/// One `request_information` decision per finding, written by the system. The reason is the rulebook's own corrective-action text (a generic
+/// instruction, never claim data), so it can sit in the audit trail like any reviewer's words.
+fn request_decisions(rows: &[&Value], now: f64) -> Vec<Value> {
+    rows.iter()
+        .map(|r| {
+            let step: String = r["corrective_action"].as_str().unwrap_or("").trim().chars().take(300).collect();
+            let reason = if step.is_empty() { "Requested automatically: the data needed to assess this rule is missing.".to_string() } else { format!("Requested automatically: the data needed to assess this rule is missing. {step}") };
+            json!({"rule_id": r["rule_id"], "action": "request_information", "actor": AUTO_REQUEST, "reason": reason, "at": now, "round": 1})
+        })
+        .collect()
 }
 
 /// A random number from 0 to 100 (two decimals) for the audit draw. Written on the claim, so every draw can be checked afterwards.
@@ -344,9 +368,38 @@ pub fn advance(store: &dyn QueueStore, claim_id: &str, version: i64, explain: &E
         return "noop";
     }
     let mut state = state;
+    // what to attach when the claim reaches `ready`: set by the information-request step below
+    let mut ready_extra: Option<(Value, Option<Map<String, Value>>)> = None;
     if state == "triaged" {
         if doc["receipt"]["lane"] == "green" {
             return green_path(store, &doc, claim_id, version, now);
+        }
+        let cfg = routing_config(store);
+        if cfg.auto_request_info != "off" && !triage::degraded(&doc["results"]) {
+            let ask = requestable(&doc["results"], &cfg.auto_request_info);
+            if !ask.is_empty() {
+                let draw = audit_draw();
+                if draw < cfg.audit_percent as f64 {
+                    // the audit sample: a person handles this claim in full, and what they do with the missing-data findings is the measurement
+                    ready_extra = Some((json!({"why": "explained", "info_audit": true, "audit_draw": draw}), None));
+                } else if ask.len() == triage::flagged(&doc["results"]).len() {
+                    // nothing but missing data: the system records the requests and the claim waits for a corrected submission
+                    let mut set = Map::new();
+                    set.insert("decided_by".into(), json!(AUTO_REQUEST));
+                    set.insert("auto_requested".into(), json!(true));
+                    set.insert("decisions".into(), Value::Array(request_decisions(&ask, now)));
+                    return match store.transition(claim_id, version, "triaged", "decided", AUTO_REQUEST, now, Some(json!({"auto_requested": true, "findings": ask.len(), "audit_draw": draw})), Some(set), None) {
+                        Ok(Some(_)) => "decided",
+                        _ => "noop",
+                    };
+                } else {
+                    // also real findings: the system asks for the missing data, a person decides the rest
+                    let mut set = Map::new();
+                    set.insert("auto_requested".into(), json!(true));
+                    set.insert("decisions".into(), Value::Array(request_decisions(&ask, now)));
+                    ready_extra = Some((json!({"why": "explained", "auto_requested": ask.len(), "audit_draw": draw}), Some(set)));
+                }
+            }
         }
         if explain.run(claim_id, version) == "noop" {
             return "noop"; // another worker is handling it
@@ -356,7 +409,14 @@ pub fn advance(store: &dyn QueueStore, claim_id: &str, version: i64, explain: &E
             _ => return "noop",
         }
     }
-    make_ready(store, claim_id, version, &state, now, if state == "explained" { "explained" } else { "skipped" })
+    let why = if state == "explained" { "explained" } else { "skipped" };
+    match ready_extra {
+        Some((mut detail, set)) => {
+            detail["why"] = json!(why);
+            make_ready_with(store, claim_id, version, &state, now, detail, set)
+        }
+        None => make_ready(store, claim_id, version, &state, now, why),
+    }
 }
 
 pub struct Runtime {
