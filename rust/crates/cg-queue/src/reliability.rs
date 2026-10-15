@@ -125,7 +125,12 @@ fn capped<'a>(rows: &[&'a Counted], cap: f64) -> Vec<&'a Counted> {
 fn inputs_hash(counted: &[Counted]) -> String {
     let mut lines: Vec<String> = counted.iter().map(|c| format!("{}|{}|{}|{}|{}", c.rule_id, c.claim_id, c.version, c.actor, c.upheld)).collect();
     lines.sort();
-    hex::encode(Sha256::digest(lines.join("\n").as_bytes()))
+    hash_text(&lines.join("
+"))
+}
+
+pub fn hash_text(s: &str) -> String {
+    hex::encode(Sha256::digest(s.as_bytes()))
 }
 
 /// A new snapshot document (status `proposed`). Holds no claim id, badge or reason: counts, figures, parameters and a hash of the inputs.
