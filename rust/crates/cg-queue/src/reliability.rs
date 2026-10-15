@@ -396,6 +396,27 @@ mod tests {
     }
 
     #[test]
+    fn a_reviewer_always_keeps_at_least_one_decision_however_small_the_cap_share() {
+        // two decisions by two people with a 0.4 cap: floor(0.4 * 2) = 0, but each person's one decision must still count
+        let counted: Vec<Counted> = ["A", "B"].iter().enumerate().map(|(i, who)| Counted { rule_id: "R006".into(), claim_id: format!("C{i}"), version: 1, actor: (*who).into(), at: i as f64, upheld: true }).collect();
+        let snap = make_snapshot(&counted, &params(), 1, 0.0, 1);
+        assert_eq!((snap["rules"]["R006"]["n"].as_i64(), snap["rules"]["R006"]["reviewers"].as_i64()), (Some(2), Some(2)));
+    }
+
+    #[test]
+    fn only_a_proposed_snapshot_can_be_activated_and_the_refusal_says_why() {
+        let store = MemoryQueueStore::new();
+        fill(&store, "R006", &["U1", "U2", "U3"], 30, 3, 0);
+        learn(&store, &RoutingConfig::default(), 1.0).unwrap().unwrap();
+        activate(&store, 1, "CG-4004", None, 2.0).unwrap();
+        assert_eq!(activate(&store, 1, "CG-4004", None, 3.0).unwrap_err(), "only a proposed snapshot can be activated", "already approved");
+        fill(&store, "R006", &["U1", "U2", "U3"], 6, 6, 500);
+        learn(&store, &RoutingConfig::default(), 4.0).unwrap().unwrap();
+        reject(&store, 2, "CG-4005", 5.0, "no").unwrap();
+        assert_eq!(activate(&store, 2, "CG-4004", None, 6.0).unwrap_err(), "only a proposed snapshot can be activated", "rejected");
+    }
+
+    #[test]
     fn the_snapshot_does_not_depend_on_the_order_of_the_decisions() {
         let mut counted: Vec<Counted> = (0..50).map(|i| Counted { rule_id: format!("R00{}", i % 3 + 1), claim_id: format!("C{i}"), version: 1, actor: format!("U{}", i % 5), at: i as f64, upheld: i % 4 != 0 }).collect();
         let a = make_snapshot(&counted, &params(), 1, 0.0, 1);
