@@ -47,6 +47,26 @@ pub fn run(args: &[String]) -> i32 {
             }
         }
         Some("fast-forward") => fast_forward(args, &root, seed),
+        Some("workload") => {
+            let out = PathBuf::from(flag(args, "--out").unwrap_or_else(|| "outputs/defense/workload.json".into()));
+            let seeds: u64 = flag(args, "--seeds").and_then(|s| s.parse().ok()).unwrap_or(20);
+            match cg_sim::experiments::workload_study(&root, seed, seeds) {
+                Ok(v) => {
+                    if let Some(parent) = out.parent() {
+                        let _ = std::fs::create_dir_all(parent);
+                    }
+                    if std::fs::write(&out, serde_json::to_string_pretty(&v).unwrap_or_default() + "\n").is_err() {
+                        return 2;
+                    }
+                    println!("wrote {}", out.display());
+                    0
+                }
+                Err(e) => {
+                    eprintln!("error: {e}");
+                    2
+                }
+            }
+        }
         _ => {
             println!("usage: cg sim make-reviews [--out DIR] [--seed N] [--decisions N] [--adversary] | experiments [--out FILE] [--seed N] | fast-forward ...");
             2

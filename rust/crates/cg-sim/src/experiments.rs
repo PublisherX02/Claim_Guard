@@ -224,6 +224,82 @@ pub fn invariants(root: &Path) -> Result<Value, String> {
     Ok(json!({"feature_off_receipts_equal_baseline": off_equal, "tampered_snapshot_detected": tampered, "verdicts_unchanged_by_apply": unchanged, "replay_of_uncertainty_deal_matches": replays}))
 }
 
+/// What the workload report would have told an administrator, over many independent simulated review histories. The hidden truth is known,
+/// so every claim the report makes can be scored: did it find the rules that really waste reviews, did it name safe ones, did its bound on
+/// the wrong findings among the skipped hold. Time is not simulated (the timestamps are made up), so only counts are reported.
+pub fn workload_study(root: &Path, seed: u64, seeds: u64) -> Result<Value, String> {
+    use cg_queue::workload;
+    let corpus = load_corpus(root)?;
+    let truth = truth();
+    let bad: BTreeSet<&str> = truth.iter().filter(|(_, t)| **t < 0.6).map(|(r, _)| *r).collect();
+    let checkpoints = [300usize, 600, 1200, 2500, 5000];
+    let thresholds = [0.85f64, 0.90, 0.95];
+    // per checkpoint: sums over seeds
+    #[derive(Default, Clone)]
+    struct Acc { found: f64, false_alarms: f64, wasted_share: f64, runs: f64 }
+    #[derive(Default, Clone)]
+    struct Light { covered: f64, candidates: f64, runs_with: f64, bound_holds: f64, wrong_real: f64, wrong_bound: f64, unsafe_rule: f64, runs: f64 }
+    let mut retune = vec![Acc::default(); checkpoints.len()];
+    let mut light = vec![vec![Light::default(); checkpoints.len()]; thresholds.len()];
+    for k in 0..seeds {
+        let store = MemoryQueueStore::new();
+        let lab = Lab::new(seed + k, false);
+        let (mut claims, mut next) = (0usize, 0usize);
+        while next < checkpoints.len() {
+            let s = lab.run_from(&store, &corpus, claims, 100, &RoutingConfig::default(), None)?;
+            claims += s.claims;
+            let total = counted_total(&store);
+            while next < checkpoints.len() && total >= checkpoints[next] {
+                let decided = store.by_state("decided", 1_000_000).map_err(|e| e.to_string())?;
+                for (ti, t) in thresholds.iter().enumerate() {
+                    let rep = workload::report(&decided, &params(), *t, 1800.0);
+                    let rows = rep["rules"].as_array().cloned().unwrap_or_default();
+                    if ti == 0 {
+                        let flagged: BTreeSet<String> = rows.iter().filter(|r| r["role"] == "retune").filter_map(|r| r["rule"].as_str().map(str::to_string)).collect();
+                        let a = &mut retune[next];
+                        a.found += bad.iter().filter(|b| flagged.contains(**b)).count() as f64 / bad.len() as f64;
+                        a.false_alarms += flagged.iter().filter(|f| !bad.contains(f.as_str())).count() as f64;
+                        a.wasted_share += rep["retune"]["share_of_all_findings"].as_f64().unwrap_or(0.0);
+                        a.runs += 1.0;
+                    }
+                    let l = &mut light[ti][next];
+                    let cand: Vec<&Value> = rows.iter().filter(|r| r["role"] == "light_review").collect();
+                    l.runs += 1.0;
+                    l.candidates += cand.len() as f64;
+                    l.covered += rep["light_review"]["share_of_all_findings"].as_f64().unwrap_or(0.0);
+                    if !cand.is_empty() {
+                        l.runs_with += 1.0;
+                        let real: f64 = cand.iter().map(|r| r["n"].as_f64().unwrap_or(0.0) * (1.0 - truth.get(r["rule"].as_str().unwrap_or("")).copied().unwrap_or(0.0))).sum();
+                        let bound = rep["light_review"]["wrong_at_most_95pct"].as_f64().unwrap_or(0.0);
+                        l.wrong_real += real;
+                        l.wrong_bound += bound;
+                        l.bound_holds += f64::from(real <= bound);
+                        l.unsafe_rule += cand.iter().filter(|r| truth.get(r["rule"].as_str().unwrap_or("")).is_some_and(|x| *x < 0.9)).count() as f64;
+                    }
+                }
+                next += 1;
+            }
+        }
+    }
+    let n = seeds as f64;
+    let retune_out: Vec<Value> = checkpoints.iter().zip(&retune).map(|(c, a)| json!({"decisions": c, "share_of_bad_rules_found": a.found / a.runs, "good_rules_wrongly_listed_per_run": a.false_alarms / a.runs,
+        "reviews_on_listed_rules_that_were_overridden_share_of_all_findings": a.wasted_share / a.runs})).collect();
+    let mut light_out = vec![];
+    for (ti, t) in thresholds.iter().enumerate() {
+        for (ci, c) in checkpoints.iter().enumerate() {
+            let l = &light[ti][ci];
+            light_out.push(json!({"skip_lower": t, "decisions": c, "runs_with_any_candidate": l.runs_with / n, "mean_candidate_rules": l.candidates / n, "mean_share_of_findings_covered": l.covered / n,
+                "mean_truly_wrong_findings_among_them": if l.runs_with > 0.0 { l.wrong_real / l.runs_with } else { 0.0 }, "mean_stated_bound_on_wrong": if l.runs_with > 0.0 { l.wrong_bound / l.runs_with } else { 0.0 },
+                "bound_held_in_share_of_runs_with_candidates": if l.runs_with > 0.0 { json!(l.bound_holds / l.runs_with) } else { Value::Null },
+                "candidate_rules_whose_true_rate_is_below_0_9": l.unsafe_rule}));
+        }
+    }
+    let truth_table: BTreeMap<&str, f64> = truth.clone();
+    Ok(json!({"seeds": seeds, "first_seed": seed, "truth": truth_table, "bad_rules": bad, "retune_detection": retune_out, "light_review": light_out,
+        "time": "not simulated: the timestamps in simulated histories are invented, so no minutes or hours are reported; the production report measures them from lease-to-decision times",
+        "note": NOTE}))
+}
+
 pub fn all(root: &Path, seed: u64) -> Result<Value, String> {
     Ok(json!({"simulated": true, "seed": seed,
         "decisions_note": "Reviewers are simulated with a hidden true upheld rate per rule; claims and findings are the real development set, recycled under new ids. The curves show how the mechanism behaves, not accuracy with real people.",
@@ -277,5 +353,19 @@ mod tests {
         for (k, v) in i.as_object().unwrap() {
             assert_eq!(v, &json!(true), "{k}");
         }
+    }
+}
+
+#[cfg(test)]
+mod workload_tests {
+    use super::*;
+
+    #[test]
+    fn the_workload_study_finds_the_rules_that_waste_reviews_and_never_lists_a_good_one_as_bad() {
+        let w = workload_study(&std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../.."), 1, 3).unwrap();
+        let last = w["retune_detection"].as_array().unwrap().last().unwrap().clone();
+        assert!(last["share_of_bad_rules_found"].as_f64().unwrap() >= 0.99, "{last}");
+        assert_eq!(last["good_rules_wrongly_listed_per_run"].as_f64().unwrap(), 0.0, "{last}");
+        assert!(w["light_review"].as_array().unwrap().len() == 15);
     }
 }

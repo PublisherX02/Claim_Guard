@@ -19,3 +19,4 @@ pub mod service;
 pub mod states;
 pub mod store;
 pub mod triage;
+pub mod workload;
