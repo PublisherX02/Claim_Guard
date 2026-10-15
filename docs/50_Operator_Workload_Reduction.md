@@ -40,6 +40,8 @@ How big the audit must be to say anything. With zero escalations among n audited
 |---|---|---|---|---|---|---|---|
 | Upper bound | 9.5% | 4.9% | 2.0% | 1.0% | 0.5% | 0.3% | 0.1% |
 
+Measured on the real pipeline (`cargo test -p cg-queue --test auto_clear_run`, evidence `outputs/defense/auto_clear_run.json`): the 600 labelled claims, the real engine and triage, `auto_clear_green` on at 5% audit, 20 random batches of 500. The system cleared **159.1 claims per batch on its own (149 to 172, 31.8%)**, 7.7 green claims went to a person as the audit sample, 333.2 claims with findings stayed for a person, so a person handled 340.9 of 500. **0 of the cleared claims had a finding in the answer key** (and no green claim was left uncleared and unaudited). This is the organizers' synthetic mix and the engine matches the key exactly on these claims, so it says what the policy does here, not what a hospital would see.
+
 At 5% audit, 6,000 green claims put 300 in the sample. The saving is the other 95%: on the 500-claim mix, about 158 of 500 claims need no person.
 
 ### 3.3 Bulk confirm for rules reviewers almost always uphold (`bulk_confirm_skip_lower`, default **0 = off**)
