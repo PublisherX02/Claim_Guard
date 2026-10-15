@@ -7,8 +7,9 @@ use serde_json::{json, Map, Value};
 
 pub const STATUSES: [&str; 2] = ["FAIL", "UNABLE_TO_ASSESS"];
 pub const SEVERITIES: [&str; 2] = ["high", "medium"];
-const NAMES: [&str; 12] = [
+const NAMES: [&str; 19] = [
     "version", "points", "lane_b_flagged", "lane_b_score", "slice_size", "low_water", "lease_seconds", "aging_per_hour", "ai_per_minute", "ai_daily_budget", "on_shift", "exclusions",
+    "learn_enabled", "route_by_reliability", "reliability_min_decisions", "reliability_min_reviewers", "reliability_reviewer_cap", "doubtful_below", "uncertainty_weight",
 ];
 
 /// Points per flagged finding: `[status][severity]`, statuses in `STATUSES` order, severities in `SEVERITIES` order.
@@ -57,6 +58,13 @@ pub struct RoutingConfig {
     pub ai_daily_budget: i64,
     pub on_shift: Vec<String>,
     pub exclusions: Vec<(String, String)>,
+    pub learn_enabled: bool,
+    pub route_by_reliability: bool,
+    pub reliability_min_decisions: i64,
+    pub reliability_min_reviewers: i64,
+    pub reliability_reviewer_cap: f64,
+    pub doubtful_below: f64,
+    pub uncertainty_weight: f64,
 }
 
 impl Default for RoutingConfig {
@@ -74,6 +82,13 @@ impl Default for RoutingConfig {
             ai_daily_budget: 2000,
             on_shift: vec![],
             exclusions: vec![],
+            learn_enabled: false,
+            route_by_reliability: false,
+            reliability_min_decisions: 20,
+            reliability_min_reviewers: 3,
+            reliability_reviewer_cap: 0.4,
+            doubtful_below: 0.6,
+            uncertainty_weight: 0.0,
         }
     }
 }
@@ -125,6 +140,13 @@ pub fn validate(c: &RoutingConfig) -> Result<(), String> {
     if c.exclusions.iter().any(|(a, b)| a.is_empty() || b.is_empty()) {
         return Err("each exclusion must be a (badge, patient) pair of non-empty text".into());
     }
+    check_range("reliability_min_decisions", c.reliability_min_decisions, 5, 1000)?;
+    check_range("reliability_min_reviewers", c.reliability_min_reviewers, 1, 50)?;
+    for (name, v, low, high) in [("reliability_reviewer_cap", c.reliability_reviewer_cap, 0.1, 1.0), ("doubtful_below", c.doubtful_below, 0.05, 0.95), ("uncertainty_weight", c.uncertainty_weight, 0.0, 20.0)] {
+        if !v.is_finite() || !(low..=high).contains(&v) {
+            return Err(format!("{name} must be a number from {low} to {high}"));
+        }
+    }
     Ok(())
 }
 
@@ -133,7 +155,9 @@ pub fn to_doc(c: &RoutingConfig) -> Result<Value, String> {
     validate(c)?;
     Ok(json!({"version": c.version, "points": c.points.to_doc(), "lane_b_flagged": c.lane_b_flagged, "lane_b_score": c.lane_b_score, "slice_size": c.slice_size,
         "low_water": c.low_water, "lease_seconds": c.lease_seconds, "aging_per_hour": c.aging_per_hour, "ai_per_minute": c.ai_per_minute, "ai_daily_budget": c.ai_daily_budget,
-        "on_shift": c.on_shift, "exclusions": c.exclusions.iter().map(|(a, b)| json!([a, b])).collect::<Vec<_>>()}))
+        "on_shift": c.on_shift, "exclusions": c.exclusions.iter().map(|(a, b)| json!([a, b])).collect::<Vec<_>>(),
+        "learn_enabled": c.learn_enabled, "route_by_reliability": c.route_by_reliability, "reliability_min_decisions": c.reliability_min_decisions, "reliability_min_reviewers": c.reliability_min_reviewers,
+        "reliability_reviewer_cap": c.reliability_reviewer_cap, "doubtful_below": c.doubtful_below, "uncertainty_weight": c.uncertainty_weight}))
 }
 
 /// Fields left out take their default; unknown fields are refused; the result is validated whole.
@@ -153,6 +177,15 @@ pub fn from_doc(doc: &Value) -> Result<RoutingConfig, String> {
     }
     if let Some(v) = int("ai_per_minute", 0, 600)? { c.ai_per_minute = v; }
     if let Some(v) = int("ai_daily_budget", 0, 100000)? { c.ai_daily_budget = v; }
+    let boolean = |name: &str| -> Result<Option<bool>, String> { obj.get(name).map(|v| v.as_bool().ok_or(format!("{name} must be true or false"))).transpose() };
+    let float = |name: &str| -> Result<Option<f64>, String> { obj.get(name).map(|v| match v { Value::Number(n) => n.as_f64().ok_or(format!("{name} must be a number")), _ => Err(format!("{name} must be a number")) }).transpose() };
+    if let Some(v) = boolean("learn_enabled")? { c.learn_enabled = v; }
+    if let Some(v) = boolean("route_by_reliability")? { c.route_by_reliability = v; }
+    if let Some(v) = int("reliability_min_decisions", 5, 1000)? { c.reliability_min_decisions = v; }
+    if let Some(v) = int("reliability_min_reviewers", 1, 50)? { c.reliability_min_reviewers = v; }
+    if let Some(v) = float("reliability_reviewer_cap")? { c.reliability_reviewer_cap = v; }
+    if let Some(v) = float("doubtful_below")? { c.doubtful_below = v; }
+    if let Some(v) = float("uncertainty_weight")? { c.uncertainty_weight = v; }
     if let Some(v) = obj.get("on_shift") {
         c.on_shift = v.as_array().ok_or("on_shift must be a tuple of non-empty badge ids")?.iter().map(|b| b.as_str().map(str::to_string).ok_or("on_shift must be a tuple of non-empty badge ids")).collect::<Result<_, _>>()?;
     }
@@ -190,6 +223,26 @@ mod tests {
         assert_eq!((c.slice_size, c.low_water, c.on_shift.clone(), c.exclusions.clone()), (6, 3, vec!["CG-2002".to_string()], vec![("CG-2002".to_string(), "P1".to_string())]));
         assert!(from_doc(&json!({"slice": 6})).is_err());
         assert!(from_doc(&json!("x")).is_err());
+    }
+
+    #[test]
+    fn the_learning_fields_default_off_and_round_trip() {
+        let c = RoutingConfig::default();
+        assert!(!c.learn_enabled && !c.route_by_reliability && c.uncertainty_weight == 0.0);
+        assert_eq!((c.reliability_min_decisions, c.reliability_min_reviewers, c.reliability_reviewer_cap, c.doubtful_below), (20, 3, 0.4, 0.6));
+        let doc = to_doc(&c).unwrap();
+        assert_eq!(from_doc(&doc).unwrap(), c);
+        let old = from_doc(&json!({"slice_size": 6, "low_water": 3})).unwrap();
+        assert!(!old.learn_enabled && old.reliability_min_decisions == 20, "a document written before the fields existed loads with the defaults");
+    }
+
+    #[test]
+    fn bad_learning_values_are_refused_whole() {
+        for bad in [json!({"reliability_min_decisions": 4}), json!({"reliability_min_decisions": 1001}), json!({"reliability_min_reviewers": 0}), json!({"reliability_min_reviewers": 51}),
+                    json!({"reliability_reviewer_cap": 0.09}), json!({"reliability_reviewer_cap": 1.01}), json!({"doubtful_below": 0.04}), json!({"doubtful_below": 0.96}),
+                    json!({"uncertainty_weight": -0.1}), json!({"uncertainty_weight": 20.1}), json!({"learn_enabled": 1}), json!({"route_by_reliability": "yes"}), json!({"uncertainty_weight": "x"})] {
+            assert!(from_doc(&bad).is_err(), "{bad}");
+        }
     }
 
     #[test]

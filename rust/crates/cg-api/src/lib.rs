@@ -1037,7 +1037,7 @@ impl Api {
         let p = self.need(req, "routing.manage")?;
         let mut m = object_body(req)?;
         let expected = m.remove("expected_version").filter(Value::is_i64).and_then(|v| v.as_i64()).filter(|v| *v >= 0).ok_or_else(invalid)?;
-        const ALLOWED: [&str; 11] = ["points", "lane_b_flagged", "lane_b_score", "slice_size", "low_water", "lease_seconds", "aging_per_hour", "ai_per_minute", "ai_daily_budget", "on_shift", "exclusions"];
+        const ALLOWED: [&str; 18] = ["points", "lane_b_flagged", "lane_b_score", "slice_size", "low_water", "lease_seconds", "aging_per_hour", "ai_per_minute", "ai_daily_budget", "on_shift", "exclusions", "learn_enabled", "route_by_reliability", "reliability_min_decisions", "reliability_min_reviewers", "reliability_reviewer_cap", "doubtful_below", "uncertainty_weight"];
         if m.keys().any(|k| !ALLOWED.contains(&k.as_str())) || m.values().any(Value::is_null) {
             return Err(invalid());
         }

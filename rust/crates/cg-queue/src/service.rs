@@ -35,7 +35,7 @@ pub const GREEN_ACTIONS: [&str; 2] = ["verify_clear", "escalate"];
 const ACTIONS: [&str; 4] = ["confirm_issue", "dismiss_with_reason", "request_information", "mark_corrected_for_recheck"];
 const LOG_VALUE_CHARS: usize = 400;
 pub const MAX_SUBMIT: usize = 25;
-const CONFIG_FIELDS: [&str; 11] = ["points", "lane_b_flagged", "lane_b_score", "slice_size", "low_water", "lease_seconds", "aging_per_hour", "ai_per_minute", "ai_daily_budget", "on_shift", "exclusions"];
+const CONFIG_FIELDS: [&str; 18] = ["points", "lane_b_flagged", "lane_b_score", "slice_size", "low_water", "lease_seconds", "aging_per_hour", "ai_per_minute", "ai_daily_budget", "on_shift", "exclusions", "learn_enabled", "route_by_reliability", "reliability_min_decisions", "reliability_min_reviewers", "reliability_reviewer_cap", "doubtful_below", "uncertainty_weight"];
 
 #[derive(Debug, thiserror::Error)]
 pub enum QueueError {
