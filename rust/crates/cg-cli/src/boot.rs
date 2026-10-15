@@ -163,15 +163,25 @@ pub fn boot(o: &Options) -> Result<Boot, String> {
     let review_log = Arc::new(AuditLog::open(data_dir.join("review_audit.jsonl")).map_err(|e| e.to_string())?);
     let engine = Arc::new(Engine::load(&root).map_err(|e| format!("rule engine: {e}"))?);
     let payer = Arc::new(cg_engine::payer::PayerRules::open(&root, &data_dir, engine.clone()).map_err(|e| format!("payer rules: {e}"))?);
+    let learning_store = queue_store.clone();
     {
-        // an approved change of the payer rules is carried out here; other processes (the worker, the API) notice it within seconds
+        // an approved change of the payer rules, or an approved use of a learned reliability snapshot, is carried out here; other processes
+        // (the worker, the API) notice a payer change within seconds
         let pr = payer.clone();
-        access.set_action_hook(Arc::new(move |a, requester, approver| {
-            if a.action != "payer_rules" {
-                return Err("unknown action".into());
+        let log_access = access.clone();
+        access.set_action_hook(Arc::new(move |a, requester, approver| match a.action.as_str() {
+            "payer_rules" => {
+                let p: Value = serde_json::from_str(&a.payload).map_err(|e| e.to_string())?;
+                pr.apply(&p["policies"], requester, Some(approver), p["reason"].as_str().unwrap_or("")).map(|_| ())
             }
-            let p: Value = serde_json::from_str(&a.payload).map_err(|e| e.to_string())?;
-            pr.apply(&p["policies"], requester, Some(approver), p["reason"].as_str().unwrap_or("")).map(|_| ())
+            "learning_snapshot" => {
+                let store = learning_store.as_ref().ok_or("the queue is not running in this process")?;
+                let p: Value = serde_json::from_str(&a.payload).map_err(|e| e.to_string())?;
+                let version = p["version"].as_i64().ok_or("the request has no version")?;
+                cg_queue::reliability::activate(&**store, version, requester, Some(approver), log_access.now())?;
+                log_access.record("reliability_activated", serde_json::json!({"actor": requester, "version": version, "approver": approver})).map_err(|e| e.to_string())
+            }
+            _ => Err("unknown action".into()),
         }));
         let pr = payer.clone();
         let _ = std::thread::Builder::new().name("claimguard-payer-refresh".into()).spawn(move || loop {
@@ -245,8 +255,8 @@ pub fn start_workers(q: &QueueStack, stop: Arc<AtomicBool>, env: &HashMap<String
         .name("claimguard-worker".into())
         .spawn(move || {
             use cg_api::ops::run_job;
-            let every = [("relay", 1.5), ("deal", 2.0), ("expire", 20.0), ("reconcile", 120.0), ("republish", 300.0)];
-            let mut last = [f64::MIN; 5];
+            let every = [("relay", 1.5), ("deal", 2.0), ("expire", 20.0), ("reconcile", 120.0), ("republish", 300.0), ("learn", 600.0)];
+            let mut last = [f64::MIN; 6];
             let mono = std::time::Instant::now();
             let alive = std::env::var("CG_WORKER_ALIVE_FILE").ok().filter(|s| !s.is_empty());
             // with a broker the claims are processed by the pool (at most `concurrency` at once); without one, inline in the relay sweep
@@ -285,6 +295,13 @@ pub fn start_workers(q: &QueueStack, stop: Arc<AtomicBool>, env: &HashMap<String
                         "republish" => {
                             if let Some(b) = &broker {
                                 run_job(store, clock, "republish", || flow::republish_lost(store, &**b, clock(), republish_after), |r| r.to_string());
+                            }
+                        }
+                        "learn" => {
+                            // proposes a new reliability snapshot from the decisions made so far; routing changes only when two administrators activate it
+                            let cfg = flow::routing_config(store);
+                            if cfg.learn_enabled {
+                                let _ = cg_api::ops::run_job_checked(store, clock, "learn", || cg_queue::reliability::learn(store, &cfg, clock()), |p| format!("{}", p.as_ref().map_or("no change".to_string(), |s| format!("proposed v{}", s["version"]))));
                             }
                         }
                         _ => {

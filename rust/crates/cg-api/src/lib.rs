@@ -510,6 +510,10 @@ impl Api {
             ["work", "claims", id, "verify"] if self.queue.is_some() => if m == "POST" { self.work_verify(req, id) } else { Err(wrong()) },
             ["queue", "dashboard"] if self.queue.is_some() => if m == "GET" { self.q_dashboard(req) } else { Err(wrong()) },
             ["queue", "feedback"] if self.queue.is_some() => if m == "GET" { self.q_feedback(req) } else { Err(wrong()) },
+            ["queue", "reliability"] if self.queue.is_some() => if m == "GET" { self.q_reliability(req) } else { Err(wrong()) },
+            ["queue", "reliability", "learn"] if self.queue.is_some() => if m == "POST" { self.q_reliability_learn(req) } else { Err(wrong()) },
+            ["queue", "reliability", v, "verify"] if self.queue.is_some() => if m == "GET" { self.q_reliability_verify(req, v) } else { Err(wrong()) },
+            ["queue", "reliability", v, "activate"] if self.queue.is_some() => if m == "POST" { self.q_reliability_activate(req, v) } else { Err(wrong()) },
             ["queue", "import", "file"] => if m == "POST" { self.import_file(req) } else { Err(wrong()) },
             ["queue", "import", "csv"] => if m == "POST" { self.import_csv(req) } else { Err(wrong()) },
             ["queue", "import", "validate"] => if m == "POST" { self.import_validate(req) } else { Err(wrong()) },
@@ -1019,6 +1023,41 @@ impl Api {
     fn q_feedback(&self, req: &ApiRequest) -> R {
         let p = self.need(req, "queue.view")?;
         self.queue()?.feedback(&p).map(|v| ApiResponse::json(200, &v)).map_err(|e| self.qerr(e, req, &p))
+    }
+
+    fn version_arg(v: &str) -> Result<i64, ApiError> {
+        v.parse::<i64>().ok().filter(|n| (1..=1_000_000).contains(n)).ok_or_else(|| ApiError::new(404, "not_found"))
+    }
+
+    fn q_reliability(&self, req: &ApiRequest) -> R {
+        let p = self.need(req, "queue.view")?;
+        self.queue()?.reliability(&p).map(|v| ApiResponse::json(200, &v)).map_err(|e| self.qerr(e, req, &p))
+    }
+
+    fn q_reliability_learn(&self, req: &ApiRequest) -> R {
+        let p = self.need(req, "routing.manage")?;
+        self.queue()?.learn_now(&p).map(|v| ApiResponse::json(200, &v)).map_err(|e| self.qerr(e, req, &p))
+    }
+
+    fn q_reliability_verify(&self, req: &ApiRequest, v: &str) -> R {
+        let p = self.need(req, "queue.view")?;
+        self.queue()?.verify_reliability(&p, Self::version_arg(v)?).map(|r| ApiResponse::json(200, &r)).map_err(|e| self.qerr(e, req, &p))
+    }
+
+    /// Asking to use a learned snapshot is a dangerous administrator action: with two or more administrators a different one must approve it
+    /// (the same gate as the payer rules); a lone administrator acts alone and the security log says so.
+    fn q_reliability_activate(&self, req: &ApiRequest, v: &str) -> R {
+        let p = self.need(req, "routing.manage")?;
+        let version = Self::version_arg(v)?;
+        let q = self.queue()?;
+        let summary = q.prepare_activation(&p, version).map_err(|e| self.qerr(e, req, &p))?;
+        match self.access.gate_action(&p, "learning_snapshot", &format!("reliability-v{version}"), summary, json!({"version": version})).map_err(|e| self.serr(e, req, &p))? {
+            Gate::Pending { approval, uri } => Ok(Self::pending(&approval, uri)),
+            Gate::Done(()) => {
+                q.activate_reliability(&p, version, None).map_err(|e| self.qerr(e, req, &p))?;
+                Ok(ApiResponse::json(200, &json!({"status": "applied", "version": version})))
+            }
+        }
     }
 
     fn q_submit(&self, req: &ApiRequest) -> R {

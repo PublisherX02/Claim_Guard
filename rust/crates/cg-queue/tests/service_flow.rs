@@ -441,3 +441,23 @@ fn routing_by_reliability_is_off_by_default_and_a_doubtful_rule_sends_a_medium_c
     bad["rules"][&rule]["status"] = json!("measured");
     assert!(cg_queue::reliability::verify(&bad).is_err());
 }
+
+#[test]
+fn learning_is_a_proposal_until_an_administrator_activates_it_and_reviewers_see_only_words() {
+    let q = q();
+    let admin = q.p("CG-4004");
+    let senior = q.p("CG-3003");
+    let junior = q.p("CG-2002");
+    assert!(matches!(q.queue.reliability(&junior), Err(QueueError::Forbidden(_))));
+    assert!(matches!(q.queue.learn_now(&senior), Err(QueueError::Forbidden(_))), "deciding people may not trigger learning");
+    assert_eq!(q.queue.learn_now(&admin).unwrap()["proposed"], Value::Null, "nothing decided yet");
+    // hide-not-disable: a reviewer's inbox carries reasons as words only
+    let id = q.ready("single_high");
+    q.lease_to(&id, "CG-3003");
+    let view = q.queue.inbox(&senior).unwrap();
+    let words: Vec<&str> = view[0]["attention"].as_array().unwrap().iter().map(|w| w.as_str().unwrap()).collect();
+    assert!(words.contains(&"high_severity") && words.iter().all(|w| ["high_severity", "low_confidence", "could_not_assess", "degraded", "disagreement"].contains(w)), "{words:?}");
+    let text = view[0].to_string();
+    assert!(!text.contains("reliability") && !text.contains("uncertainty") && !text.contains("doubtful"), "no reliability numbers reach a reviewer");
+    assert!(matches!(q.queue.prepare_activation(&admin, 9), Err(QueueError::NotFound(_))));
+}

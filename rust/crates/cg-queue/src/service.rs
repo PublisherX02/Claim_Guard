@@ -15,6 +15,7 @@
 use crate::dispatcher::{Agent, Dispatcher};
 use crate::flow::Intake;
 use crate::routing_config::{self as rc, RoutingConfig};
+use crate::reliability;
 use crate::store::QueueStore;
 use crate::{shadow, triage};
 use cg_access::masking;
@@ -189,6 +190,65 @@ impl QueueService {
         crate::flow::routing_config(&*self.store)
     }
 
+    // ---- learning from overrides ---------------------------------------------------------------------------------------
+    /// The active snapshot's figures, the newest proposal with its replay report, and the history. Administrators only; reviewers never get this.
+    pub fn reliability(&self, principal: &Principal) -> R<Value> {
+        self.require(principal, "queue.view")?;
+        let history = self.store.reliability_history().map_err(store_err)?;
+        let active = reliability::active(&*self.store);
+        let latest = history.last().cloned();
+        let summary: Vec<Value> = history.iter().rev().take(20).map(|d| json!({"version": d["version"], "status": d["status"], "created_at": d["created_at"], "decisions": d["decisions"],
+            "doubtful": reliability::doubtful_rules(d), "history": d["history"]})).collect();
+        Ok(json!({"active": active.as_ref().map(|a| json!({"version": a["version"], "rules": a["rules"], "parameters": a["parameters"], "verified": reliability::verify(a).is_ok()})),
+                  "latest": latest.as_ref().map(|l| json!({"version": l["version"], "status": l["status"], "rules": l["rules"], "replay": l["replay"], "verified": reliability::verify(l).is_ok()})),
+                  "history": summary,
+                  "settings": {"learn_enabled": self.routing_config().learn_enabled, "route_by_reliability": self.routing_config().route_by_reliability}}))
+    }
+
+    pub fn learn_now(&self, principal: &Principal) -> R<Value> {
+        self.require(principal, "routing.manage")?;
+        let proposed = reliability::learn(&*self.store, &self.routing_config(), self.now()).map_err(QueueError::Invalid)?;
+        if let Some(p) = &proposed {
+            self.access.record("reliability_proposed", json!({"actor": principal.badge(), "version": p["version"], "decisions": p["decisions"], "doubtful": reliability::doubtful_rules(p)}))?;
+        }
+        Ok(json!({"proposed": proposed.map(|p| p["version"].clone())}))
+    }
+
+    pub fn verify_reliability(&self, principal: &Principal, version: i64) -> R<Value> {
+        self.require(principal, "queue.view")?;
+        let snap = self.store.reliability_history().map_err(store_err)?.into_iter().find(|d| d["version"].as_i64() == Some(version)).ok_or_else(|| QueueError::NotFound(format!("reliability {version}")))?;
+        let r = reliability::verify(&snap);
+        let rules: Map<String, Value> = snap["rules"].as_object().into_iter().flatten().map(|(id, row)| {
+            let p = reliability::Params::from_doc(&snap["parameters"]).ok();
+            let (u, o, rv) = (row["upheld"].as_i64().unwrap_or(0), row["overridden"].as_i64().unwrap_or(0), row["reviewers"].as_i64().unwrap_or(0));
+            let again = p.map(|p| reliability::row(u, o, rv, &p)).unwrap_or(Value::Null);
+            (id.clone(), json!({"stored": row, "recomputed": again}))
+        }).collect();
+        Ok(json!({"version": version, "ok": r.is_ok(), "problem": r.err(), "rules": rules}))
+    }
+
+    /// Checks that a proposal can be activated and returns the sentence the second administrator will read.
+    pub fn prepare_activation(&self, principal: &Principal, version: i64) -> R<String> {
+        self.require(principal, "routing.manage")?;
+        let snap = self.store.reliability_history().map_err(store_err)?.into_iter().find(|d| d["version"].as_i64() == Some(version)).ok_or_else(|| QueueError::NotFound(format!("reliability {version}")))?;
+        if snap["status"] != "proposed" {
+            return Err(QueueError::Conflict("not_proposed".into()));
+        }
+        reliability::verify(&snap).map_err(QueueError::Invalid)?;
+        let doubtful: Vec<String> = reliability::doubtful_rules(&snap).into_iter().collect();
+        let rep = &snap["replay"];
+        Ok(format!("Use learned reliability v{version} for routing: doubtful rules [{}]; of {} recent claims, senior share {:.0}% -> {:.0}%{}.",
+            doubtful.join(", "), rep["claims"], 100.0 * rep["senior_share_before"].as_f64().unwrap_or(0.0), 100.0 * rep["senior_share_after"].as_f64().unwrap_or(0.0),
+            if rep["note"].is_string() { " (senior load rises)" } else { "" }))
+    }
+
+    pub fn activate_reliability(&self, principal: &Principal, version: i64, approver: Option<&str>) -> R<()> {
+        self.require(principal, "routing.manage")?;
+        reliability::activate(&*self.store, version, principal.badge(), approver, self.now()).map_err(QueueError::Invalid)?;
+        self.access.record("reliability_activated", json!({"actor": principal.badge(), "version": version, "approver": approver}))?;
+        Ok(())
+    }
+
     // ---- the agent's side ---------------------------------------------------------------------------------------------
     fn actions(perms: &Perms, finding: &Value, latest: &BTreeMap<String, String>) -> Option<Vec<&'static str>> {
         if !finding["status"].as_str().is_some_and(|s| REVIEWABLE.contains(&s)) || !perms.contains("claims.decide") {
@@ -240,6 +300,7 @@ impl QueueService {
             // advisory (extension) results: shown for information, shaped by the same masking, and never offered as decidable
             view["advisory"] = masking::shape_claim(&doc["claim"], &doc["advisory"], perms, key, false, true).map_err(|_| QueueError::Redaction)?.1;
         }
+        view["attention"] = json!(reliability::attention(doc));
         if triage::flagged(&doc["results"]).is_empty() && perms.contains("claims.decide") {
             view["allowed_actions"] = json!(GREEN_ACTIONS);
         }
