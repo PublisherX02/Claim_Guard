@@ -270,7 +270,7 @@ pub fn rotate_fernet_key(args: &[String]) -> i32 {
     }
 }
 
-pub const QUEUE_USAGE: &str = "usage: cg queue --badge CG-4004 [--dev] submit --claims FILE [--process] | reconcile | replay ID [--version N] | rerun --rule-pack HASH [--apply] | deadletters | deadletter-replay ID | verify-deal ID | learn [--apply] | reliability | verify-reliability V | replay-reliability V | activate-reliability V";
+pub const QUEUE_USAGE: &str = "usage: cg queue --badge CG-4004 [--dev] submit --claims FILE [--process] | reconcile | replay ID [--version N] | rerun --rule-pack HASH [--apply] | deadletters | deadletter-replay ID | verify-deal ID | workload [--skip-lower X]";
 
 pub fn queue(args: &[String]) -> i32 {
     let say = |s: &str| println!("{s}");
@@ -278,7 +278,7 @@ pub fn queue(args: &[String]) -> i32 {
         say(QUEUE_USAGE);
         return 2;
     };
-    let Some(ci) = args.iter().position(|a| ["submit", "reconcile", "replay", "rerun", "deadletters", "deadletter-replay", "verify-deal", "learn", "reliability", "verify-reliability", "replay-reliability", "activate-reliability"].contains(&a.as_str())) else {
+    let Some(ci) = args.iter().position(|a| ["submit", "reconcile", "replay", "rerun", "deadletters", "deadletter-replay", "verify-deal", "workload"].contains(&a.as_str())) else {
         say(QUEUE_USAGE);
         return 2;
     };
@@ -303,7 +303,7 @@ pub fn queue(args: &[String]) -> i32 {
         }
     };
     let apply = has(rest, "--apply");
-    let mutating = matches!(command, "submit" | "deadletter-replay") || (command == "rerun" && apply) || (command == "learn" && apply) || command == "activate-reliability";
+    let mutating = matches!(command, "submit" | "deadletter-replay") || (command == "rerun" && apply);
     if AccessService::require(&operator, if mutating { "routing.manage" } else { "queue.view" }).is_err() {
         say("error: this operator may not do that");
         return 2;
@@ -313,7 +313,7 @@ pub fn queue(args: &[String]) -> i32 {
         return 2;
     }
     let (store, now) = (&*q.store, b.clock.clone());
-    let positional = rest.iter().find(|a| !a.starts_with("--") && flag(rest, "--version").as_deref() != Some(a.as_str()) && flag(rest, "--claims").as_deref() != Some(a.as_str()) && flag(rest, "--rule-pack").as_deref() != Some(a.as_str()));
+    let positional = rest.iter().find(|a| !a.starts_with("--") && flag(rest, "--version").as_deref() != Some(a.as_str()) && flag(rest, "--claims").as_deref() != Some(a.as_str()) && flag(rest, "--rule-pack").as_deref() != Some(a.as_str()) && flag(rest, "--skip-lower").as_deref() != Some(a.as_str()));
     let out: Result<i32, QueueError> = (|| {
         match command {
             "replay" => {
@@ -348,42 +348,12 @@ pub fn queue(args: &[String]) -> i32 {
                 say(&format!("ok={} findings={}", if report.ok() { "True" } else { "False" }, report.findings.len()));
                 Ok(if report.ok() { 0 } else { 1 })
             }
-            "learn" => {
+            "workload" => {
+                // read-only: which rules cost reviewers time for nothing, which are almost always upheld, and the measured time per finding
                 let cfg = cg_queue::flow::routing_config(store);
-                if apply {
-                    say(&sorted(&json!({"proposed": cg_queue::reliability::learn(store, &cfg, now()).map_err(QueueError::Invalid)?.map(|p| p["version"].clone())})));
-                } else {
-                    let counted = cg_queue::reliability::counted_decisions(&store.by_state("decided", 100_000).map_err(|e| QueueError::Invalid(e.to_string()))?);
-                    say(&sorted(&cg_queue::reliability::make_snapshot(&counted, &cg_queue::reliability::Params::from_config(&cfg), 0, now(), cfg.version)));
-                }
-                Ok(0)
-            }
-            "reliability" => {
-                say(&sorted(&q.service.reliability(&operator)?));
-                Ok(0)
-            }
-            "verify-reliability" => {
-                let v: i64 = positional.and_then(|s| s.parse().ok()).ok_or_else(|| QueueError::Invalid("verify-reliability needs a version".into()))?;
-                let r = q.service.verify_reliability(&operator, v)?;
-                say(&sorted(&r));
-                Ok(if r["ok"] == true { 0 } else { 1 })
-            }
-            "replay-reliability" => {
-                let v: i64 = positional.and_then(|s| s.parse().ok()).ok_or_else(|| QueueError::Invalid("replay-reliability needs a version".into()))?;
-                let snap = store.reliability_history().map_err(|e| QueueError::Invalid(e.to_string()))?.into_iter().find(|d| d["version"].as_i64() == Some(v)).ok_or_else(|| QueueError::NotFound(format!("reliability {v}")))?;
-                say(&sorted(&cg_queue::reliability::replay_report(store, &snap, cg_queue::reliability::REPLAY_LIMIT)));
-                Ok(0)
-            }
-            "activate-reliability" => {
-                let v: i64 = positional.and_then(|s| s.parse().ok()).ok_or_else(|| QueueError::Invalid("activate-reliability needs a version".into()))?;
-                q.service.prepare_activation(&operator, v)?;
-                match b.access.gate_action(&operator, "learning_snapshot", &format!("reliability-v{v}"), format!("Use learned reliability v{v} for routing"), json!({"version": v})).map_err(|e| QueueError::Invalid(e.to_string()))? {
-                    cg_access::service::Gate::Pending { approval, .. } => say(&format!("waiting for a second administrator: approval {}", approval.id)),
-                    cg_access::service::Gate::Done(()) => {
-                        q.service.activate_reliability(&operator, v, None)?;
-                        say("activated");
-                    }
-                }
+                let skip = flag(rest, "--skip-lower").and_then(|v| v.parse::<f64>().ok()).filter(|v| (0.5..1.0).contains(v)).unwrap_or(cg_queue::workload::DEFAULT_SKIP_LOWER);
+                let decided = store.by_state("decided", 1_000_000).map_err(|e| QueueError::Invalid(e.to_string()))?;
+                say(&sorted(&cg_queue::workload::report(&decided, &cg_queue::reliability::Params::from_config(&cfg), skip, cfg.lease_seconds as f64)));
                 Ok(0)
             }
             "verify-deal" => {

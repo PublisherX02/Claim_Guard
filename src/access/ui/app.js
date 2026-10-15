@@ -7,7 +7,7 @@
 
   var NAV = [
     ['Work', [['#/inbox', 'My inbox', 'claims.decide'], ['#/claims', 'All claims', 'claims.view'], ['#/ask', 'Ask the rulebook', 'claims.view']]],
-    ['Queue', [['#/queue', 'Overview', 'queue.view'], ['#/import', 'Import from files', 'routing.manage'], ['#/submit', 'Submit claims', 'routing.manage'], ['#/config', 'Routing settings', 'routing.manage'], ['#/rules', 'Payer rules', 'routing.manage'], ['#/learning', 'Learned reliability', 'queue.view']]],
+    ['Queue', [['#/queue', 'Overview', 'queue.view'], ['#/import', 'Import from files', 'routing.manage'], ['#/submit', 'Submit claims', 'routing.manage'], ['#/config', 'Routing settings', 'routing.manage'], ['#/rules', 'Payer rules', 'routing.manage']]],
     ['Administration', [['#/health', 'System health', 'queue.view'], ['#/audit', 'Audit and traceability', 'audit.view'], ['#/users', 'Users', 'users.manage']]]
   ];
   var LEVELS = { 1: 'Viewer', 2: 'Reviewer', 3: 'Senior reviewer', 4: 'Administrator' };
@@ -116,7 +116,6 @@
     [/^#\/import$/, 'routing.manage', function (m, el) { CG.views.importClaims(el); }, '#/import'],
     [/^#\/submit$/, 'routing.manage', function (m, el) { CG.views.submit(el); }, '#/submit'],
     [/^#\/rules$/, 'routing.manage', function (m, el) { CG.views.rules(el); }, '#/rules'],
-    [/^#\/learning$/, 'queue.view', function (m, el) { CG.views.learning(el); }, '#/learning'],
     [/^#\/ask$/, 'claims.view', function (m, el) { CG.views.ask(el); }, '#/ask'],
     [/^#\/config$/, 'routing.manage', function (m, el) { CG.views.config(el); }, '#/config'],
     [/^#\/users$/, 'users.manage', function (m, el) { CG.views.users(el); }, '#/users'],
