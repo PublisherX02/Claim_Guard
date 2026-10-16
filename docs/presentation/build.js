@@ -213,6 +213,18 @@ section("Core");
   ], MX, 1.5, 12.1, [1.5, 6.0, 4.6], 11.5, 0.44);
 }
 
+// ---- choices (decisions we measured)
+{
+  const s = slide("Choices we made, and what we measured", { n: "choices" });
+  table(s, ["Decision", "Instead of", "What we measured", "Weak spot, said first"], [
+    ["Rules decide, the AI explains", "An agent that decides (LangGraph)", "Same model, same claims: 97.5 against 11.5 strict (21.1 lenient). The agent's endpoint failed in 10 of 12 runs", "12 claims. Our correctness is structural, not an independent finding"],
+    ["Gemma 3 4B, run locally", "Qwen3 4B, MedGemma 4B", "Gemma: 97.2% usable live (35 of 36), median about 3 s. MedGemma 83.3% and about 4 times slower. no Qwen3 setting worked on the whole set", "Small test sets"],
+    ["YARA-X rule packs", "Plain Python functions", "In the Python build, plain Python was about 11 times faster per claim", "We lost the speed argument and say so. The case is structural: rule text apart from code, hashed, no side effects"],
+    ["Rust", "Python, Java, Node, C#, Go", "Rust used 7 MB where Java used 283 MB and Node 1,168 MB. The language changes a reviewer's wait by under 0.03%", "Measured on one machine"],
+    ["MongoDB and Redis", "SQLite", "The mentor's direction of 27 September: a NoSQL store and a real queue, on premises", "Throughput measured on one laptop only"],
+  ], MX, 1.5, 12.1, [2.1, 2.1, 4.9, 3.0], 11.5, 0.5);
+}
+
 // 5 Rules
 {
   const s = slide("Rule correctness: the 15 reference rules, measured", { n: "rules" });
@@ -226,6 +238,26 @@ section("Core");
   card(s, MX + 6.2, 3.75, 5.9, 2.85, T.soft, "right card");
   s.addText("Kept apart from the benchmark", { x: MX + 6.45, y: 3.85, w: 5.4, h: 0.4, fontSize: 18, bold: true, fontFace: "Cambria", color: T.dark, margin: 0, isTextBox: true, objectName: "h" });
   bullets(s, ["8 advisory rules (E001 to E005, E101 to E103) in their own pack, file and schema", "Reference JSONL unchanged: confidence null, not_probabilistic", "A test pins the official results to their recorded values", "Public set is synthetic: a perfect score is not proof for real claims"], MX + 6.45, 4.35, 5.4, 2.2, 15);
+}
+
+// ---- testing
+{
+  const s = slide("How it was tested", { n: "testing" });
+  stat(s, MX, 1.5, 2.8, "107,635", "generated claims where an independent oracle agrees with the engine: 0 disagreements", T.teal, 36);
+  stat(s, MX + 3.1, 1.5, 2.8, "37,000", "boundary mutants of claims, plus 123 hand-derived boundary cases", T.teal, 36);
+  stat(s, MX + 6.2, 1.5, 2.8, "374", "Rust workspace tests pass (database tests need MongoDB and Redis)", T.teal, 36);
+  stat(s, MX + 9.3, 1.5, 2.8, "1,795", "tests behind the Python reference build", T.teal, 36);
+  const cards = [
+    ["Against the answer key", "F1 1.00 on the 600 public claims, and on nine labelled example sets in three evidence tiers, each with its file hash and generator recorded"],
+    ["Against attack", "116 black-box attack checks, 400,000 fuzzed requests, 93 deliberate breakages of security and queue rules, each caught by a test"],
+    ["In a real browser", "Chrome walkthroughs of the correction flow (11 of 11), file import, live updates and the audit alarm"],
+  ];
+  cards.forEach((c, i) => {
+    const x = MX + i * 4.1;
+    card(s, x, 3.75, 3.9, 2.9, T.soft, "test card " + (i + 1));
+    s.addText(c[0], { x: x + 0.25, y: 3.85, w: 3.4, h: 0.45, fontSize: 17, bold: true, fontFace: "Cambria", color: T.dark, margin: 0, isTextBox: true, objectName: "test title" });
+    s.addText(c[1], { x: x + 0.25, y: 4.4, w: 3.45, h: 2.1, fontSize: 13.5, color: T.ink, margin: 0, valign: "top", isTextBox: true, objectName: "test text" });
+  });
 }
 
 // 6 Intake
@@ -243,6 +275,26 @@ section("Core");
   s.addText("Documents: PDF and photos", { x: 5.95, y: 3.85, w: 6.4, h: 0.4, fontSize: 18, bold: true, fontFace: "Cambria", color: T.dark, margin: 0, isTextBox: true, objectName: "h" });
   bullets(s, ["Reader in an isolated container, polyglot file gate, hidden-Unicode flag", "240 synthetic documents: 97.4% of fields right, 1 silent error", "A reading is only a draft: the clerk compares every field with the page", "Real paper, handwriting and Arabic are not tested yet"], 5.95, 4.35, 6.4, 2.2, 15);
   note(s, "A damaged record is quarantined with a reason and never stops the run.");
+}
+
+// ---- OCR
+{
+  const s = slide("Reading documents: PDFs and photos", { n: "ocr" });
+  const st = [["Gate", "size, real type from the first bytes, no hidden second format"], ["Reader", "own container, no network. Text layer first, else Tesseract plus a vision model"], ["Extraction", "labelled fields, tables, dates read only if unambiguous, a check against the catalogue"], ["Draft", "page beside editable fields. A person ticks that every field was compared"]];
+  st.forEach((r, i) => {
+    const y = 1.5 + i * 0.95;
+    card(s, MX, y, 5.7, 0.85, T.soft, "ocr step " + (i + 1));
+    badge(s, MX + 0.18, y + 0.22, i + 1);
+    s.addText([{ text: r[0], options: { bold: true, fontSize: 14, color: T.dark, breakLine: true } }, { text: r[1], options: { fontSize: 12, color: T.ink } }], { x: MX + 0.75, y, w: 4.85, h: 0.85, valign: "middle", margin: 0, isTextBox: true, objectName: "ocr text" });
+  });
+  table(s, ["Reader (240 documents)", "Fields right", "Silent errors"], [
+    ["PDF text layer", "100%", "0"],
+    ["Tesseract alone", "94.6%", "41"],
+    ["Two readers, cross-checked", "96.8%", "3"],
+    [{ text: "Two readers, small pages upscaled (default)", bold: true }, { text: "97.4%", bold: true, color: T.teal }, { text: "1", bold: true, color: T.teal }],
+  ], 6.6, 1.5, 6.1, [3.5, 1.4, 1.2], 12.5, 0.5);
+  bullets(s, ["By condition: scan 98.9%, image-only PDF 98.7%, phone-style photo 88.1%", "The vision model is baidu/Unlimited-OCR (3.3B parameters, 0.5B active, MIT licence), run locally as a second, independent reader", "A silent error is a wrong field that nothing flagged. The evaluation found and fixed two bugs"], 6.6, 4.05, 6.1, 2.2, 13);
+  note(s, "Not tested: real hospital paper, handwriting, stamps and Arabic. A reading is only a draft; it never becomes a claim on its own.", 6.3, 6.6, 6.1);
 }
 
 // =====================================================================================================================================
@@ -371,6 +423,20 @@ section("Queue, load balancing and AI");
   note(s, "The same guard checks every cached template after it is filled. Nothing in this path can change a status.", 6.2);
 }
 
+// ---- RAG
+{
+  const s = slide("Ask the rulebook: answers that quote, never invent", { n: "rag" });
+  stat(s, MX, 1.5, 3.6, "88%", "right passage first, on 26 reviewer-style questions", T.teal, 44);
+  stat(s, MX + 4.1, 1.5, 3.6, "96%", "right passage in the top 3", T.teal, 44);
+  stat(s, MX + 8.2, 1.5, 3.9, "5 of 5", "off-topic or clinical questions refused", T.teal, 44);
+  card(s, MX, 3.5, 5.9, 3.15, T.soft, "rag how");
+  s.addText("How it works", { x: MX + 0.25, y: 3.6, w: 5.4, h: 0.4, fontSize: 17, bold: true, fontFace: "Cambria", color: T.dark, margin: 0, isTextBox: true, objectName: "h" });
+  bullets(s, ["Searches the text of the 15 rules and the payer policy table as it is now, each passage naming its rule or table version", "Plain ranking (BM25): no model, no network, deterministic", "The answer is the quoted passage and its source. Nothing is generated", "A question that barely touches the documents is refused, not answered with the nearest guess"], MX + 0.25, 4.1, 5.4, 2.5, 13);
+  card(s, MX + 6.2, 3.5, 5.9, 3.15, T.soft, "rag limits");
+  s.addText("Why it is safe, and where it stops", { x: MX + 6.45, y: 3.6, w: 5.4, h: 0.4, fontSize: 17, bold: true, fontFace: "Cambria", color: T.dark, margin: 0, isTextBox: true, objectName: "h" });
+  bullets(s, ["It never reads a claim, so it adds no privacy risk", "An approved change to the payer table is what people read next", "It is retrieval, not reasoning: it will not combine passages", "It matches words: the one miss asked for 'identical lines' where the rule says 'duplicate'"], MX + 6.45, 4.1, 5.4, 2.5, 13);
+}
+
 // Storage and encryption
 {
   const s = slide("How the data is stored, and how it is encrypted", { n: "storage" });
@@ -391,6 +457,22 @@ section("Queue, load balancing and AI");
     { text: "Reviewers see pseudonyms, not identifiers", options: { bullet: { indent: 14 }, breakLine: true, paraSpaceAfter: 5 } },
     { text: "Limits: whoever holds the key sees everything; key rotation needs a re-encryption pass (not built)", options: { bullet: { indent: 14 } } },
   ], { x: 8.65, y: 2.1, w: 3.85, h: 4.45, fontSize: 12.5, color: "DDEEEB", margin: 0, valign: "top", isTextBox: true, objectName: "encryption text" });
+}
+
+// ---- data protection
+{
+  const s = slide("Personal-data law: what the system does", { n: "pdpl" });
+  const ok = (t) => ({ text: t, bold: false });
+  table(s, ["Obligation", "What the system does", "Not built"], [
+    ["Data stays inside", "No outside calls from the engine, the queue or the AI. The one optional call sends a hash for a timestamp", { text: "-", color: T.muted }],
+    ["Minimisation", "Pseudonyms by default. Unmasking needs a permission, a reason, and is limited to 60 claims an hour. The AI never sees a claim value", { text: "-", color: T.muted }],
+    ["Access control", "Four levels enforced on the server. The person who signs cannot countersign their own decision", { text: "-", color: T.muted }],
+    ["Security", "Encrypted at rest and in transit, two-factor sign-in, revocable sessions, tamper-evident audit", { text: "-", color: T.muted }],
+    ["Accuracy", "A claim is never edited: a correction is a new version, checked again, the old one still visible", { text: "-", color: T.muted }],
+    ["Rights of the person", "All claims of one person can be found without the identifier being readable", { text: "Export, correction request and erasure", bold: true, color: T.red }],
+    ["Retention", "Short-lived data expires by itself (sign-in counters, used codes, revoked tokens)", { text: "A retention period for claims and logs, and the purge", bold: true, color: T.red }],
+  ], MX, 1.5, 12.1, [2.2, 6.7, 3.2], 12, 0.58);
+  note(s, "No software is compliant by itself: the law binds the organisation that runs it. This is what the software gives that organisation.", 6.55);
 }
 
 // =====================================================================================================================================
@@ -509,7 +591,7 @@ section("Less work for the operator");
   const s = slide("Also built since Phase 1", { n: "alsobuilt" });
   const cards = [
     ["Payer rules as data", "not editable code", ["The 15 rules are code, hashed with the build", "A payer's table (window, providers, authorization services, limits) is data an administrator can change", "Validated, shown as differences, needs a reason and a second administrator", "Each change is a numbered version in a hash-chained log; every receipt names the version"]],
-    ["Ask the rulebook", "no model", ["A question box that returns the exact rule or policy passage with its citation", "Plain ranking (BM25): nothing is generated, so nothing is invented", "Right passage first on 88% of 26 questions, in the top 3 on 96%", "Off-topic and clinical questions are refused"]],
+    ["Specification and UML", "documents", ["20 use cases, each with a main scenario, alternatives and failures", "14 UML diagrams checked against the code: states, collections, package dependencies", "A catalogue of failures and recovery", "A French cahier des charges for the UML teacher"]],
     ["Live console updates", "no claim data", ["The console hears of a change in about 1.7 seconds instead of a 20-second poll", "The stream carries only 'changed'; the page re-reads through the normal checked routes", "A revoked session ends the stream"]],
   ];
   cards.forEach((c, i) => {
@@ -519,6 +601,26 @@ section("Less work for the operator");
     tag(s, x + 0.25, 2.2, c[1], T.amber, T.ink, 1.5);
     bullets(s, c[2], x + 0.25, 2.75, 3.45, 3.8, 13);
   });
+}
+
+// ---- console and desktop
+{
+  const s = slide("The console and the desktop app", { n: "console" });
+  table(s, ["Who", "Pages they see"], [
+    ["Viewer (level 1)", "All claims, read only"],
+    ["Reviewer, senior (2, 3)", "My inbox, claim review with the copilot, what-if and recheck, Ask the rulebook, Import from files"],
+    ["Administrator (4)", "Queue overview, Submit claims, Routing settings, Users, Payer rules, System health, Audit and trace. An administrator cannot decide a claim"],
+  ], MX, 1.5, 7.4, [2.3, 5.1], 12.5, 0.7);
+  bullets(s, ["Pages are chosen by the permissions the server reports (hidden, not greyed out), and the server checks again on every request", "Server text is only ever put on the page as text; a test scans every script for markup sinks", "The lease countdown is on screen and a heartbeat keeps it alive", "The console hears of changes by a live stream, not a 20-second poll"], MX, 4.35, 7.4, 2.3, 13);
+  card(s, 8.3, 1.5, 4.4, 5.15, T.dark, "desktop card");
+  s.addText("Desktop app", { x: 8.55, y: 1.6, w: 3.9, h: 0.4, fontSize: 17, bold: true, fontFace: "Cambria", color: "FFFFFF", margin: 0, isTextBox: true, objectName: "h" });
+  s.addText([
+    { text: "ClaimGuard.exe, one file of about 27 MB (v0.2.0, a pre-release)", options: { bullet: { indent: 14 }, breakLine: true, paraSpaceAfter: 6 } },
+    { text: "The same console in its own window; nothing to install beside it", options: { bullet: { indent: 14 }, breakLine: true, paraSpaceAfter: 6 } },
+    { text: "A hash is published with the release", options: { bullet: { indent: 14 }, breakLine: true, paraSpaceAfter: 6 } },
+    { text: "A clickable mobile prototype exists; after your meeting of 27 September the web console is the main target", options: { bullet: { indent: 14 }, breakLine: true, paraSpaceAfter: 6 } },
+    { text: "Not done: a manual accessibility audit, and a test on a phone", options: { bullet: { indent: 14 } } },
+  ], { x: 8.55, y: 2.1, w: 3.95, h: 4.4, fontSize: 13, color: "DDEEEB", margin: 0, valign: "top", isTextBox: true, objectName: "desktop text" });
 }
 
 // =====================================================================================================================================
