@@ -54,11 +54,13 @@ pres.defineSlideMaster({
 });
 
 const T = { ink: "17292B", dark: "0E3B3F", teal: "14746F", amber: "F2A541", red: "C8553D", muted: "5C7173", soft: "F2F6F5", line: "D5E1DF", mint: "DDEEEB", seafoam: "8FB8B3" };
-let SECTION = null;
+const NOTES = require("./notes.js");
+let SECTION = null, SLIDE_NO = 1;
 function slide(title, opts = {}) {
   const s = pres.addSlide({ masterName: "CONTENT", sectionTitle: SECTION });
   s.addText(title, { placeholder: "title" });
-  if (opts.notes) s.addNotes(opts.notes);
+  SLIDE_NO += 1;
+  s.addNotes(NOTES[SLIDE_NO]);
   return s;
 }
 function section(name) { SECTION = name; pres.addSection({ title: name }); }
@@ -116,7 +118,7 @@ section("Opening");
   s.addText("A copilot that helps a claims officer understand a claim, decide, correct it and revalidate it, with every step on record", { x: 0.9, y: 3.1, w: 10.2, h: 1.3, fontSize: 24, color: "CADCD9", margin: 0, valign: "top", isTextBox: true, objectName: "subtitle" });
   tag(s, 0.9, 4.9, "Mentor session", "F2A541", "17292B", 1.8);
   s.addText("Sunday 18 October 2026. Everything built since the Phase 1 submission, measured, with what is not done said plainly.", { x: 0.9, y: 5.4, w: 10, h: 0.8, fontSize: 16, color: "8FB8B3", margin: 0, valign: "top", isTextBox: true, objectName: "tagline" });
-  s.addNotes("Open by saying the goal in the mentor's words: a trustworthy, explainable copilot for claim pre-validation, not a production RCM platform. The deck follows his workflow in section 3.");
+  s.addNotes(NOTES[1]);
 }
 
 // 2  Where each mentor point stands
@@ -274,10 +276,10 @@ section("Queue and AI");
     ["Permissions, sessions, clearance", { text: "Never", bold: true, color: T.red }, "A demotion must apply at once"],
     ["Rule results of a claim", { text: "In the claim document", bold: true }, "The receipt hashes them, so replay can compare"],
   ], MX, 1.55, 12.1, [5.6, 3.0, 3.5], 13.5, 0.6);
-  stat(s, MX, 4.95, 3.6, "632 of 665", "findings served from the template cache (95%), 33 model calls", T.teal, 32);
+  stat(s, MX, 4.95, 3.6, "90.5% to 97.7%", "of 777 findings need no model call: empty cache, then warm (real model, 399 claims)", T.teal, 30);
   stat(s, MX + 4.1, 4.95, 3.6, "5 failures", "in a row open the breaker. One probe after 20 s", T.teal, 32);
   stat(s, MX + 8.2, 4.95, 3.8, "90 s", "hard deadline. A late or rejected answer leaves the engine's text", T.teal, 32);
-  note(s, "Budgets (explanations per minute and per day) are counted in the database, not in Redis. Defaults: 30 a minute, 2,000 a day.", 6.9);
+  note(s, "Budgets are counted in the database, not Redis (defaults 30 a minute, 2,000 a day; the load test raised the minute budget to 600). A template the guard refuses is not cached.", 6.9);
 }
 
 // 10 Grounded AI
@@ -487,15 +489,15 @@ section("Trust");
       rows.push([String(c), d ? String(d.requests_per_minute) : "-", d ? d.latency_p50_s + " s" : "-", { text: String(p.requests_per_minute), bold: true, color: T.teal }, p.latency_p50_s + " s", String(p.output_tokens_per_second)]);
     });
     table(s, ["Parallel requests", "Default: per minute", "Default: median", "8 slots: per minute", "8 slots: median", "8 slots: tokens per second"], rows, MX, 1.55, 8.3, [1.3, 1.4, 1.35, 1.4, 1.3, 1.55], 13, 0.55);
-    stat(s, 9.2, 1.45, 3.6, String(Math.round(BENCH8.best_requests_per_minute)), "explanations a minute with 8 slots (gemma3:4b, laptop RTX 4060). Default: 54, one at a time", BENCH8.reaches_target ? T.teal : T.amber, 54);
+    stat(s, 9.2, 1.45, 3.6, String(Math.floor(BENCH8.best_requests_per_minute)), "explanations a minute with 8 slots (gemma3:4b, laptop RTX 4060). Default: 53, one at a time", BENCH8.reaches_target ? T.teal : T.amber, 54);
   } else {
     card(s, MX, 1.55, 12.1, 2.0, T.soft, "pending");
     s.addText("Benchmark not available.", { x: MX, y: 1.55, w: 12.1, h: 2.0, align: "center", valign: "middle", fontSize: 20, color: T.muted, isTextBox: true });
   }
   card(s, MX, 4.7, 12.1, 2.0, "FFF1DB", "vllm card");
   s.addText([
-    { text: "vLLM is the planned production server, and it has not been run.", options: { bold: true, color: T.dark, breakLine: true, paraSpaceAfter: 6 } },
-    { text: "Ollama's downloaded model cannot be reused by vLLM, the Hugging Face cache holds no chat model, and the laptop's system drive has under 9 GB free (vLLM with a 4B model needs about 15 GB). Only 5% of findings need a model call once the template cache is warm, so 140 calls a minute can cover roughly 2,800 findings a minute. The benchmark script works against any server, so the same table can be made on the target.", options: { color: T.ink } },
+    { text: "Through the real queue step: 399 claims, 777 findings, empty cache, 8 workers.", options: { bold: true, color: T.dark, breakLine: true, paraSpaceAfter: 6 } },
+    { text: "74 model calls (90.5% of findings needed none), 49 seconds, about 490 claims a minute; warm cache about 2,050 a minute, 18 calls that retried 3 templates the guard had refused. 0 model errors. A debug build on this laptop, not the target card. vLLM is the planned production server and has not been run here: we stay on Ollama unless the target measurement says otherwise, and the benchmark script works on either.", options: { color: T.ink } },
   ], { x: MX + 0.25, y: 4.7, w: 11.6, h: 2.0, fontSize: 14, valign: "middle", margin: 0, isTextBox: true, objectName: "vllm text" });
 }
 
