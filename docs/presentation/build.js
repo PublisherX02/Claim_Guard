@@ -55,12 +55,12 @@ pres.defineSlideMaster({
 
 const T = { ink: "17292B", dark: "0E3B3F", teal: "14746F", amber: "F2A541", red: "C8553D", muted: "5C7173", soft: "F2F6F5", line: "D5E1DF", mint: "DDEEEB", seafoam: "8FB8B3" };
 const NOTES = require("./notes.js");
-let SECTION = null, SLIDE_NO = 1;
+let SECTION = null;
 function slide(title, opts = {}) {
   const s = pres.addSlide({ masterName: "CONTENT", sectionTitle: SECTION });
   s.addText(title, { placeholder: "title" });
-  SLIDE_NO += 1;
-  s.addNotes(NOTES[SLIDE_NO]);
+  if (!NOTES[opts.n]) throw new Error("no notes for " + title);
+  s.addNotes(NOTES[opts.n]);
   return s;
 }
 function section(name) { SECTION = name; pres.addSection({ title: name }); }
@@ -118,12 +118,12 @@ section("Opening");
   s.addText("A copilot that helps a claims officer understand a claim, decide, correct it and revalidate it, with every step on record", { x: 0.9, y: 3.1, w: 10.2, h: 1.3, fontSize: 24, color: "CADCD9", margin: 0, valign: "top", isTextBox: true, objectName: "subtitle" });
   tag(s, 0.9, 4.9, "Mentor session", "F2A541", "17292B", 1.8);
   s.addText("Sunday 18 October 2026. Everything built since the Phase 1 submission, measured, with what is not done said plainly.", { x: 0.9, y: 5.4, w: 10, h: 0.8, fontSize: 16, color: "8FB8B3", margin: 0, valign: "top", isTextBox: true, objectName: "tagline" });
-  s.addNotes(NOTES[1]);
+  s.addNotes(NOTES.title);
 }
 
 // 2  Where each mentor point stands
 {
-  const s = slide("Your email of 16 October, point by point", { notes: "Walk the table top to bottom. Points 4 and 6 contain questions for the mentor." });
+  const s = slide("Your email of 16 October, point by point", { n: "email" });
   table(s, ["#", "What you asked for", "Where we stand"], [
     ["1", "Human in the loop: confirm, dismiss with reason, request information, correct and revalidate, prioritised and traceable", { text: "Built. Lanes and a transparent score, four-eyes on high severity, full audit trail", bold: true }],
     ["2", "All 15 rules right; extra rules kept apart from the benchmark", { text: "F1 1.00 on 600 public claims. 8 advisory rules in a separate pack", bold: true }],
@@ -138,7 +138,7 @@ section("Opening");
 
 // 3  The workflow
 {
-  const s = slide("The workflow you described, running end to end", { notes: "Steps 3 and 5 are what was added this week. Everything else existed and was measured earlier." });
+  const s = slide("The workflow you described, running end to end", { n: "workflow" });
   const steps = [
     ["Claim received and validated", "FHIR, CSV, JSONL, PDF or photo. 15 rules, 0.19 ms per claim", false],
     ["Errors, doubts and evidence", "FAIL, or UNABLE_TO_ASSESS when data is missing. Each finding cites claim paths", false],
@@ -164,7 +164,7 @@ section("Opening");
 section("Core");
 // 4 Architecture
 {
-  const s = slide("How the system fits together", { notes: "Trace one claim left to right. MongoDB is the truth. Redis only carries work; losing it loses nothing because the outbox marker stays in MongoDB." });
+  const s = slide("How the system fits together", { n: "arch" });
   // row 1: intake path
   const y1 = 1.75, bh = 1.05, bw = 2.05, gap = 0.42;
   const r1 = [
@@ -196,9 +196,26 @@ section("Core");
   });
 }
 
+// 4b What it is made of
+{
+  const s = slide("What it is made of", { n: "stack" });
+  table(s, ["Layer", "What we used", "What it gives"], [
+    ["Language", "Rust, one workspace of 12 crates. The engine knows nothing of the web, the web layer nothing of the database", "One binary, memory safe, each layer tested alone"],
+    ["Rules", "YARA-X rule packs over fact lines that one Rust function per rule extracts", "Readable rule files, hashed with the build, 0.19 ms a claim"],
+    ["Numbers", "Exact decimals and integers; JSON numbers keep their text", "Money rounds exactly: 2.5 and 2.50 behave the same"],
+    ["Storage", "MongoDB: claim versions, configurations, deals, dead letters, cache, counters, users", "Unique indexes and conditional updates make the database enforce the rules"],
+    ["Queue", "Redis Streams with a consumer group, plus an outbox in MongoDB", "At-least-once delivery, nothing lost if Redis is"],
+    ["AI", "Gemma 3 4B served locally (Ollama; any server with the same protocol)", "No outside call, no claim value in the prompt"],
+    ["Documents", "Tesseract and a vision model, in an isolated reader", "Two independent readers cross-checked"],
+    ["Identity", "bcrypt, authenticator code (TOTP), signed session tokens, CSRF defence, 4 levels", "Two factors, revocable sessions, server-side permissions"],
+    ["Records", "Hash-chained signed logs, Ed25519 checkpoints, Merkle proofs, RFC 3161 timestamp", "An edit to history is detected"],
+    ["Console", "Plain JavaScript embedded in the binary, live updates by server-sent events", "No separate web server to run"],
+  ], MX, 1.5, 12.1, [1.5, 6.0, 4.6], 11.5, 0.44);
+}
+
 // 5 Rules
 {
-  const s = slide("Rule correctness: the 15 reference rules, measured", { notes: "Be upfront: the public set is synthetic and small. Nine of fifteen rules have no failing example in the 50-claim split, which is why the 150 and 400 splits are reported beside it." });
+  const s = slide("Rule correctness: the 15 reference rules, measured", { n: "rules" });
   stat(s, MX, 1.55, 2.8, "1.00", "F1 on all 600 public claims (400 development, 150 validation, 50 stress)");
   stat(s, MX + 3.0, 1.55, 2.8, "0 of 3,015", "clean results wrongly flagged. 95% bound on false-alarm claims: 1.9%", T.teal, 32);
   stat(s, MX + 6.0, 1.55, 2.8, "0.19 ms", "per claim in the rule engine. The model, not the engine, is the slow step");
@@ -213,7 +230,7 @@ section("Core");
 
 // 6 Intake
 {
-  const s = slide("Claims arrive in any format, untrusted until proven", { notes: "The document reader runs in its own container. Say plainly that handwriting and Arabic are untested." });
+  const s = slide("Claims arrive in any format, untrusted until proven", { n: "intake" });
   const fm = [["FHIR bundle", "authorization record not carried, so those rules abstain"], ["CSV tables", "same claims as the JSONL"], ["JSONL", "reference format"], ["PDF or photo", "two readers, results shown as a draft"]];
   fm.forEach((f, i) => {
     const y = 1.6 + i * 0.95;
@@ -229,10 +246,34 @@ section("Core");
 }
 
 // =====================================================================================================================================
-section("Queue and AI");
+section("Queue, load balancing and AI");
+// Task queue 1
+{
+  const s = slide("Task queue 1: how a claim moves", { n: "queue1" });
+  const st = [["Received", "validated"], ["Triaged", "receipt, lane"], ["Explained", "or skipped"], ["Ready", "waits for a person"], ["Leased", "in one inbox"], ["Decided", "badge, reason"], ["Rechecked", "new version"]];
+  st.forEach((b, i) => {
+    const x = MX + i * 1.75;
+    box(s, x, 1.6, 1.55, 0.85, b[0], b[1], i % 2 ? T.dark : T.teal);
+    if (i < st.length - 1) arrow(s, x + 1.57, 2.02, x + 1.73, 2.02);
+  });
+  s.addText("Side states: awaiting countersign (a high finding signed once) and dead letter (a task that kept failing).", { x: MX, y: 2.55, w: 12.1, h: 0.35, fontSize: 12.5, italic: true, color: T.muted, margin: 0, isTextBox: true, objectName: "side states" });
+  const cards = [
+    ["Intake is one atomic write", ["The claim, its triage receipt and a publish marker are stored together", "Unique indexes: the same version, or the same input under the same rule pack, is stored once", "A crash between write and publish is the same case: the marker is still set"]],
+    ["Every move is one conditional update", ["The database changes the claim only if it is still in the expected state, and appends the event in the same update", "50 callers racing: exactly one wins", "The allowed moves are pinned by a table test"]],
+    ["Claims are versions, never edited", ["A correction or a new rule pack creates version N+1; the old one keeps its decisions", "Only the newest version is dealt; a lease on an older one is taken back", "Decisions need the lease and fresh permissions, read again at that moment"]],
+  ];
+  cards.forEach((c, i) => {
+    const x = MX + i * 4.1;
+    card(s, x, 3.1, 3.9, 3.55, T.soft, "queue card " + (i + 1));
+    badge(s, x + 0.2, 3.25, i + 1);
+    s.addText(c[0], { x: x + 0.75, y: 3.2, w: 3.0, h: 0.55, fontSize: 15, bold: true, fontFace: "Cambria", color: T.dark, margin: 0, valign: "middle", isTextBox: true, objectName: "queue card title" });
+    bullets(s, c[1], x + 0.25, 3.95, 3.45, 2.6, 12.5);
+  });
+}
+
 // 7 Task queue
 {
-  const s = slide("Task queue: nothing lost, nothing waits on the model", { notes: "You asked for Celery or ARQ. Those are Python libraries; this is the same pattern in Rust on Redis Streams. Question 2 in the mentor pack asks whether that is acceptable." });
+  const s = slide("Task queue 2: delivery, retries and failures", { n: "queue2" });
   const fl = [["Intake", "claim and a publish marker, one atomic write", T.teal], ["Outbox relay", "publishes, clears the marker only after Redis accepted", T.dark], ["Redis Stream", "consumer group, pool of consumers", "8C4A3A"], ["Process", "explain and move to ready", T.teal]];
   fl.forEach((b, i) => { const x = MX + i * 3.1; box(s, x, 1.65, 2.6, 1.15, b[0], b[1], b[2]); if (i < 3) arrow(s, x + 2.64, 2.22, x + 3.06, 2.22); });
   const g = [
@@ -249,12 +290,35 @@ section("Queue and AI");
     card(s, x, y, 5.95, 1.0, T.soft, "guarantee " + (i + 1));
     s.addText([{ text: r[0], options: { bold: true, fontSize: 14, color: T.dark, breakLine: true } }, { text: r[1], options: { fontSize: 12.5, color: T.ink } }], { x: x + 0.2, y, w: 5.6, h: 1.0, valign: "middle", margin: 0, isTextBox: true, objectName: "guarantee text" });
   });
-  note(s, "Each guarantee has a test, including against a real Redis 7.4. Throughput on the target server is not measured yet (slide 20).", 6.85);
+  note(s, "Pool size (1 to 64, default 4) caps claims explained at once, so also the model. ai_per_minute (30) and a daily budget (2,000) cap requests. Each guarantee has a test, also on a real Redis 7.4.", 6.85);
+}
+
+// Load balancing
+{
+  const s = slide("Load balancing: how claims are dealt to people", { n: "balancer" });
+  const steps = [
+    ["Eligible agents only", "active, on shift, room in the inbox, and the permission this claim needs"],
+    ["A fair order", "claims shuffled with a logged seed, then sorted by score plus half a point per hour waited (aging)"],
+    ["Least work first", "each claim goes to the eligible agent holding the least work so far (greedy balancing)"],
+    ["Conflicts of interest", "nobody gets a later version of a claim they decided, a listed patient, or one they signed"],
+    ["Only the newest version", "a lease on a superseded version is taken back"],
+    ["Replayable", "each deal stores its inputs and seed; verify proves the assignments follow from them"],
+  ];
+  steps.forEach((r, i) => {
+    const y = 1.5 + i * 0.86;
+    card(s, MX, y, 7.7, 0.76, T.soft, "balance step " + (i + 1));
+    badge(s, MX + 0.18, y + 0.17, i + 1);
+    s.addText([{ text: r[0], options: { bold: true, fontSize: 14, color: T.dark, breakLine: true } }, { text: r[1], options: { fontSize: 12, color: T.ink } }], { x: MX + 0.75, y, w: 6.8, h: 0.76, valign: "middle", margin: 0, isTextBox: true, objectName: "balance text" });
+  });
+  stat(s, 8.9, 1.45, 3.8, "25 and 5", "claims an inbox holds, and the level at which it is topped up: nobody waits", T.teal, 36);
+  stat(s, 8.9, 3.15, 3.8, "0.045", "spread of load among seniors (coefficient of variation), simulated", T.teal, 36);
+  stat(s, 8.9, 4.85, 3.8, "0", "claims ever in two inboxes, over five simulated seeds", T.teal, 36);
+  note(s, "Nobody assigns a particular claim to a particular person. Simulated people and clock; the invariants are what carries over.", 6.8);
 }
 
 // 8 Dispatcher and lanes
 {
-  const s = slide("Who sees which claim: lanes, leases and four-eyes", { notes: "The people and the model in the simulation are simulated. The invariants (no claim in two inboxes, nobody decides a claim they may not) are what carries over." });
+  const s = slide("Who sees which claim: lanes, leases and four-eyes", { n: "lanes" });
   table(s, ["Flagged finding", "High", "Medium"], [["FAIL", "4 points", "2 points"], ["UNABLE_TO_ASSESS", "2 points", "1 point"]], MX, 1.6, 4.9, [2.3, 1.3, 1.3], 14, 0.45);
   table(s, ["Lane", "When"], [["Green", "nothing flagged"], ["A", "1 to 3 flagged, score under 10"], ["B", "4 or more flagged, or score of 10 or more"]], MX, 3.05, 4.9, [1.3, 3.6], 14, 0.45);
   bullets(s, ["High severity: a senior decides, a different senior countersigns blind. A third settles a disagreement", "Leases return abandoned claims to the pool", "No route assigns or moves a claim"], MX, 5.0, 4.9, 1.7, 14);
@@ -269,7 +333,7 @@ section("Queue and AI");
 
 // 9 Cache
 {
-  const s = slide("The cache, and what is never cached", { notes: "The cache holds text with placeholders. The grounding guard runs again on the filled text every time, cached or not." });
+  const s = slide("The cache, and what is never cached", { n: "cache" });
   table(s, ["What", "Cached?", "Why"], [
     ["Explanation template with {value} and {line}, keyed by rule, failure shape, prompt version, model", { text: "Yes, after the guard approved a fill", bold: true, color: T.teal }, "No claim value in the key or the text"],
     ["Filled text, claim values, evidence", { text: "Never", bold: true, color: T.red }, "Would hold identifiers"],
@@ -284,7 +348,7 @@ section("Queue and AI");
 
 // 10 Grounded AI
 {
-  const s = slide("The AI explains. It cannot decide or hide a finding", { notes: "Be honest about the AI evaluation: in the supplied-case runs many answers fell back to the template because of provider timeouts. The fallback working is the point, but the live-answer quality sample is small." });
+  const s = slide("The AI explains. It cannot decide or hide a finding", { n: "ai" });
   const rows = [
     ["The model sees only the rule text", "never a claim value; placeholders are filled in afterwards"],
     ["Its text is checked mechanically", "invented values, clinical or fraud talk, approval or payment words (also disguised), garbled script, repetition"],
@@ -307,11 +371,33 @@ section("Queue and AI");
   note(s, "The same guard checks every cached template after it is filled. Nothing in this path can change a status.", 6.2);
 }
 
+// Storage and encryption
+{
+  const s = slide("How the data is stored, and how it is encrypted", { n: "storage" });
+  table(s, ["Where", "What it holds", "How it is protected"], [
+    ["MongoDB: claims", "Each claim version, its receipt, results, decisions", "Claim, results, advisory, explanations, corrections and each decision are encrypted field by field"],
+    ["MongoDB: users", "Badge, password, authenticator seed", "bcrypt hash (cost 12); seed and names encrypted"],
+    ["MongoDB: queue", "Configuration versions, deals, dead letters, counters, template cache", "No claim values. Cache and counters expire by themselves (7 and 3 days)"],
+    ["Redis Streams", "Only 'run claim X, version V'", "No claim data. Losing it loses nothing"],
+    ["Audit logs", "Review log and security log, hash-chained", "Encrypted on disk, signed checkpoints"],
+  ], MX, 1.5, 7.6, [1.5, 2.6, 3.5], 11.5, 0.5);
+  card(s, 8.4, 1.5, 4.3, 5.15, T.dark, "encryption card");
+  s.addText("How the encryption works", { x: 8.65, y: 1.6, w: 3.8, h: 0.4, fontSize: 17, bold: true, fontFace: "Cambria", color: "FFFFFF", margin: 0, isTextBox: true, objectName: "h" });
+  s.addText([
+    { text: "Done in the application, before the database sees the data", options: { bullet: { indent: 14 }, breakLine: true, paraSpaceAfter: 5 } },
+    { text: "AES-128-CBC with an HMAC-SHA256 tag (Fernet)", options: { bullet: { indent: 14 }, breakLine: true, paraSpaceAfter: 5 } },
+    { text: "Each token names its claim, version and field: moving one under another claim is detected and refused", options: { bullet: { indent: 14 }, breakLine: true, paraSpaceAfter: 5 } },
+    { text: "Readable on purpose: ids, state, lane, score, timestamps, hashes, and a keyed hash of the patient id to find earlier claims", options: { bullet: { indent: 14 }, breakLine: true, paraSpaceAfter: 5 } },
+    { text: "Reviewers see pseudonyms, not identifiers", options: { bullet: { indent: 14 }, breakLine: true, paraSpaceAfter: 5 } },
+    { text: "Limits: whoever holds the key sees everything; key rotation needs a re-encryption pass (not built)", options: { bullet: { indent: 14 } } },
+  ], { x: 8.65, y: 2.1, w: 3.85, h: 4.45, fontSize: 12.5, color: "DDEEEB", margin: 0, valign: "top", isTextBox: true, objectName: "encryption text" });
+}
+
 // =====================================================================================================================================
-section("Built this week");
+section("Storage and built this week");
 // 11 Copilot
 {
-  const s = slide("The reviewer copilot: what is wrong, what to do", { notes: "No model here, on purpose. Each sentence is built from the finding and the claim, so every sentence cites a rule and claim paths. That makes grounding something we can test, not hope for." });
+  const s = slide("The reviewer copilot: what is wrong, what to do", { n: "copilot" });
   tag(s, 11.2, 0.08, "new", T.amber, T.ink, 0.9);
   img(s, "copilot.png", MX, 1.5, 6.1, 4.92);
   bullets(s, [
@@ -325,7 +411,7 @@ section("Built this week");
 
 // 12 What-if and recheck
 {
-  const s = slide("Try a correction, then save it as a new version", { notes: "Live: press Try this in a what-if, show the before and after table, then apply with a reason. The trace page shows both versions." });
+  const s = slide("Try a correction, then save it as a new version", { n: "whatif" });
   tag(s, 11.2, 0.08, "new", T.amber, T.ink, 0.9);
   img(s, "whatif.png", MX, 1.5, 6.0, 3.86);
   const st = [["What-if", "the engine runs on a copy. Nothing is saved"], ["Recheck", "the correction becomes version 2 and goes through triage"], ["Original", "version 1 is kept exactly as received and closed"], ["Cleared findings", "recorded with the reviewer's reason"]];
@@ -343,7 +429,7 @@ section("Built this week");
 
 // 13 Copilot measurements
 {
-  const s = slide("Do the proposals work? Measured against the real engine", { notes: "The first version proposed only the line amount and created a new R012 failure in 25 of 30 cases, because the claim total had matched the wrong line. Measuring it found that; the copilot now proposes the line and the total together." });
+  const s = slide("Do the proposals work? Measured against the real engine", { n: "copilot_eval" });
   s.addChart(pres.charts.BAR, [
     { name: "Proposed", labels: ["R007 line amount", "R012 claim total", "R015 currency"], values: [30, 34, 29] },
     { name: "Cleared the finding", labels: ["R007 line amount", "R012 claim total", "R015 currency"], values: [30, 34, 29] },
@@ -365,7 +451,7 @@ section("Built this week");
 section("Less work for the operator");
 // 14 Workload reduction
 {
-  const s = slide("Fewer decisions for a person, with the risk bounded", { notes: "Everything on this slide is simulated reviewers on the real pipeline. A timed session with real reviewers is the first thing to do next." });
+  const s = slide("Fewer decisions for a person, with the risk bounded", { n: "workload" });
   tag(s, 10.9, 0.08, "simulated", T.amber, T.ink, 1.3);
   const items = [
     ["One-click confirm", "Confirming needs no typed reason. Dismissing still does, because it overrides the engine.", "on"],
@@ -388,7 +474,7 @@ section("Less work for the operator");
 
 // 15 Learning from feedback
 {
-  const s = slide("Learning from feedback, and a model we set aside", { notes: "He warned that a model trained on artificial decisions may only reproduce the rules. We tested that honestly and archived it." });
+  const s = slide("Learning from feedback, and a model we set aside", { n: "feedback" });
   card(s, MX, 1.55, 5.9, 5.0, T.soft, "left");
   s.addText("Workload report (live)", { x: MX + 0.25, y: 1.65, w: 5.4, h: 0.45, fontSize: 18, bold: true, fontFace: "Cambria", color: T.dark, margin: 0, isTextBox: true, objectName: "h" });
   bullets(s, ["Reads reviewer confirmations and dismissals per rule", "Lists rules reviewers keep overriding: candidates to retune", "Lists rules almost always upheld: candidates for light review, with a bounded price", "Read-only. It changes nothing by itself"], MX + 0.25, 2.2, 5.4, 2.6, 15);
@@ -401,7 +487,7 @@ section("Less work for the operator");
 
 // 16 Advisory
 {
-  const s = slide("Advisory checks that stay out of the official result", { notes: "The rule logic follows published practice. The attributes the single-claim rules need are invented and labelled so." });
+  const s = slide("Advisory checks that stay out of the official result", { n: "advisory" });
   table(s, ["Rule", "What it looks for", "Severity"], [
     ["E001", "Procedure pair billed without an exception modifier", "medium"],
     ["E002", "Exception modifier on a never-bundle pair", "high"],
@@ -418,15 +504,32 @@ section("Less work for the operator");
   note(s, "E102 fires only when earlier claims contributed units, so it never double-reports what R009 already fails.", 6.4);
 }
 
+// Also built
+{
+  const s = slide("Also built since Phase 1", { n: "alsobuilt" });
+  const cards = [
+    ["Payer rules as data", "not editable code", ["The 15 rules are code, hashed with the build", "A payer's table (window, providers, authorization services, limits) is data an administrator can change", "Validated, shown as differences, needs a reason and a second administrator", "Each change is a numbered version in a hash-chained log; every receipt names the version"]],
+    ["Ask the rulebook", "no model", ["A question box that returns the exact rule or policy passage with its citation", "Plain ranking (BM25): nothing is generated, so nothing is invented", "Right passage first on 88% of 26 questions, in the top 3 on 96%", "Off-topic and clinical questions are refused"]],
+    ["Live console updates", "no claim data", ["The console hears of a change in about 1.7 seconds instead of a 20-second poll", "The stream carries only 'changed'; the page re-reads through the normal checked routes", "A revoked session ends the stream"]],
+  ];
+  cards.forEach((c, i) => {
+    const x = MX + i * 4.1;
+    card(s, x, 1.5, 3.9, 5.15, T.soft, "built card " + (i + 1));
+    s.addText(c[0], { x: x + 0.25, y: 1.62, w: 3.4, h: 0.5, fontSize: 18, bold: true, fontFace: "Cambria", color: T.dark, margin: 0, isTextBox: true, objectName: "built title" });
+    tag(s, x + 0.25, 2.2, c[1], T.amber, T.ink, 1.5);
+    bullets(s, c[2], x + 0.25, 2.75, 3.45, 3.8, 13);
+  });
+}
+
 // =====================================================================================================================================
 section("Trust");
 // 17 Security
 {
-  const s = slide("Security: attacked, mutated and fuzzed before you did it", { notes: "No outside party has attacked the system. Say so." });
+  const s = slide("Security: attacked, mutated and fuzzed before you did it", { n: "security" });
   stat(s, MX, 1.55, 2.8, "116", "black-box attack checks, all passing", T.teal, 48);
   stat(s, MX + 3.1, 1.55, 2.8, "93", "deliberate breakages of the security and queue rules, each caught by a test", T.teal, 48);
   stat(s, MX + 6.2, 1.55, 2.8, "400,000", "fuzzed requests through the API", T.teal, 48);
-  stat(s, MX + 9.3, 1.55, 2.8, "50", "checks on the deployment: nothing but the proxy reachable", T.teal, 48);
+  stat(s, MX + 9.3, 1.55, 2.8, "60", "claims one person may unmask an hour, with a reason", T.teal, 48);
   const items = [
     ["Identity", "badge, password, authenticator code. Four clearance levels, enforced on the server. A hidden action is not offered, not just disabled"],
     ["Privacy", "reviewers see pseudonyms. Unmasking needs its own permission, a reason without the identifier, and an hourly limit"],
@@ -444,7 +547,7 @@ section("Trust");
 
 // 18 Audit
 {
-  const s = slide("Everything is on record, and an edit is caught", { notes: "Run audit_guard_demo.py live: it rewrites a row and the health panel turns red." });
+  const s = slide("Everything is on record, and an edit is caught", { n: "audit" });
   table(s, ["Moment", "What is written"], [
     ["Claim received", "input hash, rule pack hash, result hash, lane and score"],
     ["A finding is decided", "badge, action, reason, original status"],
@@ -463,24 +566,9 @@ section("Trust");
   note(s, "Trace panel: both versions of a corrected claim, side by side, with their events and decisions.", 6.85);
 }
 
-// 19 Deployment
-{
-  const s = slide("Fully on premises, written for the hospital's own servers", { notes: "Kubernetes manifests are written and structurally tested but there was no cluster to apply them to. Say so." });
-  table(s, ["Piece", "State"], [
-    ["Docker Compose stack: API, worker, MongoDB, Redis, proxy", { text: "Tested: attack test 50 of 50, backup and restore 23 of 23", bold: true, color: T.teal }],
-    ["Encrypted backup and restore, runbook", { text: "Tested end to end", bold: true, color: T.teal }],
-    ["Model server (vLLM, one model per server, offline weights)", { text: "Designed and scripted, benchmark on slide 20", bold: true, color: T.amber }],
-    ["Kubernetes manifests, network policies, restricted pods", { text: "Written, structurally tested, no cluster to apply them to", bold: true, color: T.red }],
-    ["Host firewall and port scan from outside", { text: "Tested in throwaway containers, not on the real server", bold: true, color: T.red }],
-    ["Target server: RTX 3080 10 GB, 12 GB RAM, Linux", { text: "Not run on it yet", bold: true, color: T.red }],
-  ], MX, 1.5, 12.1, [6.3, 5.8], 13, 0.5);
-  card(s, MX, 5.8, 12.1, 0.95, T.soft, "pdpl card");
-  s.addText([{ text: "Data protection (PDPL family): ", options: { bold: true, color: T.dark } }, { text: "each obligation is mapped to what the system does. Two things are not built yet: subject access and erasure, and a retention period.", options: { color: T.ink } }], { x: MX + 0.25, y: 5.8, w: 11.6, h: 0.95, fontSize: 14, valign: "middle", margin: 0, isTextBox: true, objectName: "pdpl text" });
-}
-
 // 20 Benchmark
 {
-  const s = slide("Serving the model: what this laptop measured", { notes: "Measured on an RTX 4060 laptop with 8 GB, not the 3080 target. Ollama ran now. vLLM could not be installed here: the system drive has under 9 GB free and vLLM needs about 15 GB with a model." });
+  const s = slide("Serving the model: what this laptop measured", { n: "bench" });
   if (BENCH && BENCH8) {
     const pick = (b, c) => b.levels.find((r) => r.concurrency === c);
     const rows = [];
@@ -497,7 +585,7 @@ section("Trust");
   card(s, MX, 4.7, 12.1, 2.0, "FFF1DB", "vllm card");
   s.addText([
     { text: "Through the real queue step: 399 claims, 777 findings, empty cache, 8 workers.", options: { bold: true, color: T.dark, breakLine: true, paraSpaceAfter: 6 } },
-    { text: "74 model calls (90.5% of findings needed none), 49 seconds, about 490 claims a minute; warm cache about 2,050 a minute, 18 calls that retried 3 templates the guard had refused. 0 model errors. A debug build on this laptop, not the target card. vLLM is the planned production server and has not been run here: we stay on Ollama unless the target measurement says otherwise, and the benchmark script works on either.", options: { color: T.ink } },
+    { text: "74 model calls (90.5% of findings needed none), 49 seconds, about 490 claims a minute; warm cache about 2,050 a minute, 18 calls that retried 3 templates the guard had refused. 0 model errors. A debug build on this laptop: these are measurements of this machine only.", options: { color: T.ink } },
   ], { x: MX + 0.25, y: 4.7, w: 11.6, h: 2.0, fontSize: 14, valign: "middle", margin: 0, isTextBox: true, objectName: "vllm text" });
 }
 
@@ -505,14 +593,14 @@ section("Trust");
 section("Close");
 // 21 Limits
 {
-  const s = slide("What we have not done, said before you ask", { notes: "Read this slide out. It is the most credible slide in the deck." });
+  const s = slide("What we have not done, said before you ask", { n: "limits" });
   const L = [
     ["Public data is synthetic", "Perfect scores on it do not show how real claims behave."],
     ["Savings are simulated", "No timed session with real reviewers yet."],
-    ["No run on the target server", "Throughput on an RTX 3080 and vLLM are unmeasured."],
-    ["No Kubernetes cluster", "Manifests are written and structurally tested only."],
     ["Documents", "Real paper, handwriting and Arabic are untested."],
     ["Data subject rights", "Access, erasure and retention are designed, not built."],
+    ["Encryption keys", "Rotating the key needs a re-encryption pass that is not built."],
+    ["No write-back", "A correction is a new version here; it is not sent to the hospital's own system."],
     ["Copilot proposals", "Three rules have computable fixes. The rest ask or check."],
     ["Nobody outside the team", "has attacked it."],
   ];
@@ -525,9 +613,29 @@ section("Close");
   });
 }
 
+// Where this could go
+{
+  const s = slide("Where this could go: plans, not claims", { n: "next" });
+  tag(s, 10.9, 0.08, "not built", T.amber, T.ink, 1.3);
+  const cards = [
+    ["Standard codes on every finding", "Each of the 15 + 8 rules carries the matching adjustment reason or NPHIES error code, shown as a badge in the console. We need the official value sets from you, not guesses."],
+    ["Payer overlays", "Today a payer's contract is one versioned, approved policy table. Next: payer-specific rule sets chosen by the insurer on the claim, so one claim can pass for one payer and fail for another."],
+    ["A credible time-saved study", "Two matched packs of 30 claims. Half the reviewers use the console first, half the plain view first, so learning effects cancel. Log median handling time, seeded errors missed, clean claims wrongly flagged; add a short workload survey."],
+  ];
+  cards.forEach((c, i) => {
+    const x = MX + i * 4.1;
+    card(s, x, 1.5, 3.9, 4.2, T.soft, "next card " + (i + 1));
+    badge(s, x + 0.25, 1.7, i + 1, "C47A12");
+    s.addText(c[0], { x: x + 0.85, y: 1.62, w: 2.9, h: 0.65, fontSize: 16, bold: true, fontFace: "Cambria", color: T.dark, margin: 0, valign: "middle", isTextBox: true, objectName: "next title" });
+    s.addText(c[1], { x: x + 0.25, y: 2.5, w: 3.45, h: 3.1, fontSize: 14, color: T.ink, margin: 0, valign: "top", isTextBox: true, objectName: "next text" });
+  });
+  card(s, MX, 5.9, 12.1, 0.75, "FFF1DB", "scope card");
+  s.addText("The benchmark stays at the 15 rules. These would be advisory or presentation changes, kept apart, and only after the mentor says which matter.", { x: MX + 0.25, y: 5.9, w: 11.6, h: 0.75, fontSize: 14, color: T.ink, valign: "middle", margin: 0, isTextBox: true, objectName: "scope text" });
+}
+
 // 22 Demo and questions
 {
-  const s = slide("Twelve minutes of demo, and four questions for you", { notes: "Demo order follows the mentor's six steps." });
+  const s = slide("Twelve minutes of demo, and four questions for you", { n: "demo" });
   card(s, MX, 1.55, 6.3, 5.1, T.soft, "demo card");
   s.addText("The demo", { x: MX + 0.25, y: 1.65, w: 5.8, h: 0.45, fontSize: 18, bold: true, fontFace: "Cambria", color: T.dark, margin: 0, isTextBox: true, objectName: "h" });
   const demo = ["A claim with a wrong amount arrives", "The senior opens it: summary and evidence", "What-if: every check would pass", "Apply with a reason: version 2", "Trace: both versions, who, what, why", "Rewrite an audit row: the alarm goes red"];
