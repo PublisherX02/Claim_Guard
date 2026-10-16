@@ -67,7 +67,7 @@ Have ready, in case of questions: `docs/39` (security results), `docs/40` (opera
 - **"Is it PDPL-compliant?"** No software is; the law binds the organisation. `docs/41` lists each obligation, what the system does about it, and the two things still to build.
 
 ## 7. Questions to ask the mentor
-0. **R006:** three public claims whose expected result looks inconsistent with the documented rule (code, date, modifier): we bring the claim IDs and our reading. **Label:** is "pre-validation clear" the right wording for a claim a person confirmed or the system cleared on its own?
+0. **R006 and R013:** three public claims split one service into a plain line and an `EDU-SEPARATE` line, with a total quantity above the per-line limit: `CG-B10B19D8A56A` (development), `CG-00348A9B1AAD` and `CG-EC233ACB399D` (stress). The documented rules pass them (different modifiers are different lines; R013 is per line) and the answer key agrees. Our reading: consistent with the rulebook as written; the question is whether an aggregate-quantity check was intended. **Label:** is "pre-validation clear" the right wording for a claim a person confirmed or the system cleared on its own?
 1. **"Claims accepted as JSONL with a confidence score" (his point 4):** is the output a batch of accepted claims for the payer, each with a score? Or the input format?
 2. **Task queue:** he named Celery or ARQ (Python). The system is now Rust, and the queue is built on Redis Streams with consumer groups, acknowledgement after work, retries, dead letters and an outbox in the database. Is that acceptable in place of Celery or ARQ?
 3. **May a trained model influence routing** (who reviews what, in what order), never the verdict?
