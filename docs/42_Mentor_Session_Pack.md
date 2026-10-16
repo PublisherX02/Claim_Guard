@@ -52,7 +52,7 @@ Have ready, in case of questions: `docs/39` (security results), `docs/40` (opera
 - The **host firewall** is written and tested in throwaway containers (`docs/40` section 10) but has not been run on the real server; a **distributed denial-of-service** and a public certificate authority are untested; the system has not been attacked by anyone outside the team.
 - **Dual control** cannot know two administrator accounts belong to two people, and a lone administrator is not protected (logged).
 - **One API pod and one MongoDB member** in the Kubernetes files (the audit logs are files with locks).
-- The recheck route (`POST /claims/{id}/recheck`) is 501 in both builds; corrections are new versions through resubmission.
+- The older file-store route `POST /claims/{id}/recheck` is 501 on purpose (no versions there). Correct-and-recheck now exists on the queue: `POST /work/claims/{id}/whatif` and `/recheck`, a correction is a new version, see `docs/51`.
 - Cloud model providers are not in the Rust build (on-premises only).
 
 ## 6. Hard questions, with the honest answer
@@ -67,6 +67,7 @@ Have ready, in case of questions: `docs/39` (security results), `docs/40` (opera
 - **"Is it PDPL-compliant?"** No software is; the law binds the organisation. `docs/41` lists each obligation, what the system does about it, and the two things still to build.
 
 ## 7. Questions to ask the mentor
+0. **R006:** three public claims whose expected result looks inconsistent with the documented rule (code, date, modifier): we bring the claim IDs and our reading. **Label:** is "pre-validation clear" the right wording for a claim a person confirmed or the system cleared on its own?
 1. **"Claims accepted as JSONL with a confidence score" (his point 4):** is the output a batch of accepted claims for the payer, each with a score? Or the input format?
 2. **Task queue:** he named Celery or ARQ (Python). The system is now Rust, and the queue is built on Redis Streams with consumer groups, acknowledgement after work, retries, dead letters and an outbox in the database. Is that acceptable in place of Celery or ARQ?
 3. **May a trained model influence routing** (who reviews what, in what order), never the verdict?
