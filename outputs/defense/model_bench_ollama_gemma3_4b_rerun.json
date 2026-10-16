@@ -1,0 +1,74 @@
+{
+  "server": "http://127.0.0.1:11434/v1",
+  "model": "gemma3:4b",
+  "name": "ollama_gemma3_4b_rerun",
+  "levels": [
+    {
+      "concurrency": 1,
+      "requests": 16,
+      "errors": 0,
+      "requests_per_minute": 53.3,
+      "latency_p50_s": 1.13,
+      "latency_p95_s": 1.31,
+      "output_tokens_per_second": 63.8,
+      "seconds": 18.0
+    },
+    {
+      "concurrency": 4,
+      "requests": 16,
+      "errors": 0,
+      "requests_per_minute": 122.9,
+      "latency_p50_s": 1.79,
+      "latency_p95_s": 2.5,
+      "output_tokens_per_second": 146.5,
+      "seconds": 7.8
+    },
+    {
+      "concurrency": 8,
+      "requests": 32,
+      "errors": 0,
+      "requests_per_minute": 137.5,
+      "latency_p50_s": 3.26,
+      "latency_p95_s": 3.95,
+      "output_tokens_per_second": 165.3,
+      "seconds": 14.0
+    },
+    {
+      "concurrency": 12,
+      "requests": 48,
+      "errors": 0,
+      "requests_per_minute": 105.0,
+      "latency_p50_s": 5.6,
+      "latency_p95_s": 12.5,
+      "output_tokens_per_second": 127.4,
+      "seconds": 27.4
+    },
+    {
+      "concurrency": 16,
+      "requests": 64,
+      "errors": 0,
+      "requests_per_minute": 134.9,
+      "latency_p50_s": 6.75,
+      "latency_p95_s": 7.75,
+      "output_tokens_per_second": 160.4,
+      "seconds": 28.5
+    },
+    {
+      "concurrency": 24,
+      "requests": 96,
+      "errors": 0,
+      "requests_per_minute": 127.7,
+      "latency_p50_s": 10.54,
+      "latency_p95_s": 11.78,
+      "output_tokens_per_second": 153.7,
+      "seconds": 45.1
+    }
+  ],
+  "best_requests_per_minute": 137.5,
+  "at_concurrency": 8,
+  "gpu_memory_peak_mib": 7876,
+  "gpu_utilization_peak_percent": 93,
+  "target_requests_per_minute": 200,
+  "reaches_target": false,
+  "note": "One explanation per request: about 250 prompt tokens in, up to 160 out, temperature 0. Measured on this machine only; the target server is a different card."
+}

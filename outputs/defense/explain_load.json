@@ -1,0 +1,78 @@
+{
+  "model": "gemma3:4b",
+  "claims_with_findings": 399,
+  "findings": 777,
+  "workers": 8,
+  "ai_per_minute_setting": 600,
+  "cold": {
+    "pass": "cold",
+    "claims": 399,
+    "workers": 8,
+    "seconds": 48.7,
+    "claims_per_minute": 492.0,
+    "findings": 777,
+    "model_calls": 74,
+    "model_call_failures": 0,
+    "findings_by_source": {
+      "ai": 53,
+      "cache": 703,
+      "template": 21
+    },
+    "outcomes": {
+      "explained/ai_used": 27,
+      "explained/cache_hit": 351,
+      "explanation_skipped/skipped_guard": 21
+    },
+    "findings_served_without_a_model_call_percent": 90.5,
+    "model_call_seconds_p50": 4.7,
+    "model_call_seconds_p95": 5.96,
+    "claim_seconds_p50": 0.02,
+    "claim_seconds_p95": 5.22,
+    "claim_seconds_max": 24.21
+  },
+  "warm": {
+    "pass": "warm",
+    "claims": 399,
+    "workers": 8,
+    "seconds": 11.7,
+    "claims_per_minute": 2052.0,
+    "findings": 777,
+    "model_calls": 18,
+    "model_call_failures": 0,
+    "findings_by_source": {
+      "ai": 1,
+      "cache": 759,
+      "template": 17
+    },
+    "outcomes": {
+      "explained/ai_used": 1,
+      "explained/cache_hit": 381,
+      "explanation_skipped/skipped_guard": 17
+    },
+    "findings_served_without_a_model_call_percent": 97.7,
+    "model_call_seconds_p50": 3.94,
+    "model_call_seconds_p95": 4.56,
+    "claim_seconds_p50": 0.02,
+    "claim_seconds_p95": 0.14,
+    "claim_seconds_max": 5.1
+  },
+  "guard_refusals_cold_pass": {
+    "R002|FAIL/high/n": [
+      1,
+      "Ungrounded statement (asserts validity of something the finding does not cover): \"are correct\""
+    ],
+    "R008|FAIL/high/1": [
+      15,
+      "Ungrounded statement (asserts validity of something the finding does not cover): \"have a valid\""
+    ],
+    "R008|UNABLE_TO_ASSESS/high/0": [
+      1,
+      "accepted on this claim"
+    ],
+    "R013|FAIL/medium/n": [
+      4,
+      "Ungrounded statement (asserts validity of something the finding does not cover): \"are within the policy limits\""
+    ]
+  },
+  "note": "Real engine, real template cache (in-memory store), real model server on this machine. Cold = empty cache; warm = the same claims again under new ids. A cache stampede (several workers asking for the same missing template at once) shows as model_calls above the number of distinct templates. Measured on this machine only; the target server is a different card."
+}
