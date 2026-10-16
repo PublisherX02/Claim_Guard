@@ -455,7 +455,7 @@ section("Queue, load balancing and AI");
     { text: "Each token names its claim, version and field: moving one under another claim is detected and refused", options: { bullet: { indent: 14 }, breakLine: true, paraSpaceAfter: 5 } },
     { text: "Readable on purpose: ids, state, lane, score, timestamps, hashes, and a keyed hash of the patient id to find earlier claims", options: { bullet: { indent: 14 }, breakLine: true, paraSpaceAfter: 5 } },
     { text: "Reviewers see pseudonyms, not identifiers", options: { bullet: { indent: 14 }, breakLine: true, paraSpaceAfter: 5 } },
-    { text: "Limits: whoever holds the key sees everything; key rotation needs a re-encryption pass (not built)", options: { bullet: { indent: 14 } } },
+    { text: "Limits: whoever holds the key sees everything, and the shape of the data is visible. The key can be rotated by one command", options: { bullet: { indent: 14 } } },
   ], { x: 8.65, y: 2.1, w: 3.85, h: 4.45, fontSize: 12.5, color: "DDEEEB", margin: 0, valign: "top", isTextBox: true, objectName: "encryption text" });
 }
 
@@ -554,6 +554,77 @@ section("Less work for the operator");
   s.addText("Time per finding has not been measured. The savings are counted in decisions, on the real pipeline with simulated reviewers. The first real step is a timed session with a few officers.", { x: 8.35, y: 4.3, w: 4.1, h: 2.2, fontSize: 14, color: "DDEEEB", margin: 0, valign: "top", isTextBox: true, objectName: "honesty text" });
 }
 
+// ---- autoclear
+{
+  const s = slide("Auto-clear green claims, with a random audit", { n: "autoclear" });
+  tag(s, 10.9, 0.08, "off by default", T.amber, T.ink, 1.5);
+  bullets(s, [
+    "A claim with nothing flagged and an intact set of 15 results can be cleared by the system (actor system:auto-clear)",
+    "Except a random 5% (audit_percent, 1 to 100) that still go to a person. The draw is written on the claim",
+    "A damaged claim, or one with a flagged finding, is never cleared by the system",
+    "System-cleared claims never count as verified by a person in the feedback reports",
+  ], MX, 1.5, 6.0, 3.0, 13.5);
+  stat(s, MX, 4.55, 2.9, "159 of 500", "claims cleared by the system (31.8%), on 20 random batches of the 600 labelled claims", T.teal, 34);
+  stat(s, MX + 3.1, 4.55, 2.9, "0", "cleared claims that had a finding in the answer key", T.teal, 34);
+  s.addChart(pres.charts.BAR, [{ name: "Upper bound", labels: ["30", "60", "150", "300", "600", "1,000", "3,000"], values: [9.5, 4.9, 2.0, 1.0, 0.5, 0.3, 0.1] }], {
+    x: 6.9, y: 1.45, w: 5.8, h: 3.2, barDir: "col", chartColors: [T.teal], showTitle: true, title: "95% upper bound on the miss rate (%) after n audited claims, none missed",
+    titleFontSize: 12, titleColor: T.dark, titleFontFace: "+mn-lt", showValue: true, dataLabelPosition: "outEnd", dataLabelFontSize: 12, dataLabelColor: T.ink, dataLabelFontFace: "+mn-lt",
+    catAxisLabelColor: T.ink, catAxisLabelFontSize: 11, catAxisLabelFontFace: "+mn-lt", valAxisLabelColor: T.muted, valAxisLabelFontSize: 10, valAxisLabelFontFace: "+mn-lt",
+    valGridLine: { color: "D5E1DF", size: 0.5 }, catGridLine: { style: "none" }, showLegend: false, valAxisMinVal: 0,
+  });
+  card(s, 6.9, 4.8, 5.8, 1.85, T.dark, "audit panel card");
+  s.addText([
+    { text: "The audit panel (administrator)", options: { bold: true, fontSize: 15, fontFace: "Cambria", color: "FFFFFF", breakLine: true, paraSpaceAfter: 4 } },
+    { text: "Claims cleared, verified clear, escalated, and the escalation rate with an exact 95% upper bound. Every escalation counts as a possible miss. Read-only advice: keep 5% until 300 audited claims are resolved; lower it only when the bound is under 1%.", options: { fontSize: 12, color: "DDEEEB" } },
+  ], { x: 7.1, y: 4.85, w: 5.4, h: 1.75, margin: 0, valign: "middle", isTextBox: true, objectName: "audit panel text" });
+  note(s, "Synthetic mix, engine equal to the key: this shows what the policy does here, not what a hospital would see.", 6.8);
+}
+
+// ---- autorequest
+{
+  const s = slide("Auto-request, and what each step saves", { n: "autorequest" });
+  tag(s, 10.9, 0.08, "off by default", T.amber, T.ink, 1.5);
+  table(s, ["Per 500 claims", "Decided without a person", "Findings a person decides"], [
+    ["Today", "0", "650"],
+    ["Auto-clear only", "159 (31.7%)", "650"],
+    ["+ auto-request, medium severity", "170 (34.1%)", "541 (-16.9%)"],
+    [{ text: "+ auto-request, all severities", bold: true }, { text: "196 (39.1%)", bold: true, color: T.teal }, { text: "399 (-38.6%)", bold: true, color: T.teal }],
+  ], MX, 1.5, 7.2, [3.0, 2.2, 2.0], 12.5, 0.5);
+  bullets(s, [
+    "For a finding that only says data is missing (UNABLE_TO_ASSESS), the system records the request itself (system:auto-request)",
+    "The reason is the rulebook's own corrective-action text, never claim data",
+    "A claim that also has real findings keeps them for a person",
+    "A random share is handled by a person in full, and the audit counts how often they asked too",
+    "0 recorded requests were on a finding the answer key does not call missing data",
+  ], MX, 4.2, 7.2, 2.5, 12.5);
+  s.addChart(pres.charts.BAR, [{ name: "Findings", labels: ["Today", "Auto-clear", "+ medium", "+ all"], values: [650, 650, 541, 399] }], {
+    x: 8.0, y: 1.45, w: 4.7, h: 4.2, barDir: "col", chartColors: [T.teal], showTitle: true, title: "Findings a person decides per 500 claims",
+    titleFontSize: 13, titleColor: T.dark, titleFontFace: "+mn-lt", showValue: true, dataLabelPosition: "outEnd", dataLabelFontSize: 12, dataLabelColor: T.ink, dataLabelFontFace: "+mn-lt",
+    catAxisLabelColor: T.ink, catAxisLabelFontSize: 11, catAxisLabelFontFace: "+mn-lt", valAxisLabelColor: T.muted, valAxisLabelFontSize: 10, valAxisLabelFontFace: "+mn-lt",
+    valGridLine: { color: "D5E1DF", size: 0.5 }, catGridLine: { style: "none" }, showLegend: false, valAxisMinVal: 0,
+  });
+  note(s, "Real engine and triage, 20 random batches, 5% audit. No review time is measured: these are shares of claims and findings, not minutes.", 6.8);
+}
+
+// ---- confirm
+{
+  const s = slide("One-click confirm, and bulk confirm for reliable rules", { n: "confirm" });
+  const cards = [
+    ["One-click confirm", "on", ["Confirming agrees with the engine, so it needs no typed reason; dismissing still does", "Confirm the issue, or Confirm all N findings in two clicks, or press c twice", "When the last finding is decided the console opens the next claim", "Same record in the review log and the security log as before"]],
+    ["Bulk confirm", "off by default", ["Only for rules whose findings reviewers almost always uphold: an exact 95% lower bound of the upheld rate above a setting, from at least 20 decisions by at least 3 reviewers", "A By rule view: open the list, look, confirm all in two clicks", "Only confirm is possible"]],
+    ["Guards, all on the server", "", ["The rule must qualify at that moment, checked on every request", "Each claim goes through the normal decision path: lease, clearance, two-senior sign-off, masking, both logs", "A random share is left for a full review", "Bulk decisions never count as evidence, so a rubber stamp cannot keep a rule eligible"]],
+  ];
+  cards.forEach((c, i) => {
+    const x = MX + i * 4.1;
+    card(s, x, 1.5, 3.9, 4.45, T.soft, "confirm card " + (i + 1));
+    s.addText(c[0], { x: x + 0.25, y: 1.6, w: 3.4, h: 0.5, fontSize: 17, bold: true, fontFace: "Cambria", color: T.dark, margin: 0, isTextBox: true, objectName: "confirm title" });
+    if (c[1]) tag(s, x + 0.25, 2.15, c[1], c[1] === "on" ? T.teal : "D5E1DF", c[1] === "on" ? "FFFFFF" : T.ink, 1.4);
+    bullets(s, c[2], x + 0.25, c[1] ? 2.65 : 2.2, 3.45, 3.2, 12.5);
+  });
+  card(s, MX, 6.05, 12.1, 0.65, "FFF1DB", "confirm limit");
+  s.addText("Limits: the 'look at the list first' step is enforced by the screen only. The evidence for the reliable rules came from simulated reviewers. One administrator can switch these on, logged but without a second approval, and there is no automatic brake.", { x: MX + 0.2, y: 6.05, w: 11.7, h: 0.65, fontSize: 12, color: T.ink, valign: "middle", margin: 0, isTextBox: true, objectName: "confirm limit text" });
+}
+
 // 15 Learning from feedback
 {
   const s = slide("Learning from feedback, and a model we set aside", { n: "feedback" });
@@ -647,6 +718,68 @@ section("Trust");
   note(s, "Not done: nobody outside the team has attacked it, and a lone administrator or one person holding two accounts is logged but not prevented.", 6.85);
 }
 
+// ---- signin
+{
+  const s = slide("Sign-in: hard to guess, hard to lock out, equal in time", { n: "signin" });
+  stat(s, MX, 1.5, 2.8, "5 in 15 min", "failures per badge and client; then that client is refused", T.teal, 32);
+  stat(s, MX + 3.1, 1.5, 2.8, "100", "failures per 15 minutes for one address, over all badges", T.teal, 32);
+  stat(s, MX + 6.2, 1.5, 2.8, "30 days", "a client the owner signed in from is remembered, as a keyed hash", T.teal, 32);
+  stat(s, MX + 9.3, 1.5, 2.8, "within 3%", "time taken by 8 kinds of refused sign-in: 80.3 to 82.6 ms", T.teal, 32);
+  const cards = [
+    ["A stranger cannot lock you out", ["The account lock only keeps out clients the owner has never used", "A correct sign-in by the owner clears the lock", "Still true: a stranger can keep someone out of a new device for 15 minutes"]],
+    ["Counts survive a restart", ["The counters live in the database, updated atomically and expiring by themselves", "A restart, or a second server process, sees the same counts", "Addresses are stored only as keyed hashes"]],
+    ["Every refusal looks the same", ["Unknown badge, wrong password, wrong code, replayed code, locked, inactive: the same steps, the same time, the same answer", "Comparison of the anti-forgery token and the session signature is constant-time", "Measured in-process, not across a network"]],
+  ];
+  cards.forEach((c, i) => {
+    const x = MX + i * 4.1;
+    card(s, x, 3.65, 3.9, 3.0, T.soft, "signin card " + (i + 1));
+    s.addText(c[0], { x: x + 0.25, y: 3.75, w: 3.4, h: 0.45, fontSize: 15, bold: true, fontFace: "Cambria", color: T.dark, margin: 0, isTextBox: true, objectName: "signin title" });
+    bullets(s, c[1], x + 0.25, 4.25, 3.45, 2.35, 12);
+  });
+}
+
+// ---- backup
+{
+  const s = slide("Backup, restore and key rotation", { n: "backup" });
+  card(s, MX, 1.5, 5.9, 5.15, T.soft, "backup card");
+  s.addText("Encrypted backup, proven by wiping", { x: MX + 0.25, y: 1.6, w: 5.4, h: 0.5, fontSize: 16, bold: true, fontFace: "Cambria", color: T.dark, margin: 0, isTextBox: true, objectName: "h" });
+  bullets(s, [
+    "One encrypted file (AES-256, 600,000 key-stretching rounds, key from a file) holding both databases, both audit logs and the audit mirror, plus a checksum. It never overwrites",
+    "Restore refuses a wrong key, a damaged file or contents that fail their checksums, and fails loudly if any document does not restore",
+    "The test (23 checks): put users and 12 claims in through the real API, back up, destroy every volume, restore. The same administrator signs in with the same password and authenticator; the audit chains verify",
+    "Testing found two real problems, both fixed: a restore that replaced the database's own accounts mid-way, and a script that reported success after a failure",
+  ], MX + 0.25, 2.2, 5.4, 4.35, 12.5);
+  card(s, MX + 6.2, 1.5, 5.9, 5.15, T.soft, "rotation card");
+  s.addText("Keys can be rotated", { x: MX + 6.45, y: 1.6, w: 5.4, h: 0.5, fontSize: 16, bold: true, fontFace: "Cambria", color: T.dark, margin: 0, isTextBox: true, objectName: "h" });
+  bullets(s, [
+    "cg rotate-key re-encrypts every stored claim, result, explanation, decision and name from the current data key to a new one, and rebuilds the patient index",
+    "It stops rather than damage a document that opens with neither key, skips and reports a document changed meanwhile, and can be repeated after an interruption",
+    "A dry run first. Tested against a real database: the old key is refused afterwards and the stored data holds nothing readable",
+    "cg rotate-fernet-key does the same for authenticator seeds, so nobody has to enrol again",
+    "The key for claim data and the key for authenticator seeds are separate",
+  ], MX + 6.45, 2.2, 5.4, 4.35, 12.5);
+}
+
+// ---- stress
+{
+  const s = slide("Stress tests: floods and hostile input", { n: "stress" });
+  stat(s, MX, 1.5, 2.8, "29,700", "requests from 300 clients in 20 seconds, all answered", T.teal, 36);
+  stat(s, MX + 3.1, 1.5, 2.8, "400", "parallel sign-ins: ordinary refusals, then 429, no server error", T.teal, 36);
+  stat(s, MX + 6.2, 1.5, 2.8, "1 to 12 ms", "answer time for a polite client during every flood", T.teal, 36);
+  stat(s, MX + 9.3, 1.5, 2.8, "87 MB", "peak memory under flood (66 MB idle)", T.teal, 36);
+  const cards = [
+    ["The flood harness", ["16 checks: 3,000 idle connections, 300 busy clients, 200 clients without a session (all refused), a 400-client sign-in flood, 100 clients sending large bodies", "The server was healthy afterwards", "One machine and one address: no distributed attack"]],
+    ["Hostile input in a real browser", ["19 checks in Chrome: script-injection payloads planted in notes, invoice numbers, provider ids, currencies, line ids, attachment text, names and failed-sign-in badges", "On every screen no payload ran and the text showed as plain text"]],
+    ["Fuzzing and breakage", ["400,000 random requests through the API, with sessions of each role", "93 deliberate breakages of the security rules, each caught by a test", "Not tested: floods below the HTTP layer, attack on the database server"]],
+  ];
+  cards.forEach((c, i) => {
+    const x = MX + i * 4.1;
+    card(s, x, 3.65, 3.9, 3.0, T.soft, "stress card " + (i + 1));
+    s.addText(c[0], { x: x + 0.25, y: 3.75, w: 3.4, h: 0.45, fontSize: 15, bold: true, fontFace: "Cambria", color: T.dark, margin: 0, isTextBox: true, objectName: "stress title" });
+    bullets(s, c[1], x + 0.25, 4.25, 3.45, 2.35, 12);
+  });
+}
+
 // 18 Audit
 {
   const s = slide("Everything is on record, and an edit is caught", { n: "audit" });
@@ -701,7 +834,7 @@ section("Close");
     ["Savings are simulated", "No timed session with real reviewers yet."],
     ["Documents", "Real paper, handwriting and Arabic are untested."],
     ["Data subject rights", "Access, erasure and retention are designed, not built."],
-    ["Encryption keys", "Rotating the key needs a re-encryption pass that is not built."],
+    ["Automatic modes", "One administrator can switch them on, logged but without a second approval, and nothing switches them off by itself."],
     ["No write-back", "A correction is a new version here; it is not sent to the hospital's own system."],
     ["Copilot proposals", "Three rules have computable fixes. The rest ask or check."],
     ["Nobody outside the team", "has attacked it."],
