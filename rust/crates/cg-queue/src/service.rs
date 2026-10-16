@@ -141,6 +141,8 @@ fn resolving(a: &str) -> bool {
     RESOLVING.contains(&a)
 }
 
+pub type RulesFn = Arc<dyn Fn() -> Arc<cg_core::config::Config> + Send + Sync>;
+
 pub struct QueueService {
     pub store: Arc<dyn QueueStore>,
     pub dispatcher: Arc<Dispatcher>,
@@ -149,16 +151,30 @@ pub struct QueueService {
     pub review_log: Arc<AuditLog>,
     pub clock: Clock,
     intake: Mutex<Option<Arc<Intake>>>,
+    /// The rulebook in force now (policy tables, service catalogue), for the copilot's suggestions; None switches the copilot off.
+    rules: Mutex<Option<RulesFn>>,
     /// (computed at, skip_lower it was computed for, rules): the light-review set is a read over every decided claim, so it is kept for five minutes.
     light: Mutex<Option<(f64, f64, BTreeSet<String>)>>,
 }
 
 impl QueueService {
     pub fn new(store: Arc<dyn QueueStore>, dispatcher: Arc<Dispatcher>, access: Arc<AccessService>, securitylog: Arc<SecurityLog>, review_log: Arc<AuditLog>, clock: Clock) -> QueueService {
-        QueueService { store, dispatcher, access, securitylog, review_log, clock, intake: Mutex::new(None), light: Mutex::new(None) }
+        QueueService { store, dispatcher, access, securitylog, review_log, clock, intake: Mutex::new(None), rules: Mutex::new(None), light: Mutex::new(None) }
     }
 
     /// Set by the wiring; only the submit route needs it.
+    pub fn set_rules(&self, rules: RulesFn) {
+        *self.rules.lock().unwrap_or_else(|e| e.into_inner()) = Some(rules);
+    }
+
+    fn rules_now(&self) -> Option<Arc<cg_core::config::Config>> {
+        self.rules.lock().unwrap_or_else(|e| e.into_inner()).as_ref().map(|f| f())
+    }
+
+    fn intake_now(&self) -> R<Arc<Intake>> {
+        self.intake.lock().unwrap_or_else(|e| e.into_inner()).clone().ok_or_else(|| QueueError::Invalid("this server was started without a claim intake".into()))
+    }
+
     pub fn set_intake(&self, intake: Arc<Intake>) {
         *self.intake.lock().unwrap_or_else(|e| e.into_inner()) = Some(intake);
     }
@@ -254,6 +270,15 @@ impl QueueService {
         }
         if triage::flagged(&doc["results"]).is_empty() && perms.contains("claims.decide") {
             view["allowed_actions"] = json!(GREEN_ACTIONS);
+        }
+        if let Some(cfg) = self.rules_now() {
+            view["copilot"] = crate::copilot::bundle(&doc["claim"], &doc["results"], &cfg);
+        }
+        if perms.contains("claims.recheck") && stage(doc).is_none() {
+            view["can_correct"] = json!(true);
+        }
+        if doc.get("corrected_from").is_some_and(|c| !c.is_null()) {
+            view["corrected_from"] = doc["corrected_from"].clone();
         }
         if !masking::leaks(&view, &mapping).is_empty() {
             return Err(QueueError::Redaction);
@@ -474,6 +499,103 @@ impl QueueService {
     // ---- the administrator's side -------------------------------------------------------------------------------------
     /// Everything on record about one claim, for an auditor: each stored version with its state history, the rule pack and configuration
     /// it was triaged under, every decision, and the security-log entries that name it. No claim values are returned.
+    // ---- corrections: what-if and recheck ------------------------------------------------------------------------------
+    /// The corrected copy of the leased claim, the engine's verdict on it and the difference from now. Nothing is stored.
+    fn corrected(&self, principal: &Principal, claim_id: &str, changes: &Value) -> R<(Perms, Value, Value, Vec<Value>, Value, Value)> {
+        let perms = self.require(principal, "claims.recheck")?;
+        let now = self.now();
+        let doc = self.mine(principal, claim_id, now)?;
+        if stage(&doc).is_some() {
+            return Err(QueueError::Invalid("a claim in countersign is decided as it is; it cannot be corrected".into()));
+        }
+        let changes = crate::copilot::parse_changes(changes).map_err(QueueError::Invalid)?;
+        let (fixed, applied) = crate::copilot::apply(&doc["claim"], &changes).map_err(QueueError::Invalid)?;
+        crate::flow::check_claim(&fixed).map_err(|e| QueueError::Invalid(format!("the corrected claim is not valid: {e}")))?;
+        let after = (self.intake_now()?.engine)(&fixed).map_err(QueueError::Invalid)?;
+        let diff = crate::copilot::diff(&doc["results"], &after);
+        Ok((perms, doc, fixed, applied, after, diff))
+    }
+
+    /// What-if: how a proposed correction would change the validation results. A dry run: no new version, no decision, no change to the claim.
+    pub fn what_if(&self, principal: &Principal, claim_id: &str, changes: &Value) -> R<Value> {
+        let (perms, doc, fixed, applied, after, diff) = self.corrected(principal, claim_id, changes)?;
+        self.access.record("claim_whatif", json!({"badge_id": principal.badge(), "claim_id": claim_id, "version": doc["version"], "changes": applied.len()}))?;
+        let key = &self.access.settings.pii_key;
+        let (claim_out, findings) = masking::shape_claim(&fixed, &after, &perms, key, false, true).map_err(|_| QueueError::Redaction)?;
+        let mut out = json!({"claim_id": claim_id, "version": doc["version"], "stored": false, "applied": applied, "diff": diff, "claim": claim_out, "findings": findings});
+        if let Some(cfg) = self.rules_now() {
+            out["copilot"] = crate::copilot::bundle(&fixed, &after, &cfg);
+        }
+        if !masking::leaks(&out, &masking::identifier_map(&fixed, key).map_err(|_| QueueError::Redaction)?).is_empty() {
+            return Err(QueueError::Redaction);
+        }
+        Ok(out)
+    }
+
+    /// Recheck: the correction is validated again as a NEW version of the claim; the original version and its findings stay on record.
+    /// The findings the correction cleared are recorded as `mark_corrected_for_recheck` on the old version, the old version is closed
+    /// (decided, then rechecked) and the new version goes through triage like any claim. Correcting away a high-severity finding needs the
+    /// same authority as deciding it.
+    pub fn recheck(&self, principal: &Principal, claim_id: &str, changes: &Value, reason: &str, rule_ids: Option<&[String]>) -> R<Value> {
+        let (perms, doc, fixed, applied, _after, diff) = self.corrected(principal, claim_id, changes)?;
+        if cg_core::text::blank(reason) || reason.chars().count() > 1000 {
+            return Err(QueueError::Invalid("a reason of 1 to 1000 characters is required".into()));
+        }
+        if masking::text_leaks_identifier(reason, &doc["claim"], &self.access.settings.pii_key) {
+            return Err(QueueError::Invalid("the reason must not contain the patient or member identifier".into()));
+        }
+        let before: BTreeMap<&str, &Value> = doc["results"].as_array().into_iter().flatten().filter_map(|r| r["rule_id"].as_str().map(|id| (id, r))).collect();
+        let resolved: Vec<String> = diff["rules"].as_array().into_iter().flatten().filter(|r| r["outcome"] == "resolved").filter_map(|r| r["rule_id"].as_str().map(str::to_string)).collect();
+        let chosen: Vec<String> = match rule_ids {
+            Some(ids) => ids.to_vec(),
+            None => resolved.clone(),
+        };
+        for rid in &chosen {
+            let f = before.get(rid.as_str()).ok_or_else(|| QueueError::Invalid(format!("{rid} has no finding on this claim")))?;
+            if !f["status"].as_str().is_some_and(|s| REVIEWABLE.contains(&s)) {
+                return Err(QueueError::Invalid(format!("{rid} is not flagged")));
+            }
+        }
+        if resolved.iter().any(|rid| before.get(rid.as_str()).is_some_and(|f| is_high(f))) && !perms.contains("claims.decide_high") {
+            return Err(QueueError::Forbidden("claims.decide_high".into()));
+        }
+        let (version, now) = (doc["version"].as_i64().unwrap_or(0), self.now());
+        let from = json!({"version": version, "by": principal.badge(), "at": now, "reason": reason, "changes": applied, "cleared": resolved});
+        let receipt = self.intake_now()?.submit_with(&fixed, Some(from)).map_err(|e| QueueError::Invalid(e.to_string()))?;
+        let newest = self.store.get(claim_id, None).map_err(store_err)?.map(|d| d["version"].as_i64().unwrap_or(0)).unwrap_or(0);
+        if newest <= version {
+            return Err(QueueError::Invalid("this correction recreates an earlier version of the claim; nothing new was stored".into()));
+        }
+        let rnd = round(&doc);
+        let mut decisions = vec![];
+        for rid in &chosen {
+            let f = before[rid.as_str()];
+            let d = json!({"claim_id": claim_id, "rule_id": rid, "action": "mark_corrected_for_recheck", "actor": principal.badge(), "reason": reason, "created_at": iso(now), "original_status": f["status"]});
+            validate_decision(&d, f).map_err(|e| QueueError::Invalid(e.chars().take(300).collect()))?;
+            self.store
+                .add_decision(claim_id, version, principal.badge(), now, &json!({"rule_id": rid, "action": "mark_corrected_for_recheck", "actor": principal.badge(), "reason": reason, "at": now, "round": rnd}))
+                .map_err(store_err)?
+                .ok_or_else(|| QueueError::Conflict("lease_lost".into()))?;
+            decisions.push(d);
+        }
+        if !decisions.is_empty() {
+            self.review_log.append_review_decisions(&decisions).map_err(|_| AuthError::Unavailable)?;
+        }
+        self.review_log
+            .append_system_events(&[json!({"event_type": "recheck_run", "claim_id": claim_id, "prior_run_id": format!("{claim_id}@v{version}"), "new_run_id": format!("{claim_id}@v{newest}"),
+                "prior_input_hash": doc["input_hash"], "new_input_hash": receipt["input_hash"], "rechecked_rule_ids": chosen, "requested_by": principal.badge()})])
+            .map_err(|_| AuthError::Unavailable)?;
+        self.access.record("claim_rechecked", json!({"badge_id": principal.badge(), "claim_id": claim_id, "prior_version": version, "new_version": newest, "cleared": resolved.len(), "changes": applied.len()}))?;
+        // close the old version: decided by the person who corrected it, then rechecked
+        let mut set = Map::new();
+        set.insert("decided_by".into(), json!(principal.badge()));
+        let detail = json!({"event": "corrected_for_recheck", "new_version": newest, "findings": chosen.len()});
+        self.store.transition(claim_id, version, "leased", "decided", principal.badge(), now, Some(detail.clone()), Some(set), Some(principal.badge())).map_err(store_err)?.ok_or_else(|| QueueError::Conflict("lease_lost".into()))?;
+        self.store.transition(claim_id, version, "decided", "rechecked", principal.badge(), now, Some(detail), None, None).map_err(store_err)?;
+        let still: Vec<&str> = diff["rules"].as_array().into_iter().flatten().filter(|r| r["outcome"] == "still_flagged" || r["outcome"] == "newly_flagged").filter_map(|r| r["rule_id"].as_str()).collect();
+        Ok(json!({"recorded": true, "prior_version": version, "new_version": newest, "diff": diff, "lane": receipt["lane"], "score": receipt["score"], "still_flagged": still, "cleared_for_recheck": chosen}))
+    }
+
     pub fn trace(&self, principal: &Principal, claim_id: &str) -> R<Value> {
         self.require(principal, "audit.view")?;
         let latest = self.store.get(claim_id, None).map_err(store_err)?.ok_or_else(|| QueueError::NotFound(claim_id.into()))?;

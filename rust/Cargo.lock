@@ -610,6 +610,7 @@ dependencies = [
 name = "cg-queue"
 version = "0.1.0"
 dependencies = [
+ "bigdecimal",
  "cg-access",
  "cg-audit",
  "cg-core",

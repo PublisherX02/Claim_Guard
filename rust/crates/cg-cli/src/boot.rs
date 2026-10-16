@@ -202,6 +202,7 @@ fn build_queue(store: Arc<dyn QueueStore>, env: &HashMap<String, String>, root: 
         advisory: Some(flow::advisory_fn(extensions, store.clone())),
     });
     service.set_intake(intake.clone());
+    service.set_rules({ let e = engine.clone(); Arc::new(move || e.cfg()) });
     let sc = store.clone();
     let breaker = Arc::new(CircuitBreaker::new(clock.clone()));
     let model: Arc<dyn cg_queue::explain::Model> = cg_queue::model::model_from_env(env, cg_queue::model::rulebook_rules(root)?)?.unwrap_or_else(|| Arc::new(NoModel));

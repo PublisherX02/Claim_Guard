@@ -215,7 +215,16 @@
       root.appendChild(unmaskBox(ctx, function (v) { CG.renderClaim(root, v, ctx); }));
     }
 
+    if (view.corrected_from) {
+      var cf = view.corrected_from;
+      root.appendChild(h('div', { class: 'notice info' }, h('b', { text: 'Corrected version. ' }), 'Version ' + cf.version + ' was corrected by ' + cf.by + ': ' +
+        (cf.changes || []).map(function (c) { return c.path + ' ' + CG.fmtValue(c.from) + ' to ' + CG.fmtValue(c.to); }).join('; ') + '. Reason: ' + cf.reason));
+    }
+    var fix = null;
+    if (ctx.mode === 'work' && view.can_correct && CG.fixPanel) fix = CG.fixPanel(view, ctx, refresh);
+    if (ctx.mode === 'work' && view.copilot && CG.copilotPanel) root.appendChild(CG.copilotPanel(view.copilot, fix ? fix.tryEdits : null));
     root.appendChild(claimSummary(view.claim));
+    if (fix) root.appendChild(fix);
     if (ctx.mode === 'work' && view.allowed_actions && view.allowed_actions.indexOf('verify_clear') >= 0) root.appendChild(greenActions(view, ctx, refresh));
 
     root.appendChild(h('h2', { text: flagged.length ? flagged.length + ' flagged finding' + (flagged.length > 1 ? 's' : '') : 'Findings', style: null }));
@@ -369,6 +378,7 @@
     var ctx = {
       id: id, mode: 'work',
       decisionPath: function (rule) { return '/work/claims/' + encodeURIComponent(id) + '/findings/' + encodeURIComponent(rule) + '/decision'; },
+      fixPath: function (what) { return '/work/claims/' + encodeURIComponent(id) + '/' + what; },
       reload: function () { return CG.api('GET', '/work/inbox').then(function (d) { return d.claims.filter(function (c) { return c.claim_id === id; })[0] || null; }); }
     };
     root.appendChild(h('p', { class: 'muted', text: 'Loading claim...' }));

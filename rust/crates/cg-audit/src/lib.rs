@@ -47,10 +47,10 @@ fn invalid<T>(msg: impl Into<String>) -> Result<T, AuditError> {
 pub const SYSTEM_DECISIONS: [&str; 3] = ["route_to_human_review", "no_findings_for_review", "quarantine_claim"];
 const REVIEW_ACTIONS: [&str; 4] = ["confirm_issue", "dismiss_with_reason", "request_information", "mark_corrected_for_recheck"];
 
-pub const SECURITY_EVENT_TYPES: [&str; 24] = [
+pub const SECURITY_EVENT_TYPES: [&str; 26] = [
     "login_success", "login_failure", "lockout", "logout", "token_rejected", "forbidden", "unmask", "user_created", "user_updated", "user_unlocked", "totp_reset",
     "password_changed", "audit_read", "audit_verify", "decision", "routing_config_changed", "lease_expired", "lease_reclaimed", "claim_dealt", "claim_decided_green",
-    "queue_admin", "claim_signoff", "triage_receipt", "approval",
+    "queue_admin", "claim_signoff", "triage_receipt", "approval", "claim_whatif", "claim_rechecked",
 ];
 
 fn required() -> &'static BTreeMap<&'static str, BTreeSet<&'static str>> {
@@ -94,6 +94,8 @@ fn required() -> &'static BTreeMap<&'static str, BTreeSet<&'static str>> {
             ("claim_signoff", &["claim_id", "badge_id", "stage", "outcome"]),
             ("triage_receipt", &["claim_id", "input_hash", "result_hash", "lane", "score", "config_version"]),
             ("approval", &["actor", "approval_id", "action", "badge_id", "outcome"]),
+            ("claim_whatif", &["badge_id", "claim_id", "version", "changes"]),
+            ("claim_rechecked", &["badge_id", "claim_id", "prior_version", "new_version", "cleared", "changes"]),
         ];
         rows.iter().map(|(k, fields)| (*k, fields.iter().copied().collect())).collect()
     })

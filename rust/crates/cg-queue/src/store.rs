@@ -44,9 +44,9 @@ pub fn check_set_fields(f: &Option<Map<String, Value>>) -> Result<Map<String, Va
 /// Validates a document handed to `put_triaged` and returns the full stored form (state triaged, outbox marker set).
 pub fn prepare_new_doc(doc: &Value) -> Result<Value> {
     let obj = doc.as_object().filter(|o| {
-        ["claim_id", "version", "input_hash", "claim", "results", "receipt"].iter().all(|k| o.contains_key(*k)) && o.keys().all(|k| ["claim_id", "version", "input_hash", "claim", "results", "receipt", "advisory"].contains(&k.as_str()))
+        ["claim_id", "version", "input_hash", "claim", "results", "receipt"].iter().all(|k| o.contains_key(*k)) && o.keys().all(|k| ["claim_id", "version", "input_hash", "claim", "results", "receipt", "advisory", "corrected_from"].contains(&k.as_str()))
     });
-    let Some(obj) = obj else { return invalid("a new claim document must have: claim, claim_id, input_hash, receipt, results, version (and may have advisory)") };
+    let Some(obj) = obj else { return invalid("a new claim document must have: claim, claim_id, input_hash, receipt, results, version (and may have advisory and corrected_from)") };
     if obj.get("advisory").is_some_and(|a| !a.is_array()) {
         return invalid("advisory must be a list");
     }

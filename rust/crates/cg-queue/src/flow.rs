@@ -127,6 +127,11 @@ impl Intake {
     /// Validates, runs the engine, writes the triage receipt and stores everything in one atomic write. The same claim twice is stored
     /// once and returns the same receipt; a changed body under an existing claim id becomes the next version.
     pub fn submit(&self, claim: &Value) -> std::result::Result<Value, IntakeError> {
+        self.submit_with(claim, None)
+    }
+
+    /// `submit`, with a provenance record (`corrected_from`: who corrected which version and what changed) stored on the new version.
+    pub fn submit_with(&self, claim: &Value, corrected_from: Option<Value>) -> std::result::Result<Value, IntakeError> {
         if !claim.is_object() {
             return Err(IntakeError::Refused("a claim must be an object".into()));
         }
@@ -142,7 +147,10 @@ impl Intake {
             let version = self.store.get(&claim_id, None).map_err(fail)?.map_or(1, |l| l["version"].as_i64().unwrap_or(0) + 1);
             let results = (self.engine)(claim).map_err(IntakeError::Failed)?;
             let receipt = triage::make_receipt(claim, &results, &cfg, &(self.rule_pack_hash)(), &self.engine_version, (self.clock)());
-            let doc = json!({"claim_id": claim_id, "version": version, "input_hash": ihash, "claim": claim, "results": results, "receipt": receipt, "advisory": self.advisory_for(claim)});
+            let mut doc = json!({"claim_id": claim_id, "version": version, "input_hash": ihash, "claim": claim, "results": results, "receipt": receipt, "advisory": self.advisory_for(claim)});
+            if let Some(from) = &corrected_from {
+                doc["corrected_from"] = from.clone();
+            }
             if self.store.put_triaged(&doc).map_err(fail)? {
                 // shadow mode must never affect a claim
                 let _ = shadow::record(&*self.store, &claim_id, version, shadow::predict_clear(&receipt), receipt["created_at"].as_f64().unwrap_or(0.0));

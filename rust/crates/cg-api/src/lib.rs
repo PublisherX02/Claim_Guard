@@ -164,6 +164,21 @@ struct ChangePasswordBody {
 
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
+struct WhatIfBody {
+    changes: Value,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct WorkRecheckBody {
+    changes: Value,
+    reason: String,
+    #[serde(default)]
+    rule_ids: Option<Vec<String>>,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
 struct DecisionBody {
     action: String,
     #[serde(default)]
@@ -516,6 +531,8 @@ impl Api {
             ["work", "heartbeat"] if self.queue.is_some() => if m == "POST" { self.work_heartbeat(req) } else { Err(wrong()) },
             ["work", "claims", id, "findings", rule, "decision"] if self.queue.is_some() => if m == "POST" { self.work_decide(req, id, rule) } else { Err(wrong()) },
             ["work", "claims", id, "verify"] if self.queue.is_some() => if m == "POST" { self.work_verify(req, id) } else { Err(wrong()) },
+            ["work", "claims", id, "whatif"] if self.queue.is_some() => if m == "POST" { self.work_whatif(req, id) } else { Err(wrong()) },
+            ["work", "claims", id, "recheck"] if self.queue.is_some() => if m == "POST" { self.work_recheck(req, id) } else { Err(wrong()) },
             ["work", "bulk-confirm"] if self.queue.is_some() => if m == "POST" { self.work_bulk_confirm(req) } else { Err(wrong()) },
             ["work", "bulk-confirm"] if self.queue.is_some() => if m == "POST" { self.work_bulk_confirm(req) } else { Err(wrong()) },
             ["queue", "dashboard"] if self.queue.is_some() => if m == "GET" { self.q_dashboard(req) } else { Err(wrong()) },
@@ -1023,6 +1040,18 @@ impl Api {
             .filter(|b: &BulkBody| b.rule_id.len() <= 10 && (1..=25).contains(&b.claim_ids.len()) && b.claim_ids.iter().all(|c| !c.is_empty() && c.len() <= 64))
             .ok_or_else(invalid)?;
         self.queue()?.bulk_confirm(&p, &b.rule_id, &b.claim_ids).map(|v| ApiResponse::json(200, &v)).map_err(|e| self.qerr(e, req, &p))
+    }
+
+    fn work_whatif(&self, req: &ApiRequest, id: &str) -> R {
+        let p = self.need(req, "claims.recheck")?;
+        let b: WhatIfBody = body_of(req).map_err(|_| invalid())?;
+        self.queue()?.what_if(&p, id, &b.changes).map(|v| ApiResponse::json(200, &v)).map_err(|e| self.qerr(e, req, &p))
+    }
+
+    fn work_recheck(&self, req: &ApiRequest, id: &str) -> R {
+        let p = self.need(req, "claims.recheck")?;
+        let b: WorkRecheckBody = body_of(req).ok().filter(|b: &WorkRecheckBody| !b.reason.is_empty() && !too_long(&b.reason, 1000) && b.rule_ids.as_ref().map_or(true, |r| r.len() <= 15 && r.iter().all(|x| x.len() <= 10))).ok_or_else(invalid)?;
+        self.queue()?.recheck(&p, id, &b.changes, &b.reason, b.rule_ids.as_deref()).map(|v| ApiResponse::json(200, &v)).map_err(|e| self.qerr(e, req, &p))
     }
 
     fn work_verify(&self, req: &ApiRequest, id: &str) -> R {

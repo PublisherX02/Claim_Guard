@@ -19,7 +19,7 @@ use serde_json::{json, Map, Value};
 use sha2::Sha256;
 
 /// Top-level fields of a claim document that are encrypted. `decisions` is a list whose elements are encrypted one by one.
-pub const SEALED_FIELDS: [&str; 4] = ["claim", "results", "advisory", "explanation"];
+pub const SEALED_FIELDS: [&str; 5] = ["claim", "results", "advisory", "explanation", "corrected_from"];
 const MARKER: &str = "$enc";
 const TEXT_PREFIX: &str = "enc1:";
 

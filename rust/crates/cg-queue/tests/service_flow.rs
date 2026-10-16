@@ -58,6 +58,7 @@ fn q() -> Q {
     let e = engine();
     let intake = Arc::new(Intake { store: store.clone(), engine: engine_fn(e.clone()), log: w.svc.log.clone(), clock: clock.clone(), rule_pack_hash: cg_queue::flow::fixed_hash(e.pack.hash()), engine_version: e.code_hash(), advisory: Some(cg_queue::flow::advisory_fn(Arc::new(cg_engine::extensions::Extensions::load(&root()).unwrap()), store.clone())) });
     queue.set_intake(intake.clone());
+    queue.set_rules({ let e = e.clone(); Arc::new(move || e.cfg()) });
     let sc = store.clone();
     let explain = Arc::new(ExplainStep::new(store.clone(), Arc::new(NoModel), default_guard(), Arc::new(CircuitBreaker::new(clock.clone())), clock.clone(), Arc::new(move || cg_queue::flow::routing_config(&*sc))));
     let rt = Runtime { store: store.clone(), explain, clock, max_retries: 3 };
@@ -632,4 +633,125 @@ fn a_high_severity_request_the_system_wrote_does_not_send_the_claim_to_a_second_
     q.lease_to(&id, "CG-2002");
     let r = q.queue.decide_finding(&q.p("CG-2002"), &id, "R003", "confirm_issue", "").unwrap();
     assert_eq!(r["claim_state"], "decided", "the only high-severity finding was asked about by the system, so no countersignature is waiting on it");
+}
+
+
+// ---- corrections: what-if and recheck -----------------------------------------------------------------------------------------------
+
+/// A green stress claim whose first line amount is wrong (R007 and, because the total no longer adds up, R012), ready and leased to `who`.
+fn wrong_amount(q: &Q, id: &str, who: &str) -> Value {
+    let mut claim = q.find("green");
+    claim["claim_id"] = json!(id);
+    let line = &claim["lines"][0];
+    let right = line["quantity"].as_f64().unwrap() * line["unit_price"].as_f64().unwrap();
+    claim["lines"][0]["net_amount"] = json!(right + 11.0);
+    q.intake.submit(&claim).unwrap();
+    let d = q.store.get(id, None).unwrap().unwrap();
+    assert_eq!(process(&q.rt, id, 1, d["input_hash"].as_str().unwrap()), "ready");
+    q.lease_to(id, who);
+    claim
+}
+
+fn fix_both(claim: &Value) -> Value {
+    let line = &claim["lines"][0];
+    let right = line["quantity"].as_f64().unwrap() * line["unit_price"].as_f64().unwrap();
+    let others: f64 = claim["lines"].as_array().unwrap().iter().skip(1).map(|l| l["net_amount"].as_f64().unwrap()).sum();
+    json!([{"path": "/lines/0/net_amount", "value": right}, {"path": "/total_amount", "value": right + others}])
+}
+
+#[test]
+fn a_what_if_shows_what_a_correction_would_do_and_stores_nothing() {
+    let q = q();
+    let claim = wrong_amount(&q, "FIX-1", "CG-3003");
+    let who = q.p("CG-3003");
+    let view = q.queue.inbox(&who).unwrap().into_iter().find(|v| v["claim_id"] == "FIX-1").unwrap();
+    let advice = &view["copilot"];
+    assert_eq!(advice["summary"]["cleared"], json!(false));
+    let r007 = advice["suggestions"].as_array().unwrap().iter().find(|s| s["rule_id"] == "R007").unwrap();
+    assert!(!r007["proposed_edits"].as_array().unwrap().is_empty(), "R007 proposes the amount from quantity x price");
+    assert_eq!(view["can_correct"], json!(true));
+
+    let before = q.store.get("FIX-1", None).unwrap().unwrap();
+    let out = q.queue.what_if(&who, "FIX-1", &fix_both(&claim)).unwrap();
+    assert_eq!(out["stored"], json!(false));
+    assert_eq!(out["diff"]["would_clear"], json!(true), "{}", out["diff"]);
+    assert_eq!(out["diff"]["counts"]["newly_flagged"], json!(0));
+    assert!(out["copilot"]["summary"]["cleared"].as_bool().unwrap());
+    assert_eq!(q.store.get("FIX-1", None).unwrap().unwrap(), before, "a what-if changes nothing");
+    assert!(q.store.get("FIX-1", Some(2)).unwrap().is_none());
+    assert!(!std::fs::read_to_string(q.w.dir.path().join("review.jsonl")).unwrap_or_default().contains("recheck_run"));
+
+    // an identifier, a note, a field that does not exist and a no-op are refused
+    for bad in [json!([{"path": "/patient_id", "value": "PAT-X"}]), json!([{"path": "/notes", "value": "x"}]), json!([{"path": "/lines/9/net_amount", "value": 1}]),
+                json!([{"path": "/currency", "value": claim["currency"]}]), json!([]), json!([{"path": "/lines/0/quantity", "value": {"a": 1}}])] {
+        assert!(matches!(q.queue.what_if(&who, "FIX-1", &bad), Err(QueueError::Invalid(_))), "{bad}");
+    }
+    // someone who does not hold the claim cannot probe it
+    assert!(q.queue.what_if(&q.p("CG-3004"), "FIX-1", &fix_both(&claim)).is_err());
+    assert!(q.security_kinds().contains(&"claim_whatif".to_string()));
+}
+
+#[test]
+fn a_recheck_is_a_new_version_the_old_one_stays_and_every_step_is_on_record() {
+    let q = q();
+    let claim = wrong_amount(&q, "FIX-2", "CG-3003");
+    let who = q.p("CG-3003");
+    let out = q.queue.recheck(&who, "FIX-2", &fix_both(&claim), "amount and total corrected from the bill", None).unwrap();
+    assert_eq!((out["prior_version"].as_i64(), out["new_version"].as_i64()), (Some(1), Some(2)));
+    assert_eq!(out["still_flagged"], json!([]));
+    let mut cleared: Vec<String> = out["cleared_for_recheck"].as_array().unwrap().iter().map(|v| v.as_str().unwrap().to_string()).collect();
+    cleared.sort();
+    assert_eq!(cleared, ["R007", "R012"]);
+
+    // the original is untouched and closed; the new version carries who corrected what
+    let v1 = q.store.get("FIX-2", Some(1)).unwrap().unwrap();
+    assert_eq!(v1["state"], "rechecked");
+    assert_eq!(v1["claim"], claim, "the original claim is preserved exactly");
+    assert!(v1["decisions"].as_array().unwrap().iter().all(|d| d["action"] == "mark_corrected_for_recheck"));
+    let v2 = q.store.get("FIX-2", None).unwrap().unwrap();
+    assert_eq!(v2["version"], 2);
+    assert_ne!(v2["input_hash"], v1["input_hash"]);
+    assert_eq!(v2["corrected_from"]["by"], "CG-3003");
+    assert_eq!(v2["corrected_from"]["changes"].as_array().unwrap().len(), 2);
+    assert!(triage::flagged(&v2["results"]).is_empty(), "the corrected claim passes every check");
+
+    // the audit trail links both versions
+    let review = std::fs::read_to_string(q.w.dir.path().join("review.jsonl")).unwrap();
+    assert!(review.contains("mark_corrected_for_recheck") && review.contains("recheck_run") && review.contains("FIX-2@v2"));
+    assert!(q.security_kinds().contains(&"claim_rechecked".to_string()));
+    let trace = q.queue.trace(&q.p("CG-4004"), "FIX-2").unwrap();
+    assert_eq!(trace["versions"].as_array().unwrap().len(), 2);
+
+    // the new version walks the pipeline like any claim, and recorded decisions are not carried over to it
+    let h2 = v2["input_hash"].as_str().unwrap().to_string();
+    assert!(["ready", "decided"].contains(&process(&q.rt, "FIX-2", 2, &h2)));
+    assert!(q.store.get("FIX-2", Some(2)).unwrap().unwrap()["decisions"].as_array().map_or(true, |d| d.is_empty()));
+    // the lease on version 1 is gone: the same correction cannot be sent twice
+    assert!(q.queue.recheck(&who, "FIX-2", &fix_both(&claim), "again", None).is_err());
+}
+
+#[test]
+fn correcting_away_a_high_severity_finding_needs_a_senior_but_anyone_may_try_it_in_a_what_if() {
+    let q = q();
+    let claim = wrong_amount(&q, "FIX-3", "CG-2002");
+    let junior = q.p("CG-2002");
+    assert!(q.queue.what_if(&junior, "FIX-3", &fix_both(&claim)).is_ok(), "a what-if is open to a reviewer");
+    let denied = q.queue.recheck(&junior, "FIX-3", &fix_both(&claim), "fixed", None);
+    assert!(matches!(denied, Err(QueueError::Forbidden(_))), "{denied:?}");
+    assert!(q.store.get("FIX-3", Some(2)).unwrap().is_none(), "a refused recheck stores nothing");
+    assert_eq!(q.state("FIX-3"), "leased");
+    // administrators and trainees have no part in it
+    assert!(q.queue.what_if(&q.p("CG-4004"), "FIX-3", &fix_both(&claim)).is_err());
+    assert!(q.queue.what_if(&q.p("CG-1001"), "FIX-3", &fix_both(&claim)).is_err());
+}
+
+#[test]
+fn a_recheck_needs_a_reason_that_does_not_leak_the_identifier() {
+    let q = q();
+    let claim = wrong_amount(&q, "FIX-4", "CG-3003");
+    let who = q.p("CG-3003");
+    assert!(matches!(q.queue.recheck(&who, "FIX-4", &fix_both(&claim), "   ", None), Err(QueueError::Invalid(_))));
+    let leak = format!("fixed for {}", claim["patient_id"].as_str().unwrap());
+    assert!(matches!(q.queue.recheck(&who, "FIX-4", &fix_both(&claim), &leak, None), Err(QueueError::Invalid(_))));
+    assert!(q.store.get("FIX-4", Some(2)).unwrap().is_none());
 }

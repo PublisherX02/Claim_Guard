@@ -165,6 +165,7 @@ pub fn ui_files() -> BTreeMap<&'static str, (&'static [u8], &'static str)> {
         ("app.js", (&include_bytes!("../../../../src/access/ui/app.js")[..], js)),
         ("lib.js", (&include_bytes!("../../../../src/access/ui/lib.js")[..], js)),
         ("views-work.js", (&include_bytes!("../../../../src/access/ui/views-work.js")[..], js)),
+        ("views-fix.js", (&include_bytes!("../../../../src/access/ui/views-fix.js")[..], js)),
         ("views-admin.js", (&include_bytes!("../../../../src/access/ui/views-admin.js")[..], js)),
         ("views-ops.js", (&include_bytes!("../../../../src/access/ui/views-ops.js")[..], js)),
         ("views-import.js", (&include_bytes!("../../../../src/access/ui/views-import.js")[..], js)),
