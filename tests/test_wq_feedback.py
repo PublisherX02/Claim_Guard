@@ -119,6 +119,45 @@ class FeedbackBase:
         decided(self.store, 'C1', {'R001': ('FAIL', 'medium')}, {'R001': 'dismiss_with_reason'}, reason='   ')
         self.assertEqual(feedback.report(self.store)['rules']['R001']['dismissals_with_reason'], 0)
 
+    def _decided_on_line(self, claim_id, action, modifier, rule='R006'):
+        doc = queue_doc(claim_id)
+        doc['claim']['lines'][0]['service_code'] = 'SVC-DENTAL'
+        doc['claim']['lines'][0]['modifier'] = modifier
+        doc['results'] = results_of({rule: ('FAIL', 'medium')}, claim_id)
+        for r in doc['results']:
+            if r['rule_id'] == rule:
+                r['affected_line_ids'] = ['L1']
+        assert self.store.put_triaged(doc)
+        assert self.store.transition(claim_id, 1, 'triaged', 'ready', 'system:t', 1000.0)
+        assert self.store.lease(claim_id, 1, 'CG-2002', 1001.0, 5000.0)
+        assert self.store.add_decision(claim_id, 1, 'CG-2002', 1002.0, {'rule_id': rule, 'action': action, 'actor': 'CG-2002',
+                                                                        'reason': 'r', 'at': 1002.0})
+        assert self.store.transition(claim_id, 1, 'leased', 'decided', 'CG-2002', 1003.0, set_fields={'decided_by': 'CG-2002'})
+
+    def test_decisions_are_split_by_service_code_and_modifier(self):
+        for i in range(3):
+            self._decided_on_line(f'E{i}', 'dismiss_with_reason', 'EDU-SEPARATE')
+        self._decided_on_line('E9', 'confirm_issue', 'EDU-SEPARATE')
+        self._decided_on_line('P0', 'confirm_issue', None)
+        by = feedback.report(self.store)['rules']['R006']['by_service']
+        self.assertEqual(set(by), {'SVC-DENTAL | EDU-SEPARATE', 'SVC-DENTAL | no modifier'})
+        cell = by['SVC-DENTAL | EDU-SEPARATE']
+        self.assertEqual((cell['confirmed'], cell['dismissed'], cell['decisions']), (1, 3, 4))
+        self.assertAlmostEqual(cell['dismissal_rate'], 0.75)
+        self.assertEqual(by['SVC-DENTAL | no modifier']['dismissal_rate'], 0.0)
+
+    def test_a_finding_with_no_affected_line_is_counted_at_claim_level(self):
+        decided(self.store, 'C1', {'R012': ('FAIL', 'medium')}, {'R012': 'dismiss_with_reason'})
+        self.assertEqual(list(feedback.report(self.store)['rules']['R012']['by_service']), ['(claim level)'])
+
+    def test_the_service_split_adds_up_to_the_rule_totals_and_carries_no_identifiers(self):
+        self._decided_on_line('X1', 'dismiss_with_reason', 'EDU-SEPARATE', rule='R006')
+        text = json.dumps(feedback.report(self.store))
+        self.assertNotIn('X1', text)
+        self.assertNotIn('CG-2002', text)
+        rule = feedback.report(self.store)['rules']['R006']
+        self.assertEqual(sum(c['decisions'] for c in rule['by_service'].values()), rule['decisions'])
+
     def test_bad_parameters_are_refused(self):
         for kw in ({'min_decisions': 0}, {'min_decisions': True}, {'min_decisions': 2.5}, {'threshold': -0.1}, {'threshold': 1.5},
                    {'threshold': True}, {'threshold': 'x'}):

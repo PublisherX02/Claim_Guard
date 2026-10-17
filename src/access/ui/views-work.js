@@ -160,14 +160,14 @@
   function greenActions(view, ctx, refresh) {
     function send(action) {
       CG.api('POST', '/work/claims/' + encodeURIComponent(ctx.id) + '/verify', { action: action }).then(function () {
-        CG.toast(action === 'verify_clear' ? 'Marked clear.' : 'Sent to a senior reviewer.', 'good'); refresh();
+        CG.toast(action === 'verify_clear' ? 'Marked pre-validation clear (not a payer approval).' : 'Sent to a senior reviewer.', 'good'); refresh();
       }, CG.fail);
     }
     return h('div', { class: 'card flag-pass stack' },
       h('h2', { text: 'No rule flagged this claim' }),
-      h('p', { text: 'All findings passed. A person still looks at every claim: confirm it is clear, or send it up if something looks wrong to you.' }),
+      h('p', { text: 'All checks completed with no finding. This is a pre-validation clearance only: it is not payer approval and promises no payment. A person still looks at every claim: confirm it, or send it up if something looks wrong to you.' }),
       h('div', { class: 'row' },
-        h('button', { class: 'btn primary', type: 'button', text: 'Verify: this claim is clear', onclick: function () { send('verify_clear'); } }),
+        h('button', { class: 'btn primary', type: 'button', text: 'Verify: pre-validation clear', onclick: function () { send('verify_clear'); } }),
         h('button', { class: 'btn', type: 'button', text: 'Escalate to a senior', onclick: function () { send('escalate'); } })));
   }
 

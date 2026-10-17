@@ -747,6 +747,27 @@ pub fn validate_decision(decision: &Value, finding: &Value) -> Result<(), String
     Ok(())
 }
 
+const CLAIM_LEVEL: &str = "(claim level)";
+const LABEL_MAX: usize = 40;
+
+/// Which (service code, modifier) pairs a rule's finding pointed at (its affected lines), or one claim-level label (`feedback.py::_service_labels`).
+fn service_labels(doc: &Value, rule_id: &str) -> Vec<String> {
+    let lines: Vec<&Value> = doc["claim"]["lines"].as_array().into_iter().flatten().collect();
+    let mut labels = std::collections::BTreeSet::new();
+    for r in doc["results"].as_array().into_iter().flatten().filter(|r| r["rule_id"] == rule_id) {
+        for line_id in r["affected_line_ids"].as_array().into_iter().flatten() {
+            if let Some(line) = lines.iter().find(|l| l["line_id"] == *line_id) {
+                let part = |k: &str, none: &str| -> String {
+                    let s = line[k].as_str().map(str::trim).filter(|s| !s.is_empty()).unwrap_or(none);
+                    s.chars().take(LABEL_MAX).collect()
+                };
+                labels.insert(format!("{} | {}", part("service_code", "?"), part("modifier", "no modifier")));
+            }
+        }
+    }
+    if labels.is_empty() { vec![CLAIM_LEVEL.to_string()] } else { labels.into_iter().collect() }
+}
+
 /// What the people decided about the engine's findings, summed up so the rules can be reviewed (`src/workqueue/feedback.py`). Counts only:
 /// a dismissal reason is free text and may contain personal data, so the report carries how many reasons were recorded, not what they said.
 /// A rule is only marked a review candidate when it has at least `min_decisions` final decisions and the exact lower bound of its dismissal
@@ -759,6 +780,7 @@ pub fn feedback_report(store: &dyn QueueStore, min_decisions: i64, threshold: f6
     }
     let (mut decided, mut escalated, mut verified_clear, mut agreed, mut tiebroken, mut auto_cleared) = (0, 0, 0, 0, 0, 0);
     let (mut auto_requested_claims, mut auto_requested_findings) = (0, 0);
+    let mut services: BTreeMap<String, BTreeMap<String, (i64, i64)>> = BTreeMap::new(); // rule -> (service, modifier) -> (confirmed, dismissed)
     for doc in store.by_state("decided", BIG).unwrap_or_default() {
         decided += 1;
         if doc["auto_cleared"] == true {
@@ -794,7 +816,12 @@ pub fn feedback_report(store: &dyn QueueStore, min_decisions: i64, threshold: f6
             }
         }
         for (id, action) in last_final {
-            *row(&mut rules, id).get_mut(if action == "confirm_issue" { "confirmed" } else { "dismissed" }).expect("key") += 1;
+            let confirmed = action == "confirm_issue";
+            *row(&mut rules, id).get_mut(if confirmed { "confirmed" } else { "dismissed" }).expect("key") += 1;
+            for label in service_labels(&doc, id) {
+                let cell = services.entry(id.to_string()).or_default().entry(label).or_insert((0, 0));
+                if confirmed { cell.0 += 1 } else { cell.1 += 1 }
+            }
         }
         escalated += i64::from(doc["escalated"] == true);
         match doc["signoff"]["outcome"].as_str() {
@@ -813,6 +840,10 @@ pub fn feedback_report(store: &dyn QueueStore, min_decisions: i64, threshold: f6
         o.insert("dismissal_rate_lower".into(), json!(ci.map(|c| c.0)));
         o.insert("dismissal_rate_upper".into(), json!(ci.map(|c| c.1)));
         o.insert("review_candidate".into(), json!(n >= min_decisions && ci.is_some_and(|c| c.0 > threshold)));
+        if let Some(cells) = services.get(id) {
+            let by: Map<String, Value> = cells.iter().map(|(label, (c, d))| (label.clone(), json!({"confirmed": c, "dismissed": d, "decisions": c + d, "dismissal_rate": *d as f64 / (c + d) as f64}))).collect();
+            o.insert("by_service".into(), Value::Object(by));
+        }
         out.insert(id.clone(), Value::Object(o));
     }
     let countersigned = agreed + tiebroken;

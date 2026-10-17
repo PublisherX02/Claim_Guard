@@ -663,3 +663,47 @@ fn a_real_finding_alone_and_a_damaged_result_set_are_never_touched_by_auto_reque
         assert!(d["state"] == "ready" && d["decisions"].as_array().unwrap().is_empty() && d["auto_requested"].is_null(), "{id}");
     }
 }
+
+// ---- the feedback report splits a rule's decisions by the service code and modifier of the line it pointed at --------------------------
+
+/// Put a claim whose R006 finding points at line L1 (SVC-DENTAL with `modifier`), and walk it to decided with one final `action`.
+fn decided_on_line(store: &MemoryQueueStore, id: &str, modifier: Value, action: &str) {
+    let mut d = doc(id);
+    d["claim"]["lines"] = json!([{"line_id": "L1", "service_code": "SVC-DENTAL", "modifier": modifier, "quantity": 1}]);
+    d["results"] = Value::Array(
+        triage::rule_ids()
+            .into_iter()
+            .map(|r| if r == "R006" { json!({"rule_id": r, "status": "FAIL", "severity": "medium", "affected_line_ids": ["L1"], "evidence": []}) } else { json!({"rule_id": r, "status": "PASS", "severity": "medium", "affected_line_ids": [], "evidence": []}) })
+            .collect(),
+    );
+    assert!(store.put_triaged(&d).unwrap());
+    assert!(store.transition(id, 1, "triaged", "ready", "system:t", 1000.0, None, None, None).unwrap().is_some());
+    assert!(store.lease(id, 1, "CG-2002", 1001.0, 5000.0).unwrap().is_some());
+    let decision = json!({"rule_id": "R006", "action": action, "actor": "CG-2002", "reason": "r", "at": 1002.0});
+    assert!(store.add_decision(id, 1, "CG-2002", 1002.0, &decision).unwrap().is_some());
+    let mut fields = serde_json::Map::new();
+    fields.insert("decided_by".into(), json!("CG-2002"));
+    assert!(store.transition(id, 1, "leased", "decided", "CG-2002", 1003.0, None, Some(fields), Some("CG-2002")).unwrap().is_some());
+}
+
+#[test]
+fn the_feedback_report_splits_decisions_by_service_code_and_modifier() {
+    let w = world(probe(1, false));
+    for i in 0..3 {
+        decided_on_line(&w.store, &format!("E{i}"), json!("EDU-SEPARATE"), "dismiss_with_reason");
+    }
+    decided_on_line(&w.store, "E9", json!("EDU-SEPARATE"), "confirm_issue");
+    decided_on_line(&w.store, "P0", Value::Null, "confirm_issue");
+    let report = crate::service::feedback_report(&*w.store, 20, 0.5, 0.95);
+    let rule = &report["rules"]["R006"];
+    let by = rule["by_service"].as_object().unwrap();
+    assert_eq!(by.keys().map(String::as_str).collect::<Vec<_>>(), vec!["SVC-DENTAL | EDU-SEPARATE", "SVC-DENTAL | no modifier"]);
+    let cell = &by["SVC-DENTAL | EDU-SEPARATE"];
+    assert_eq!((cell["confirmed"].as_i64(), cell["dismissed"].as_i64(), cell["decisions"].as_i64()), (Some(1), Some(3), Some(4)));
+    assert_eq!(cell["dismissal_rate"].as_f64(), Some(0.75));
+    assert_eq!(by["SVC-DENTAL | no modifier"]["dismissal_rate"].as_f64(), Some(0.0));
+    let total: i64 = by.values().map(|c| c["decisions"].as_i64().unwrap()).sum();
+    assert_eq!(Some(total), rule["decisions"].as_i64(), "the split adds up to the rule's total");
+    let text = report.to_string();
+    assert!(!text.contains("E9") && !text.contains("CG-2002"), "no claim id or badge id in the report");
+}

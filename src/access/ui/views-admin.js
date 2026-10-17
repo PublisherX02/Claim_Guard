@@ -37,6 +37,12 @@
             : h('p', { class: 'muted', text: 'Nobody is on shift. Add badges in Routing settings.' })));
         // HITL feedback (counts only)
         var rules = Object.keys(f.rules || {});
+        var hotspots = [];
+        rules.forEach(function (r) {
+          var by = f.rules[r].by_service || {};
+          Object.keys(by).forEach(function (label) { if (by[label].dismissed > 0) hotspots.push({ rule: r, label: label, decisions: by[label].decisions, dismissed: by[label].dismissed, dismissal_rate: by[label].dismissal_rate }); });
+        });
+        hotspots.sort(function (a, b) { return (b.dismissal_rate - a.dismissal_rate) || (b.decisions - a.decisions); });
         out.appendChild(h('div', { class: 'card' }, h('h2', { text: 'What reviewers decided' }),
           h('p', { class: 'muted', text: f.note }),
           h('div', { class: 'tiles' }, tile(f.claims_decided, 'claims decided'), tile(f.verified_clear, 'verified clear'), tile(f.escalated, 'escalated'), tile(pct(f.signoff.disagreement_rate), 'senior disagreement')),
@@ -47,7 +53,15 @@
             { label: 'Dismissed', num: true, get: function (r) { return f.rules[r].dismissed; } },
             { label: 'Dismissal rate', num: true, get: function (r) { return pct(f.rules[r].dismissal_rate); } },
             { label: '95% interval', num: true, get: function (r) { var s = f.rules[r]; return s.dismissal_rate_lower === null ? '-' : pct(s.dismissal_rate_lower) + ' to ' + pct(s.dismissal_rate_upper); } },
-            { label: 'Look at rule?', get: function (r) { return f.rules[r].review_candidate ? CG.chip('review candidate', 'B') : null; } }], rules) : h('p', { class: 'muted', text: 'No decisions yet.' })));
+            { label: 'Look at rule?', get: function (r) { return f.rules[r].review_candidate ? CG.chip('review candidate', 'B') : null; } }], rules) : h('p', { class: 'muted', text: 'No decisions yet.' }),
+          hotspots.length ? h('div', null, h('h3', { text: 'Where dismissals concentrate' }),
+            h('p', { class: 'muted', text: 'The same decisions split by the service code and modifier of the line a finding pointed at. Counts only; a pointer to look at, not a verdict.' }),
+            CG.table([
+              { label: 'Rule', get: function (x) { return h('b', { class: 'mono', text: x.rule }); } },
+              { label: 'Service | modifier', get: function (x) { return h('span', { class: 'mono', text: x.label }); } },
+              { label: 'Decisions', num: true, get: function (x) { return x.decisions; } },
+              { label: 'Dismissed', num: true, get: function (x) { return x.dismissed; } },
+              { label: 'Dismissal rate', num: true, get: function (x) { return pct(x.dismissal_rate); } }], hotspots.slice(0, 12))) : null));
       }, CG.fail);
     }
     load();

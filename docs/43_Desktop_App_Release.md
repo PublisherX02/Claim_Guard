@@ -1,6 +1,13 @@
 # The Windows desktop app (ClaimGuard.exe): release notes
 
-**Current release: `desktop-v0.2.0`**, <https://github.com/PublisherX02/Claim_Guard/releases/tag/desktop-v0.2.0>. It is marked a pre-release: see "What is not tested" below. It replaces `desktop-v0.1.0` (28,165,007 bytes, SHA-256 `673BC26AF43CE4987EDEED8E8D41374C7AC09A0CDFC74914EE3DD369C23E0135`), which stays on the Releases page for reference; use v0.2.0.
+**Current release: `desktop-v0.3.0`** (29,042,447 bytes, SHA-256 `AB53BA400CFD8AB2556BEE29ABF6F1278D9E48997D8DFD0BF657BB747A361F06`), <https://github.com/PublisherX02/Claim_Guard/releases/tag/desktop-v0.3.0>. It is marked a pre-release: see "What is not tested" below. It replaces `desktop-v0.2.0` (built but never attached to its release page, so it could not be downloaded) and `desktop-v0.1.0` (28,165,007 bytes, SHA-256 `673BC26AF43CE4987EDEED8E8D41374C7AC09A0CDFC74914EE3DD369C23E0135`), which stays on the Releases page for reference; use v0.3.0.
+
+## What is new since v0.2.0
+- **Reviewer copilot, what-if and recheck** (docs/51): deterministic correction suggestions, a dry run that shows how a proposed change would affect the findings, and "Correct and recheck" as a new claim version, all traced.
+- **Fewer touches** (docs/50): auto-clear of green claims with a random audit sample and auto-request of missing information (both off by default), one-click and bulk confirm. Clearance is worded "pre-validation clear", never approval.
+- **Feedback report by service** (docs/49 section 7): the dismissal counts per rule are also split by the service code and modifier of the line, shown in Queue overview.
+- Sign-in hardening, backup and key rotation, and the explanation model served with vLLM in production (designed, not benchmarked on this PC).
+
 
 | | |
 |---|---|
