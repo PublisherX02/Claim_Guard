@@ -1,0 +1,348 @@
+{
+ "corpus_passages": 111,
+ "tuned_on": "paraphrase dev half",
+ "laya": {
+  "latency_ms_per_question_p50": 47.4,
+  "latency_ms_per_question_p95": 67.9,
+  "relevance_ece_test": 0.1029,
+  "relevance_test_candidates": 175
+ },
+ "systems": {
+  "bm25": {
+   "threshold": 0.0,
+   "dev_objective": null,
+   "slices": {
+    "en test (all)": {
+     "hit@1": 0.047619047619047616,
+     "hit@3": 0.047619047619047616,
+     "false_refusal": 0.7619047619047619,
+     "n_ans": 21,
+     "off_refused": 0.875,
+     "n_off": 8
+    },
+    "en test, <=1 shared word": {
+     "hit@1": 0.0,
+     "hit@3": 0.0,
+     "false_refusal": 0.8333333333333334,
+     "n_ans": 18
+    },
+    "en test, 0 shared words": {
+     "hit@1": 0.0,
+     "hit@3": 0.0,
+     "false_refusal": 0.875,
+     "n_ans": 8
+    },
+    "fr+ar test": {
+     "hit@1": 0.0,
+     "hit@3": 0.0,
+     "false_refusal": 1.0,
+     "n_ans": 6
+    },
+    "original 26 + 5 off-topic": {
+     "hit@1": 0.8846153846153846,
+     "hit@3": 0.9615384615384616,
+     "false_refusal": 0.038461538461538464,
+     "n_ans": 26,
+     "off_refused": 1.0,
+     "n_off": 5
+    },
+    "off-topic test (pure)": {
+     "off_refused": 1.0,
+     "n_off": 4
+    },
+    "off-topic test (near-domain)": {
+     "off_refused": 0.75,
+     "n_off": 4
+    }
+   }
+  },
+  "dense_minilm_en": {
+   "threshold": 0.34,
+   "dev_objective": 0.7592592592592593,
+   "slices": {
+    "en test (all)": {
+     "hit@1": 0.5714285714285714,
+     "hit@3": 0.7619047619047619,
+     "false_refusal": 0.14285714285714285,
+     "n_ans": 21,
+     "off_refused": 0.75,
+     "n_off": 8
+    },
+    "en test, <=1 shared word": {
+     "hit@1": 0.5,
+     "hit@3": 0.7222222222222222,
+     "false_refusal": 0.16666666666666666,
+     "n_ans": 18
+    },
+    "en test, 0 shared words": {
+     "hit@1": 0.375,
+     "hit@3": 0.5,
+     "false_refusal": 0.375,
+     "n_ans": 8
+    },
+    "fr+ar test": {
+     "hit@1": 0.0,
+     "hit@3": 0.0,
+     "false_refusal": 1.0,
+     "n_ans": 6
+    },
+    "original 26 + 5 off-topic": {
+     "hit@1": 0.9615384615384616,
+     "hit@3": 0.9615384615384616,
+     "false_refusal": 0.0,
+     "n_ans": 26,
+     "off_refused": 1.0,
+     "n_off": 5
+    },
+    "off-topic test (pure)": {
+     "off_refused": 1.0,
+     "n_off": 4
+    },
+    "off-topic test (near-domain)": {
+     "off_refused": 0.5,
+     "n_off": 4
+    }
+   }
+  },
+  "hybrid_minilm_en": {
+   "threshold": 0.34,
+   "dev_objective": 0.7037037037037037,
+   "slices": {
+    "en test (all)": {
+     "hit@1": 0.47619047619047616,
+     "hit@3": 0.5714285714285714,
+     "false_refusal": 0.14285714285714285,
+     "n_ans": 21,
+     "off_refused": 0.75,
+     "n_off": 8
+    },
+    "en test, <=1 shared word": {
+     "hit@1": 0.3888888888888889,
+     "hit@3": 0.5,
+     "false_refusal": 0.16666666666666666,
+     "n_ans": 18
+    },
+    "en test, 0 shared words": {
+     "hit@1": 0.0,
+     "hit@3": 0.0,
+     "false_refusal": 0.375,
+     "n_ans": 8
+    },
+    "fr+ar test": {
+     "hit@1": 0.0,
+     "hit@3": 0.0,
+     "false_refusal": 1.0,
+     "n_ans": 6
+    },
+    "original 26 + 5 off-topic": {
+     "hit@1": 0.9615384615384616,
+     "hit@3": 0.9615384615384616,
+     "false_refusal": 0.0,
+     "n_ans": 26,
+     "off_refused": 1.0,
+     "n_off": 5
+    },
+    "off-topic test (pure)": {
+     "off_refused": 1.0,
+     "n_off": 4
+    },
+    "off-topic test (near-domain)": {
+     "off_refused": 0.5,
+     "n_off": 4
+    }
+   }
+  },
+  "dense_minilm_multi": {
+   "threshold": 0.29,
+   "dev_objective": 0.7407407407407407,
+   "slices": {
+    "en test (all)": {
+     "hit@1": 0.42857142857142855,
+     "hit@3": 0.8095238095238095,
+     "false_refusal": 0.047619047619047616,
+     "n_ans": 21,
+     "off_refused": 0.625,
+     "n_off": 8
+    },
+    "en test, <=1 shared word": {
+     "hit@1": 0.3888888888888889,
+     "hit@3": 0.7777777777777778,
+     "false_refusal": 0.05555555555555555,
+     "n_ans": 18
+    },
+    "en test, 0 shared words": {
+     "hit@1": 0.25,
+     "hit@3": 0.75,
+     "false_refusal": 0.0,
+     "n_ans": 8
+    },
+    "fr+ar test": {
+     "hit@1": 0.6666666666666666,
+     "hit@3": 1.0,
+     "false_refusal": 0.0,
+     "n_ans": 6
+    },
+    "original 26 + 5 off-topic": {
+     "hit@1": 0.8076923076923077,
+     "hit@3": 0.9615384615384616,
+     "false_refusal": 0.0,
+     "n_ans": 26,
+     "off_refused": 1.0,
+     "n_off": 5
+    },
+    "off-topic test (pure)": {
+     "off_refused": 1.0,
+     "n_off": 4
+    },
+    "off-topic test (near-domain)": {
+     "off_refused": 0.25,
+     "n_off": 4
+    }
+   }
+  },
+  "hybrid_minilm_multi": {
+   "threshold": 0.29,
+   "dev_objective": 0.7222222222222222,
+   "slices": {
+    "en test (all)": {
+     "hit@1": 0.47619047619047616,
+     "hit@3": 0.6190476190476191,
+     "false_refusal": 0.047619047619047616,
+     "n_ans": 21,
+     "off_refused": 0.625,
+     "n_off": 8
+    },
+    "en test, <=1 shared word": {
+     "hit@1": 0.3888888888888889,
+     "hit@3": 0.5555555555555556,
+     "false_refusal": 0.05555555555555555,
+     "n_ans": 18
+    },
+    "en test, 0 shared words": {
+     "hit@1": 0.125,
+     "hit@3": 0.375,
+     "false_refusal": 0.0,
+     "n_ans": 8
+    },
+    "fr+ar test": {
+     "hit@1": 0.6666666666666666,
+     "hit@3": 0.8333333333333334,
+     "false_refusal": 0.0,
+     "n_ans": 6
+    },
+    "original 26 + 5 off-topic": {
+     "hit@1": 0.9615384615384616,
+     "hit@3": 0.9615384615384616,
+     "false_refusal": 0.0,
+     "n_ans": 26,
+     "off_refused": 1.0,
+     "n_off": 5
+    },
+    "off-topic test (pure)": {
+     "off_refused": 1.0,
+     "n_off": 4
+    },
+    "off-topic test (near-domain)": {
+     "off_refused": 0.25,
+     "n_off": 4
+    }
+   }
+  },
+  "laya_rerank": {
+   "threshold": 0.25,
+   "dev_objective": 0.7407407407407407,
+   "slices": {
+    "en test (all)": {
+     "hit@1": 0.38095238095238093,
+     "hit@3": 0.6666666666666666,
+     "false_refusal": 0.047619047619047616,
+     "n_ans": 21,
+     "off_refused": 0.625,
+     "n_off": 8
+    },
+    "en test, <=1 shared word": {
+     "hit@1": 0.3333333333333333,
+     "hit@3": 0.6111111111111112,
+     "false_refusal": 0.05555555555555555,
+     "n_ans": 18
+    },
+    "en test, 0 shared words": {
+     "hit@1": 0.25,
+     "hit@3": 0.375,
+     "false_refusal": 0.125,
+     "n_ans": 8
+    },
+    "fr+ar test": {
+     "hit@1": 0.6666666666666666,
+     "hit@3": 0.6666666666666666,
+     "false_refusal": 0.16666666666666666,
+     "n_ans": 6
+    },
+    "original 26 + 5 off-topic": {
+     "hit@1": 0.7307692307692307,
+     "hit@3": 0.8076923076923077,
+     "false_refusal": 0.038461538461538464,
+     "n_ans": 26,
+     "off_refused": 1.0,
+     "n_off": 5
+    },
+    "off-topic test (pure)": {
+     "off_refused": 0.75,
+     "n_off": 4
+    },
+    "off-topic test (near-domain)": {
+     "off_refused": 0.5,
+     "n_off": 4
+    }
+   }
+  },
+  "laya_gate_only": {
+   "threshold": 0.25,
+   "dev_objective": 0.7222222222222222,
+   "slices": {
+    "en test (all)": {
+     "hit@1": 0.47619047619047616,
+     "hit@3": 0.6666666666666666,
+     "false_refusal": 0.047619047619047616,
+     "n_ans": 21,
+     "off_refused": 0.625,
+     "n_off": 8
+    },
+    "en test, <=1 shared word": {
+     "hit@1": 0.3888888888888889,
+     "hit@3": 0.6111111111111112,
+     "false_refusal": 0.05555555555555555,
+     "n_ans": 18
+    },
+    "en test, 0 shared words": {
+     "hit@1": 0.125,
+     "hit@3": 0.375,
+     "false_refusal": 0.125,
+     "n_ans": 8
+    },
+    "fr+ar test": {
+     "hit@1": 0.5,
+     "hit@3": 0.6666666666666666,
+     "false_refusal": 0.16666666666666666,
+     "n_ans": 6
+    },
+    "original 26 + 5 off-topic": {
+     "hit@1": 0.9230769230769231,
+     "hit@3": 0.9230769230769231,
+     "false_refusal": 0.038461538461538464,
+     "n_ans": 26,
+     "off_refused": 1.0,
+     "n_off": 5
+    },
+    "off-topic test (pure)": {
+     "off_refused": 0.75,
+     "n_off": 4
+    },
+    "off-topic test (near-domain)": {
+     "off_refused": 0.5,
+     "n_off": 4
+    }
+   }
+  }
+ }
+}
