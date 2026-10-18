@@ -88,7 +88,23 @@
    "ok": true
   },
   {
-   "check": "a batch of 1,000 is accepted in one request",
+   "check": "the 1,000-claim request is answered at once with a job id (202)",
+   "ok": true
+  },
+  {
+   "check": "...and a stranger cannot read the job",
+   "ok": true
+  },
+  {
+   "check": "the job reports progress while it runs",
+   "ok": true
+  },
+  {
+   "check": "the job finishes with one row per claim, all accepted",
+   "ok": true
+  },
+  {
+   "check": "an unknown job is a 404",
    "ok": true
   },
   {
@@ -105,7 +121,8 @@
   }
  ],
  "batch_1000": {
-  "seconds_for_the_request": 17.12,
+  "seconds_until_the_answer": 0.06,
+  "seconds_until_finished": 17.5,
   "claims": 1000,
   "green": 1000,
   "sampled": 50

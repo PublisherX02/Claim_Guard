@@ -1,0 +1,42 @@
+{
+ "checks": [
+  {
+   "check": "the Arabic form really is Arabic (no English field name is left)",
+   "ok": true
+  },
+  {
+   "check": "the Arabic claim is accepted",
+   "ok": true
+  },
+  {
+   "check": "the English form of the same claim is recognised as the same claim",
+   "ok": true
+  },
+  {
+   "check": "import-validate returns the canonical claim and the recorded changes",
+   "ok": true
+  },
+  {
+   "check": "a Hijri date is refused",
+   "ok": true
+  },
+  {
+   "check": "an Arabic digit inside an identifier is refused",
+   "ok": true
+  },
+  {
+   "check": "an unknown Arabic field name is refused",
+   "ok": true
+  },
+  {
+   "check": "an ambiguous day/month date is refused",
+   "ok": true
+  }
+ ],
+ "refusal_reasons": {
+  "hijri": "claim refused: /submission_date: a Hijri date (هـ); the calendar is not converted here, write the Gregorian date as YYYY-MM-DD",
+  "identifier": "claim refused: /patient_id: an identifier contains a non-ASCII digit (U+0660); identifiers are matched exactly and are never converted, so write it with ASCII letters and digits as it is issued",
+  "field": "claim refused: /حقل غير معروف: 'حقل غير معروف' is not a field name this system knows; use the English name or one of the Arabic names in the field glossary",
+  "ambiguous": "claim refused: /submission_date: the order of day and month is ambiguous (03/04/2026 is 3 April in some countries and 4 March in others); write the date as YYYY-MM-DD"
+ }
+}

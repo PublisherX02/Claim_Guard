@@ -16,6 +16,8 @@ A claim is read into the one canonical claim (English keys and values, docs/03) 
 
 Tests: 16 unit tests in `localize.rs`; `cg-queue/tests/arabic_twin.rs` rewrites every valid public claim (development + validation) in Arabic (first Arabic label of each field, first Arabic word of each value, Arabic-Indic digits) and requires the same canonical claim and the same fifteen results. It passes. Limits of that test: it uses one Arabic spelling per field; it was generated from the same glossary it tests, so it proves the converter is consistent with the table, not that the table is right Arabic.
 
+Over real HTTP (`rust/tools/arabic_e2e.py`, 8 of 8 pass, `outputs/defense/arabic_e2e.json`): the Arabic form of a clean public claim is accepted; sending the English form of the same claim afterwards is recognised as the same claim (`already_stored`, same lane); import-validate returns the canonical claim with 20+ recorded changes; a Hijri date, an Arabic digit in an identifier, an unknown Arabic field name and an ambiguous `٠٣/٠٤/٢٠٢٦` are each refused with the reason.
+
 Not done: the OCR reader's Arabic language data was not checked; the console does not yet set `dir="auto"` on free text; Hijri conversion is deliberately not offered.
 
 ## 2. The field dictionary in "Ask the rulebook"
