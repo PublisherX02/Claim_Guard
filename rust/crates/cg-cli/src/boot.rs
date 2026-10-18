@@ -163,6 +163,9 @@ pub fn boot(o: &Options) -> Result<Boot, String> {
     let review_log = Arc::new(AuditLog::open(data_dir.join("review_audit.jsonl")).map_err(|e| e.to_string())?);
     let engine = Arc::new(Engine::load(&root).map_err(|e| format!("rule engine: {e}"))?);
     let payer = Arc::new(cg_engine::payer::PayerRules::open(&root, &data_dir, engine.clone()).map_err(|e| format!("payer rules: {e}"))?);
+    if let Some((embedder, threshold)) = crate::embedder::HttpEmbedder::from_env(&env)? {
+        payer.set_embedder(Arc::new(embedder), threshold); // meaning-based "Ask the rulebook"; without it (or when it is down) the keyword search answers
+    }
     {
         // an approved change of the payer rules is carried out here; other processes (the worker, the API) notice it within seconds
         let pr = payer.clone();

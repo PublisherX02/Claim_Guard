@@ -21,7 +21,21 @@ class RustCompose(unittest.TestCase):
         cls.svc = services(cls.text)
 
     def test_the_same_services_as_the_python_stack(self):
-        self.assertEqual(set(self.svc), {'proxy', 'api', 'worker', 'mongo', 'redis', 'vllm', 'vllm-vision', 'vllm-fetch', 'reader'})
+        self.assertEqual(set(self.svc), {'proxy', 'api', 'worker', 'mongo', 'redis', 'vllm', 'vllm-vision', 'vllm-fetch', 'reader', 'embed'})
+
+    def test_the_embedding_service_is_optional_has_no_route_out_and_demands_its_token(self):
+        e = self.svc['embed']
+        self.assertIn('profiles: ["search"]', e)
+        self.assertIn('networks: [search]', e)
+        self.assertNotRegex(e, r'networks:[^\n]*(edge|egress|data|reader)')
+        self.assertRegex(self.text, r'search:\s*\n\s+internal: true')
+        self.assertIn('EMBED_TOKEN: ${EMBEDDER_TOKEN:?', e)
+        for flag in ('read_only: true', 'cap_drop: [ALL]', 'no-new-privileges:true'):
+            self.assertIn(flag, e)
+        self.assertIn('EMBEDDER_URL: ${EMBEDDER_URL:-}', self.text)      # empty by default: the keyword search answers
+        df = (DEPLOY.parent / 'embed' / 'Dockerfile').read_text(encoding='utf-8')
+        self.assertRegex(df, r"revision='[0-9a-f]{40}'")                     # the weights are pinned to one revision
+        self.assertIn('HF_HUB_OFFLINE=1', df)
 
     def test_only_the_proxy_publishes_ports(self):
         for name, block in self.svc.items():
@@ -58,7 +72,7 @@ class RustCompose(unittest.TestCase):
         nets = self.text.split('\nnetworks:\n', 1)[1].split('\nvolumes:\n', 1)[0]
         self.assertRegex(nets, r'data:\s*\n\s+internal: true')
         self.assertIn('networks: [edge]', self.svc['proxy'])
-        self.assertIn('networks: [edge, data, reader]', self.svc['api'])
+        self.assertIn('networks: [edge, data, reader, search]', self.svc['api'])
         self.assertRegex(nets, r'reader:\s*\n\s+internal: true')      # the document reader has no route out either
         self.assertIn('networks: [reader]', self.svc['reader'])
         self.assertNotRegex(self.svc['reader'], r'networks:[^\n]*(edge|egress|data)')
@@ -183,10 +197,10 @@ class RustSupplyChain(unittest.TestCase):
     def test_every_third_party_image_is_pinned_by_digest(self):
         compose = (DEPLOY / 'compose.yml').read_text(encoding='utf-8')
         for line in re.findall(r'(?m)^\s+image: (\S+)', compose):
-            if line.startswith(('claimguard-rs', 'claimguard-reader')):
+            if line.startswith(('claimguard-rs', 'claimguard-reader', 'claimguard-embed')):
                 continue                                   # our own images, built from the Dockerfiles
             self.assertRegex(line, self.PIN, line)
-        for df in (DEPLOY / 'Dockerfile', DEPLOY.parent / 'ocr' / 'Dockerfile'):
+        for df in (DEPLOY / 'Dockerfile', DEPLOY.parent / 'ocr' / 'Dockerfile', DEPLOY.parent / 'embed' / 'Dockerfile'):
             for line in re.findall(r'(?m)^FROM (\S+)', df.read_text(encoding='utf-8')):
                 self.assertRegex(line, self.PIN, line)
         for name in ('backup.sh', 'restore.sh'):

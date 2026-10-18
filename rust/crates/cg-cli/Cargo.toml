@@ -23,3 +23,4 @@ rpassword = "7"
 cg-timestamp = { path = "../cg-timestamp" }
 cg-ingest = { path = "../cg-ingest" }
 cg-sim = { path = "../cg-sim" }
+ureq = { version = "2", default-features = false, features = ["json"] }

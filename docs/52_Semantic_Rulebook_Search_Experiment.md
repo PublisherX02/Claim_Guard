@@ -1,6 +1,6 @@
 # 52 | Asking the rulebook in the operator's own words: BM25 vs meaning-based search vs a Laya gate
 
-**Status: experiment, not wired into the product.** "Ask the rulebook" (docs/45 section 5) is still the Rust BM25 retriever. Code and data: `experiments/rag_semantic/` (`python experiments/rag_semantic/run.py`; the run needs a newer `transformers` than the project's, see the header of `run.py`). Results: `results.json` (final), `results_first_run.json` (the first run, kept on record).
+**Status: the dense multilingual retriever is wired into the product (2026-10-18); Laya and the hybrid are not.** "Ask the rulebook" ranks by meaning when an embedding service is configured and reachable, and by BM25 otherwise (section 7). Code and data of the experiment: `experiments/rag_semantic/` (`python experiments/rag_semantic/run.py`; the run needs a newer `transformers` than the project's, see the header of `run.py`). Results: `results.json` (final), `results_first_run.json` (the first run, kept on record). The product reproduces the numbers below: `python rust/tools/rag_parity.py` (section 7).
 
 ## 1. The problem and the idea
 
@@ -43,3 +43,25 @@ Laya's relevance probabilities, as a calibration check on 350 test candidates: E
 - **Laya was not fine-tuned for relevance.** Only the zero-shot checkpoint was tried; a fine-tuned judge, with training pairs kept out of the test questions, is the open step.
 - **Nothing is wired.** Serving a sentence-embedding model from the Rust server needs either an ONNX model loaded in Rust or a small model service; BM25 would stay as the fallback when it is unavailable. That is a separate decision.
 - **Latency and memory were measured on the development laptop's GPU**, not on the target server.
+
+## 7. What was wired into the product, and how it was checked
+
+**Shipped**: exactly the `dense_minilm_multi` system of section 3 and nothing else: `paraphrase-multilingual-MiniLM-L12-v2` (revision `e8f8c211226b894fcb81acc59f3b34ba3efd5f42`), cosine of normalised embeddings, refusal when the closest passage is below 0.29 (chosen on the dev half), the top four passages one per (source, kind). Laya and the BM25 hybrid are left out because section 4 shows they add nothing. No "BM25 first, dense if unsure" variant was added, because it was not measured and the numbers here would stop describing the product.
+
+**How it runs**: a sidecar (`deploy/embed/service.py`, own container, CPU, weights baked in at the pinned revision, `HF_HUB_OFFLINE=1`, bearer token, network with no route out, compose profile `search`) turns texts into vectors. The Rust server (`cg-engine/src/rag.rs`, `payer.rs`, `cg-cli/src/embedder.rs`) embeds the 111 passages on first use and caches the vectors by hash of the passage text; an approved policy change re-embeds only the policy passages (their label names the table version), not the rules. It embeds the question per request, ranks by cosine and answers with the quoted passage as before. Switched on by `EMBEDDER_URL`, `EMBEDDER_TOKEN` (and `EMBEDDER_THRESHOLD`, default 0.29: it belongs to this model).
+
+**What the user sees**: every semantic answer carries the caveat "closest passage by meaning; it may not answer your question" (section 4.5), and the console shows it. If the service is not configured the keyword search answers exactly as before (`mode: keyword`). If it is configured but down, slow or answering garbage, the server answers with the keyword search, says so (`fallback` in the reply, shown in the console), and leaves the service alone for 20 seconds so a dead sidecar costs one failed call, not one per question.
+
+**Check that production equals the experiment** (`rust/tools/rag_parity.py`, 2026-10-18, output `outputs/defense/rag_parity.json`): the CPU sidecar and the Rust cosine, through the real HTTP route, on the frozen question sets, against `results.json` (which was a GPU run in Python). All slices agree to four decimals:
+
+| Slice | hit@1 | hit@3 | false refusal | off-topic refused |
+|---|---|---|---|---|
+| English paraphrases, test (n=21 + 8 off-topic) | 0.4286 | 0.8095 | 0.0476 | 0.625 |
+| French + Arabic, test (n=6) | 0.6667 | 1.0000 | 0 | |
+| Original 26 + 5 off-topic | 0.8077 | 0.9615 | 0 | 1.0 |
+| Off-topic, pure (n=4) | | | | 1.0 |
+| Off-topic, near the domain (n=4) | | | | 0.25 |
+
+With the sidecar stopped, the keyword fallback reproduces BM25's numbers on the original 26 (hit@1 0.88, hit@3 0.96).
+
+**What got worse, said plainly**: on the original 26 questions top-1 falls from 88% (BM25) to 81% (hit@3 is unchanged at 96%), and near-domain questions are refused 25% of the time instead of 75%: "how do I appeal a rejected claim" now returns the nearest rule. That is why the caveat is on every semantic answer. The numbers are on small sets written by the assistant (section 5); real operator questions are still the open test, and nothing here was run on the target server.

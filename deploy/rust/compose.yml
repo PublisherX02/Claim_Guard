@@ -44,6 +44,10 @@ x-app: &app
     DOCUMENT_READER_TOKEN: ${DOCUMENT_READER_TOKEN:-}
     DOCUMENT_READER_ENGINE: ${DOCUMENT_READER_ENGINE:-auto}
     DOCUMENT_READER_LANGS: ${DOCUMENT_READER_LANGS:-eng}
+    # "Ask the rulebook" by meaning (docs/52): the embedding service's address (empty: the keyword search answers; it also answers whenever this service is down)
+    EMBEDDER_URL: ${EMBEDDER_URL:-}
+    EMBEDDER_TOKEN: ${EMBEDDER_TOKEN:-}
+    EMBEDDER_THRESHOLD: ${EMBEDDER_THRESHOLD:-0.29}
   volumes:
     - claimguard_data:/data
   depends_on:
@@ -75,7 +79,7 @@ services:
 
   api:
     <<: *app
-    networks: [edge, data, reader]
+    networks: [edge, data, reader, search]
     command: ["cg", "serve", "--host", "0.0.0.0", "--port", "8443", "--queue", "--behind-proxy"]
     expose: ["8443"]
 
@@ -155,6 +159,22 @@ services:
     read_only: true
     tmpfs: [/tmp]
     mem_limit: 2g
+    pids_limit: 128
+    cpus: 2.0
+
+  embed:                        # optional, "Ask the rulebook" by meaning (docs/52): a small sentence-embedding model on CPU, weights baked in; start with --profile search
+    profiles: ["search"]
+    build: { context: ../.., dockerfile: deploy/embed/Dockerfile }
+    image: claimguard-embed:latest
+    restart: unless-stopped
+    environment:
+      EMBED_TOKEN: ${EMBEDDER_TOKEN:?set EMBEDDER_TOKEN in .env}
+    networks: [search]                       # a network with no route out: shared only with the API
+    security_opt: ["no-new-privileges:true"]
+    cap_drop: [ALL]
+    read_only: true
+    tmpfs: [/tmp]
+    mem_limit: 1g
     pids_limit: 128
     cpus: 2.0
 
@@ -240,6 +260,8 @@ networks:
   data:
     internal: true
   reader:
+    internal: true
+  search:
     internal: true
   egress: {}
 

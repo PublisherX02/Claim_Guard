@@ -2,10 +2,14 @@
 //! people read about, and each policy passage names the table version).
 //!
 //! What it is and is not. It is retrieval: a question goes in, the passages of the rulebook and the policies that best match come out, each with the rule or
-//! policy it came from, ranked by BM25 (lexical, no model, no network, deterministic). Nothing is generated, so nothing can be invented: the answer IS the
-//! quoted passage and its citation. A question that matches nothing is refused ("not in the rulebook documents") instead of answered with the nearest guess.
-//! It never sees a claim: the corpus is the rulebook and the policy table only. A dense (embedding) retriever and a model that phrases an answer are possible
-//! later; they would have to beat this on `tests` below before replacing it.
+//! policy it came from. Nothing is generated, so nothing can be invented: the answer IS the quoted passage and its citation. It never sees a claim: the corpus
+//! is the rulebook and the policy table only.
+//!
+//! Two ways to rank, chosen per request by `PayerRules::ask`:
+//! * **semantic** (when an embedding sidecar is configured and reachable; docs/52): the cosine of sentence embeddings (`paraphrase-multilingual-MiniLM-L12-v2`),
+//!   refusing below a threshold chosen on a held-out half. It understands "the same procedure appears twice" and French or Arabic questions. Its weakness is
+//!   a question close to the domain but not answered by it ("how do I appeal a rejected claim"): the nearest passage comes back, so the answer carries a caveat.
+//! * **keyword** (BM25: lexical, no model, no network, deterministic): the fallback, and the only mode when no sidecar is configured. It refuses what matches nothing.
 
 use serde_json::{json, Value};
 use std::collections::{BTreeMap, HashMap};
@@ -36,6 +40,11 @@ pub struct Hit {
     pub kind: String,
     pub text: String,
     pub score: f64,
+}
+
+/// Turns texts into vectors of one fixed length (the embedding sidecar, `deploy/embed`). Implemented over HTTP in `cg-cli`; tests use a stub.
+pub trait Embedder: Send + Sync {
+    fn embed(&self, texts: &[String]) -> Result<Vec<Vec<f32>>, String>;
 }
 
 fn stem(w: &str) -> String {
@@ -142,6 +151,40 @@ impl Index {
         self.passages.len()
     }
 
+    /// The text embedded for each passage, in index order. The experiment (docs/52) embedded exactly this: the source and kind in front of the passage.
+    pub fn embed_texts(&self) -> Vec<String> {
+        self.passages.iter().map(|p| format!("{} ({}): {}", p.source, p.kind, p.text)).collect()
+    }
+
+    /// Semantic search: the passages whose vectors are closest to the question's, one per (source, kind), best first. Refused (empty) when even the closest is
+    /// below `threshold`: a question that is not about the rulebook has no close passage. `vectors` are the passage vectors in index order.
+    pub fn search_dense(&self, vectors: &[Vec<f32>], question_vec: &[f32], k: usize, threshold: f64) -> Vec<Hit> {
+        if vectors.len() != self.passages.len() || question_vec.is_empty() {
+            return vec![];
+        }
+        let qn = norm(question_vec);
+        if qn == 0.0 {
+            return vec![];
+        }
+        let mut scored: Vec<(f64, usize)> = vectors.iter().enumerate().map(|(i, v)| (dot(v, question_vec) / (norm(v).max(1e-12) * qn), i)).collect();
+        scored.sort_by(|a, b| b.0.partial_cmp(&a.0).unwrap_or(std::cmp::Ordering::Equal).then(a.1.cmp(&b.1)));
+        if scored.first().map_or(true, |t| t.0 < threshold) {
+            return vec![];
+        }
+        let mut out: Vec<Hit> = vec![];
+        for (score, i) in scored {
+            let p = &self.passages[i];
+            if out.iter().any(|h| h.source == p.source && h.kind == p.kind) {
+                continue;
+            }
+            out.push(Hit { source: p.source.clone(), kind: p.kind.clone(), text: p.text.clone(), score });
+            if out.len() >= k {
+                break;
+            }
+        }
+        out
+    }
+
     pub fn is_empty(&self) -> bool {
         self.passages.is_empty()
     }
@@ -193,6 +236,14 @@ impl Index {
         }
         out
     }
+}
+
+fn dot(a: &[f32], b: &[f32]) -> f64 {
+    a.iter().zip(b).map(|(x, y)| *x as f64 * *y as f64).sum()
+}
+
+fn norm(a: &[f32]) -> f64 {
+    dot(a, a).sqrt()
 }
 
 pub fn hits_json(question: &str, hits: &[Hit]) -> Value {

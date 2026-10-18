@@ -12,6 +12,7 @@ use serde_json::{json, Value};
 use std::io::{BufRead, BufReader, Write};
 use std::path::PathBuf;
 
+mod embedder;
 mod boot;
 mod ingest_cmd;
 mod ledger_cmd;

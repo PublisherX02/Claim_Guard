@@ -1,0 +1,4 @@
+# The embedding sidecar's own dependencies (a separate container from the server). torch is installed first, as the CPU wheel (see the Dockerfile). Pinned.
+sentence-transformers==5.2.3
+transformers==4.47.1
+numpy<3
