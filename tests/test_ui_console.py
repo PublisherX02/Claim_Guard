@@ -90,3 +90,24 @@ class ConsoleServing(unittest.TestCase):
 
 if __name__ == '__main__':
     unittest.main()
+
+
+class AdminScreens(unittest.TestCase):
+    """What the administrator's screens must do (found in the browser test of 2026-10-18)."""
+
+    def setUp(self):
+        self.text = (UI_DIR / 'views-admin.js').read_text(encoding='utf-8')
+
+    def test_one_submission_is_one_batch(self):
+        # claims were once sent 20 at a time, so a 25-claim paste became two batches (and two audit samples)
+        self.assertNotRegex(self.text, r'claims\.slice\(\s*i\s*,')
+        self.assertRegex(self.text, r"CG\.api\('POST', '/queue/submit', \{ claims: claims \}\)")
+        self.assertIn('var MAX_BATCH = 1000;', self.text)
+
+    def test_routing_settings_carry_the_auto_clear_switch_and_the_audit_percent(self):
+        # without the switch an administrator could not turn the batch audit on from the console
+        for needle in ('auto_clear_green', 'audit_percent', 'Clear clean claims automatically', 'Percent of each batch that officers check'):
+            self.assertIn(needle, self.text, needle)
+
+    def test_the_held_tile_has_no_stray_label(self):
+        self.assertNotIn("'held batches', d.held ? 'bad'", self.text)

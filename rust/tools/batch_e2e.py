@@ -142,6 +142,30 @@ def main():
         check('the administrator releases the batch', st == 200 and out['status'] == 'released' and out['held'] is False, out)
         st, _, tr = admin.call('GET', f'/api/v1/audit/trace/{cid}')
         report = {'batch': {k: out[k] for k in ('claims', 'green', 'sampled', 'sample_flagged', 'categories', 'review', 'status')}, 'checks': LOG}
+
+        # one submission of 1,000 claims in ONE request, as the console sends it (docs/53)
+        base = clean_claims(60)
+        big = []
+        for i in range(1000):
+            c = base[i % len(base)]
+            new = 'CG-L%011X' % i
+            big.append(json.loads(json.dumps(c).replace(c['claim_id'], new)))
+        check('1,000 distinct claims are ready', len({c['claim_id'] for c in big}) == 1000)
+        t0 = time.time()
+        # a batch of 1,000 takes longer than the 5 s the shared test client waits, so this one request waits up to 120 s
+        st, _, raw_body, _ = pentest.raw(pentest.req('POST', '/api/v1/queue/submit', {'claims': big}, {'Cookie': f'cg_session={admin.cookie}', 'X-CSRF-Token': admin.csrf}), timeout=120)
+        out = json.loads(raw_body) if raw_body else {}
+        took = time.time() - t0
+        check('a batch of 1,000 is accepted in one request', st == 200 and len(out.get('results', [])) == 1000 and all(r.get('accepted') for r in out['results']), (st, str(out)[:200]))
+        check('...and 1,001 are refused', admin.call('POST', '/api/v1/queue/submit', {'claims': big + [big[0]]})[0] == 422)
+        st, _, b = admin.call('GET', '/api/v1/queue/batches')
+        row = [x for x in b['batches'] if x['claims'] == 1000]
+        check('it is ONE batch of 1,000', len(row) == 1, [x['claims'] for x in b['batches']])
+        if row:
+            r1 = row[0]
+            check('the audit sample is exactly 5% of the clean claims', r1['sampled'] == max(1, -(-r1['green'] * 5 // 100)) and r1['green'] > 900, r1)
+            report['batch_1000'] = {'seconds_for_the_request': round(took, 2), 'claims': r1['claims'], 'green': r1['green'], 'sampled': r1['sampled']}
+            print('1,000 claims accepted in %.1f s; clean %d, sampled %d' % (took, r1['green'], r1['sampled']))
         o = ROOT / 'outputs' / 'defense' / 'batch_e2e.json'
         o.parent.mkdir(parents=True, exist_ok=True)
         o.write_text(json.dumps(report, indent=1), encoding='utf-8')

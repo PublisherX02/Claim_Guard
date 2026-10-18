@@ -35,6 +35,8 @@ pub const GREEN_ACTIONS: [&str; 2] = ["verify_clear", "escalate"];
 const ACTIONS: [&str; 4] = ["confirm_issue", "dismiss_with_reason", "request_information", "mark_corrected_for_recheck"];
 const LOG_VALUE_CHARS: usize = 400;
 pub const MAX_SUBMIT: usize = 25;
+/// One submission is one batch (docs/53).
+pub const MAX_SUBMIT_CLAIMS: usize = crate::batch::MAX_BATCH;
 /// Recorded when a person confirms a finding without typing a reason: confirming agrees with the engine, so only overriding it needs words.
 pub const CONFIRM_REASON: &str = "Confirmed: the finding matches the evidence.";
 /// Recorded on a finding confirmed in bulk after a light review. Such decisions are left out of the reliability evidence (`reliability::counted_decisions`).
@@ -868,8 +870,8 @@ impl QueueService {
     pub fn submit_claims(&self, principal: &Principal, claims: &[Value]) -> R<Vec<Value>> {
         self.require(principal, "routing.manage")?;
         let intake = self.intake.lock().unwrap_or_else(|e| e.into_inner()).clone().ok_or_else(|| QueueError::Invalid("this server was started without a claim intake".into()))?;
-        if claims.is_empty() || claims.len() > MAX_SUBMIT {
-            return Err(QueueError::Invalid(format!("send between 1 and {MAX_SUBMIT} claims at a time")));
+        if claims.is_empty() || claims.len() > MAX_SUBMIT_CLAIMS {
+            return Err(QueueError::Invalid(format!("send between 1 and {MAX_SUBMIT_CLAIMS} claims at a time")));
         }
         self.access.record("queue_admin", json!({"actor": principal.badge(), "command": "submit_http"}))?;
         match intake.submit_batch(claims, principal.badge()) {

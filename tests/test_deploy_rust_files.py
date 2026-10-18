@@ -225,6 +225,31 @@ class RustProxy(unittest.TestCase):
                 self.assertIn(needle, text, (name, needle))
 
 
+class ProxyBodyLimits(unittest.TestCase):
+    """Every proxy config must let through what the application accepts: 4 MB to submit a batch of 1,000 claims, 17 MB for an import, 100 KB elsewhere."""
+
+    def test_the_caddyfiles_and_the_nginx_config_carry_the_same_three_limits(self):
+        for name in ('Caddyfile.internal', 'Caddyfile.public'):
+            text = (DEPLOY.parent / name).read_text(encoding='utf-8')
+            self.assertRegex(text, r'@submit path /api/v1/queue/submit\s+handle @submit \{\s+request_body \{\s+max_size 4MB', name)
+            self.assertIn('max_size 17MB', text, name)
+        conf = (DEPLOY.parent / 'nginx' / 'nginx.conf').read_text(encoding='utf-8')
+        self.assertIn('client_max_body_size 100k;', conf)
+        self.assertRegex(conf, r'location = /api/v1/queue/submit \{\s+client_max_body_size 4m;')
+        self.assertRegex(conf, r'import/\(file\|csv\)\$ \{\s+client_max_body_size 17m;')
+
+    def test_the_limits_fit_the_application_and_the_client_address_is_overwritten(self):
+        api = (DEPLOY.parents[1] / 'rust' / 'crates' / 'cg-api' / 'src' / 'lib.rs').read_text(encoding='utf-8')
+        sub = eval(re.search(r'MAX_SUBMIT_BYTES: usize = ([\d\s*]+);', api).group(1))
+        self.assertEqual(sub, 4 * 1024 * 1024)
+        conf = (DEPLOY.parent / 'nginx' / 'nginx.conf').read_text(encoding='utf-8')
+        # the application takes the LAST X-Forwarded-For hop as the client: nginx must overwrite what the client sent, never append to it
+        self.assertIn('proxy_set_header X-Forwarded-For $remote_addr;', conf)
+        self.assertNotIn('$proxy_add_x_forwarded_for', conf)
+        # the event stream is never buffered or compressed
+        self.assertRegex(conf, r'location = /api/v1/work/events \{[^}]*proxy_buffering off;[^}]*gzip off;')
+
+
 class RustInstall(unittest.TestCase):
     def test_install_never_overwrites_an_existing_env_and_runs_the_rust_tools(self):
         text = (DEPLOY / 'install.sh').read_text(encoding='utf-8')

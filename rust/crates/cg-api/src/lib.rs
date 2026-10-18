@@ -40,9 +40,12 @@ pub const MAX_BODY_BYTES: usize = 65_536;
 pub const MAX_UPLOAD_BYTES: usize = 16 * 1024 * 1024;
 pub const IMPORT_FILE_PATH: &str = "/api/v1/queue/import/file";
 pub const IMPORT_CSV_PATH: &str = "/api/v1/queue/import/csv";
+/// One submission is one batch of up to 1,000 claims (docs/53), so this route takes a larger body than the others (about 1.5 KB a claim).
+pub const SUBMIT_PATH: &str = "/api/v1/queue/submit";
+pub const MAX_SUBMIT_BYTES: usize = 4 * 1024 * 1024;
 
 pub fn body_limit(path: &str) -> usize {
-    if path == IMPORT_FILE_PATH || path == IMPORT_CSV_PATH { MAX_UPLOAD_BYTES } else { MAX_BODY_BYTES }
+    if path == IMPORT_FILE_PATH || path == IMPORT_CSV_PATH { MAX_UPLOAD_BYTES } else if path == SUBMIT_PATH { MAX_SUBMIT_BYTES } else { MAX_BODY_BYTES }
 }
 /// Failed sign-ins one client address may make, over all badges, in one window. (Per badge the service allows far fewer: PAIR_LIMIT.)
 pub const LOGIN_FAILURE_LIMIT: i64 = 100;
@@ -1130,7 +1133,7 @@ impl Api {
 
     fn q_submit(&self, req: &ApiRequest) -> R {
         let p = self.need(req, "routing.manage")?;
-        let b: SubmitBody = body_of(req).ok().filter(|b: &SubmitBody| (1..=25).contains(&b.claims.len()) && b.claims.iter().all(Value::is_object)).ok_or_else(invalid)?;
+        let b: SubmitBody = body_of(req).ok().filter(|b: &SubmitBody| (1..=cg_queue::service::MAX_SUBMIT_CLAIMS).contains(&b.claims.len()) && b.claims.iter().all(Value::is_object)).ok_or_else(invalid)?;
         let rows = self.queue()?.submit_claims(&p, &b.claims).map_err(|e| self.qerr(e, req, &p))?;
         Ok(ApiResponse::json(200, &json!({"results": rows})))
     }

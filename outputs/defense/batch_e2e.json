@@ -64,7 +64,7 @@
    "ok": true
   },
   {
-   "check": "the administrator sees no claim id, no note and no officer",
+   "check": "the administrator sees the note, but no claim id and no officer",
    "ok": true
   },
   {
@@ -82,6 +82,32 @@
   {
    "check": "the administrator releases the batch",
    "ok": true
+  },
+  {
+   "check": "1,000 distinct claims are ready",
+   "ok": true
+  },
+  {
+   "check": "a batch of 1,000 is accepted in one request",
+   "ok": true
+  },
+  {
+   "check": "...and 1,001 are refused",
+   "ok": true
+  },
+  {
+   "check": "it is ONE batch of 1,000",
+   "ok": true
+  },
+  {
+   "check": "the audit sample is exactly 5% of the clean claims",
+   "ok": true
   }
- ]
+ ],
+ "batch_1000": {
+  "seconds_for_the_request": 17.12,
+  "claims": 1000,
+  "green": 1000,
+  "sampled": 50
+ }
 }

@@ -98,8 +98,12 @@
       });
       var shift = h('textarea', { placeholder: 'One badge per line, e.g. CG-2002' }); shift.value = (cfg.on_shift || []).join('\n'); shift.rows = Math.max(3, (cfg.on_shift || []).length + 1);
       var excl = h('textarea', { placeholder: 'One pair per line: reviewer badge, patient id (that reviewer never gets that patient)' }); excl.value = (cfg.exclusions || []).map(function (p) { return p.join(', '); }).join('\n');
+      var autoClear = h('input', { type: 'checkbox', id: 'auto-clear-green', 'aria-label': 'Clear clean claims automatically' }); autoClear.checked = !!cfg.auto_clear_green;
+      var auditPct = h('input', { type: 'number', min: '1', max: '100', step: '1', value: cfg.audit_percent, 'aria-label': 'Percent of each batch that officers check' });
       var save = h('button', { class: 'btn primary', type: 'button', text: 'Save settings', onclick: function () {
         var changes = {}, k;
+        if (autoClear.checked !== !!cfg.auto_clear_green) changes.auto_clear_green = autoClear.checked;
+        if (auditPct.value !== '' && Number(auditPct.value) !== cfg.audit_percent) changes.audit_percent = Number(auditPct.value);
         NUMBERS.forEach(function (n) {
           var v = Number(inputs[n[0]].value);
           if (inputs[n[0]].value === '' || isNaN(v)) return;
@@ -119,6 +123,9 @@
       } });
       body.appendChild(h('p', { class: 'muted', text: 'Version ' + d.stored_version + '. Every change is a new version in the audit trail. You set capacity and the formula here; you never assign a claim to a person.' }));
       body.appendChild(h('div', { class: 'card' }, h('h2', { text: 'Who is on shift' }), h('div', { class: 'field' }, h('label', { text: 'Badges on shift' }), shift), h('div', { class: 'field' }, h('label', { text: 'Conflict-of-interest exclusions' }), excl)));
+      body.appendChild(h('div', { class: 'card' }, h('h2', { text: 'Clean claims and the audit sample' }),
+        h('div', { class: 'field' }, h('label', { class: 'row' }, autoClear, h('span', { text: 'Clear clean claims automatically' })), h('div', { class: 'muted small', text: 'When on, the system clears the clean claims of a batch itself and officers check only a sample. When off, every claim goes to an officer.' })),
+        h('div', { class: 'field' }, h('label', { text: 'Percent of each batch that officers check' }), auditPct, h('div', { class: 'muted small', text: 'At least one claim per batch. One wrong claim found in the sample holds the whole batch for the administrator.' }))));
       body.appendChild(h('div', { class: 'card' }, h('h2', { text: 'Capacity and timing' }), h('div', { class: 'row' }, numberFields.map(function (f) { return h('div', { style: null, class: 'grow' }, f); }))));
       body.appendChild(h('div', { class: 'card' }, h('h2', { text: 'Points per flagged finding' }), h('div', { class: 'row' }, pointFields.map(function (f) { return h('div', { class: 'grow' }, f); }))));
       body.appendChild(h('div', { class: 'row savebar', style: null }, save));
@@ -135,6 +142,7 @@
     });
   }
 
+  var MAX_BATCH = 1000;
   CG.views.submit = function (root) {
     var area = h('textarea', { placeholder: 'Paste claims here: one JSON object per line (JSONL), or a JSON list.', rows: '8' });
     var file = h('input', { type: 'file', accept: '.jsonl,.json,.txt,application/json', 'aria-label': 'Claims file' });
@@ -148,9 +156,11 @@
       try { claims = parseClaims(area.value); } catch (e) { CG.toast(e.message, 'bad'); return; }
       if (!claims.length) { CG.toast('There are no claims to submit.', 'warn'); return; }
       go.disabled = true; CG.clear(out);
-      var rows = [], i = 0, progress = h('p', { class: 'muted' }); out.appendChild(progress);
+      if (claims.length > MAX_BATCH) { CG.toast('A batch holds at most ' + MAX_BATCH + ' claims; this file has ' + claims.length + '. Split it, or use the command line.', 'bad'); return; }
+      var rows = [], progress = h('p', { class: 'muted', text: 'Sending ' + claims.length + ' claims as one batch...' }); out.appendChild(progress);
+      go.disabled = true;
       (function next() {
-        if (i >= claims.length) {
+        if (rows.length) {
           go.disabled = false;
           var ok = rows.filter(function (r) { return r.accepted; }).length;
           CG.clear(out);
@@ -161,13 +171,11 @@
           out.appendChild(h('p', { class: 'muted', text: 'Triage lanes: ' + Object.keys(lanes).sort().map(function (l) { return l + ' ' + lanes[l]; }).join(', ') }));
           return;
         }
-        var batch = claims.slice(i, i + 20); i += 20;
-        progress.textContent = 'Sending ' + Math.min(i, claims.length) + ' of ' + claims.length + '...';
-        CG.api('POST', '/queue/submit', { claims: batch }).then(function (r) { rows = rows.concat(r.results); next(); }, function (e) { go.disabled = false; CG.fail(e); });
+        CG.api('POST', '/queue/submit', { claims: claims }).then(function (r) { rows = r.results; next(); }, function (e) { go.disabled = false; CG.clear(out); CG.fail(e); });
       })();
     });
     root.appendChild(h('h1', { text: 'Submit claims' }));
-    root.appendChild(h('div', { class: 'card stack' }, h('p', { class: 'muted', text: 'Each claim goes through the same intake as the command-line tool: it is checked, run through the 15 rules and given a triage receipt. Sending the same claim twice stores it once.' }),
+    root.appendChild(h('div', { class: 'card stack' }, h('p', { class: 'muted', text: 'Each claim goes through the same intake as the command-line tool: it is checked, run through the 15 rules and given a triage receipt. Sending the same claim twice stores it once. Everything you send at once is one batch (up to ' + MAX_BATCH + ' claims).' }),
       h('div', { class: 'field' }, h('label', { text: 'File (optional)' }), file), h('div', { class: 'field' }, h('label', { text: 'Claims' }), area), go));
     root.appendChild(out);
   };
@@ -272,7 +280,7 @@
     function load() {
       CG.api('GET', '/queue/batches').then(function (d) {
         CG.clear(out);
-        out.appendChild(h('div', { class: 'tiles' }, tile(d.held, 'held batches', d.held ? 'bad' : null), tile(d.batches.length, 'batches')));
+        out.appendChild(h('div', { class: 'tiles' }, tile(d.held, 'held batches'), tile(d.batches.length, 'batches')));
         out.appendChild(d.batches.length ? CG.table([
           { label: 'Batch', get: function (b) { return h('b', { class: 'mono', text: b.batch_id }); } },
           { label: 'Received', get: function (b) { return CG.fmtTime(b.created_at); } },

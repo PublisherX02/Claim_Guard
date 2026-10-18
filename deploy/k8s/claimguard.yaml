@@ -390,3 +390,52 @@ spec:
       http:
         paths:
           - { path: /, pathType: Prefix, backend: { service: { name: api, port: { number: 8443 } } } }
+---
+# --- Larger bodies on three paths only. ingress-nginx sets the body size per Ingress object, not per path, so these paths get their own objects
+# --- (the controller merges objects of one host and picks the longest path). Everything else keeps the 100k limit above.
+# --- Submitting claims: one submission is one batch of up to 1,000 claims (about 1.5 KB each, docs/53). A batch of 1,000 takes tens of seconds to take in.
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: claimguard-submit
+  namespace: claimguard
+  annotations:
+    nginx.ingress.kubernetes.io/proxy-body-size: 4m
+    nginx.ingress.kubernetes.io/proxy-read-timeout: "120"
+    nginx.ingress.kubernetes.io/proxy-send-timeout: "60"
+    nginx.ingress.kubernetes.io/client-header-timeout: "10"
+    nginx.ingress.kubernetes.io/ssl-redirect: "true"
+spec:
+  ingressClassName: nginx
+  tls:
+    - hosts: ["claimguard.hospital.internal"]
+      secretName: claimguard-tls
+  rules:
+    - host: claimguard.hospital.internal
+      http:
+        paths:
+          - { path: /api/v1/queue/submit, pathType: Exact, backend: { service: { name: api, port: { number: 8443 } } } }
+---
+# --- Importing files: a scanned page or a FHIR export, up to 17 MB (the application checks the real size and kind, docs/45).
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: claimguard-import
+  namespace: claimguard
+  annotations:
+    nginx.ingress.kubernetes.io/proxy-body-size: 17m
+    nginx.ingress.kubernetes.io/proxy-read-timeout: "60"
+    nginx.ingress.kubernetes.io/proxy-send-timeout: "60"
+    nginx.ingress.kubernetes.io/client-header-timeout: "10"
+    nginx.ingress.kubernetes.io/ssl-redirect: "true"
+spec:
+  ingressClassName: nginx
+  tls:
+    - hosts: ["claimguard.hospital.internal"]
+      secretName: claimguard-tls
+  rules:
+    - host: claimguard.hospital.internal
+      http:
+        paths:
+          - { path: /api/v1/queue/import/file, pathType: Exact, backend: { service: { name: api, port: { number: 8443 } } } }
+          - { path: /api/v1/queue/import/csv, pathType: Exact, backend: { service: { name: api, port: { number: 8443 } } } }

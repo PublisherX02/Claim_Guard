@@ -14,7 +14,7 @@ Built after the mentor session of 2026-10-18. What the mentor answered, what was
 
 ### 2.1 What a batch is
 
-One submission: a file given to `cg queue submit --claims` (cut into batches of at most 1,000 claims), or one request to the submit route (at most 25 claims; the request body limit is 64 KB, so a batch of 1,000 enters through the command line, not the console). Every new claim carries a `batch_id`; claims that were already stored are not part of a new batch. Corrected claims (a recheck) are not part of any batch: an officer handles them.
+One submission: a file given to `cg queue submit --claims` (cut into batches of at most 1,000 claims), or one request to the submit route (1 to 1,000 claims; the route takes a body of up to 4 MB, every other route 64 KB). The console's **Submit claims** page sends everything you give it in one request, so one paste or one file is one batch; above 1,000 claims it asks you to split the file. (Until 2026-10-18 the console cut a submission into pieces of 20, which made a 25-claim paste two batches with two audit samples; found in the browser test, fixed, and covered by a test.) A reverse proxy in front must let a 4 MB body through on that one path (docs/54). Every new claim carries a `batch_id`; claims that were already stored are not part of a new batch. Corrected claims (a recheck) are not part of any batch: an officer handles them.
 
 The first batch of every demo server is the sample claims it starts with. `CG_DEMO_CLAIMS=0` starts the demo empty.
 
@@ -57,7 +57,8 @@ Only a held batch can be decided; while claims already sent back are still with 
 - `batch::tests`: exact size and no repeats for 1 to 1,000 green claims, same seed same draw, every position can be drawn, the fold.
 - The store contract (`contract::run`) covers the new event methods in the in-memory store and **in MongoDB** (run against the `cg-test-mongo` container).
 - `python rust/tools/batch_e2e.py --cg <cg.exe>` (real HTTP, a demo server it starts): 17 of 17 checks, output `outputs/defense/batch_e2e.json`.
-- **Not done:** the Batches page and the flag form were checked by script and by the JS parse test, **not in a browser**; a batch of 1,000 was not run end to end (the unit tests draw 100 and the draw function is tested to 1,000).
+- **Browser test, 2026-10-18** (real Chrome, Rust build, demo server): upload of 20 claims on Submit gives one batch with 1 sampled claim; flagging with no rule is refused in the page; flagging with R007 and a note holds the batch; the Batches page shows 1 of 1 checked, 1 flagged, R007, the note and no claim id; "send 5 back" works. The drafted request card and its Confirm button, and **Fill in all** with the what-if (R007 FAIL to PASS, reason pre-written), also worked.
+- **A batch of 1,000** (`batch_e2e.py`): 1,000 distinct claims in one request, one batch, 1,000 clean, exactly 50 sampled. It takes tens of seconds on a debug build (about 22 s here); a proxy in front needs a read timeout above that.
 
 ## 3. Requests for information
 
@@ -111,4 +112,5 @@ Only 15 of the 61 R001 failures could be filled: the others miss a header field 
 - The notes are free text by people: they are checked for the claim's identifiers, not for names or other personal details typed in.
 - Quarantine is a status, not a lock: a consumer that reads `auto_cleared` without the batch (section 2.3) will treat a held claim as cleared.
 - The fills are checked against the engine's own answer: a fill that clears a rule is "consistent with the rulebook", not "correct against the real bill". A person checks each against the source.
-- Browser: the Batches page, the flag form and the request card were not driven in a browser.
+- Not driven in a browser: Release, "Send all back", and Decline on a request (the scripted run covers them).
+- Auto-clear and the audit percent are now settings in the console (**Routing settings**, "Clean claims and the audit sample"); before 2026-10-18 they could be changed only through the API.
