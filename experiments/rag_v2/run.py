@@ -302,6 +302,11 @@ def main():
             neg = [conf[r["id"]] for r in test if "want" not in r and r["kind"] in kinds]
             rep[f"auroc {tag}"] = round(float(np.mean([(p > q) + 0.5 * (p == q) for p in pos for q in neg])), 3)
         report["systems"][name] = rep
+    kinds = {r["id"]: ("answerable" if "want" in r else r["kind"]) for r in rows}
+    hits = {r["id"]: r.get("want") for r in rows}
+    per_row = {n: {r["id"]: {"conf": c[r["id"]], "top": rk[r["id"]][0]["source"], "split": r["split"], "lang": r["lang"], "kind": kinds[r["id"]],
+                             "right@1": bool(hits[r["id"]] and rk[r["id"]][0]["source"] in hits[r["id"]])} for r in rows} for n, (rk, c) in systems.items()}
+    (HERE / "per_row.json").write_text(json.dumps(per_row, default=float), encoding="utf-8")
     (HERE / "results.json").write_text(json.dumps(report, indent=1, default=float), encoding="utf-8")
 
     def pct(x):

@@ -2,7 +2,7 @@
 
 Written 2026-10-18. Two jobs: (1) the system accepts a claim written in English **or** Arabic and knows what every field means; (2) rebuild the rulebook search after docs/52 admitted its regressions.
 
-**Read this first.** All Arabic in this work (field names, enumerated values, month names, the Arabic test questions) was written by the assistant. **No native Arabic speaker has reviewed it.** A wrong entry can produce a refusal or a field mapped to the wrong English name; it cannot silently change a claim's amounts or identifiers (see the rules below). The question sets were also written by the assistant, not by adjusters. The bigger embedding models and rerankers named in the plan **were not evaluated**: the downloads stalled and were then stopped because the machine ran out of memory and the disk is 99% full. So "the best model" below means "the best of the two that could be run".
+**Read this first.** All Arabic in this work (field names, enumerated values, month names, the Arabic test questions) was written by the assistant. **No native Arabic speaker has reviewed it.** A wrong entry can produce a refusal or a field mapped to the wrong English name; it cannot silently change a claim's amounts or identifiers (see the rules below). The question sets were also written by the assistant, not by adjusters. The bigger embedding models and rerankers named in the plan (multilingual-e5-base, bge-m3, bge-reranker-v2-m3) **were not evaluated**: see section 4 for what happened to the downloads. So "the best model" below means "the best of the two that could be run".
 
 ## 1. Arabic claims (`cg_core::localize`, `data/field_glossary.json`)
 
@@ -41,9 +41,16 @@ Reading it: the multilingual MiniLM that is already shipped is the best of the t
 
 **Change shipped:** the refusal threshold moves from 0.29 to **0.415** (dev-optimal here; the 0.29 of docs/52 is what produced the 25% near-domain refusal the notes complained about); on the original 26 questions hit@3 stays at 88% at the new threshold. The dev half is only about 40 rows, so the threshold is a good estimate, not a precise one; the setting `EMBEDDER_THRESHOLD` remains.
 
+### Graphs (`experiments/rag_v2/plot.py`, from `results.json` and `per_row.json`)
+
+![ranking and AUROC](img/rag_v2/1_ranking_and_auroc.png)
+![hit and refusal at the dev threshold](img/rag_v2/2_hit_and_refusal_at_threshold.png)
+![score distributions](img/rag_v2/3_score_distributions.png)
+![threshold trade-off](img/rag_v2/4_threshold_tradeoff.png)
+
 ## 4. What is not settled
 
-- Larger candidates (multilingual-e5-base, bge-m3, bge-reranker-v2-m3) were not run (see top). If the target server has the disk and memory, `experiments/rag_v2/run.py --models e5_base,bge_m3 --rerankers bge_reranker` runs them unchanged.
+- **The larger candidates were not run, and the reason is the network, not the code.** The models were to be stored on the flash disk (`D:\hf_cache`, 85 GB free; set `HF_HOME=D:/hf_cache`). The three small ones (MiniLM, e5-small, the mmarco reranker) were copied there and are the ones measured. The large ones (e5-base 1.1 GB, bge-reranker-v2-m3 2.2 GB, bge-m3 2.3 GB) could not be fetched on 2026-10-18: measured speed from the Hugging Face CDN was 50 to 250 KB/s with read timeouts (2 to 14 hours for the three), and the bge-m3 file had received 0 bytes after seven minutes. Run them later with `HF_HOME=D:/hf_cache python experiments/rag_v2/run.py --models minilm_multi,e5_small,e5_base,bge_m3 --rerankers mmarco,bge_reranker && python experiments/rag_v2/plot.py`; the harness, prefixes (e5 `query:`/`passage:`) and graphs are ready and unchanged.
 - `rust/tools/rag_parity.py` (product against experiment) was **not** re-run and still describes the old 111-passage, 0.29 setup; it needs updating before it is used as a gate again.
 - The sidecar was not rebuilt and no browser check of an Arabic claim or question was done.
 - Arabic rule questions, and any Arabic wording outside the glossary, are not reliably understood.

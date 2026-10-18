@@ -2,7 +2,7 @@
  "corpus": 156,
  "info": {
   "dense_minilm_multi": {
-   "seconds": 0.7,
+   "seconds": 0.5,
    "dim": 384
   },
   "dense_minilm_multi+alias": {
@@ -10,7 +10,7 @@
    "dim": 384
   },
   "dense_e5_small": {
-   "seconds": 0.2,
+   "seconds": 0.4,
    "dim": 384
   },
   "dense_e5_small+alias": {
@@ -19,7 +19,7 @@
   },
   "reranker_candidates_from": "dense_minilm_multi",
   "rerank_mmarco": {
-   "seconds": 2.6
+   "seconds": 2.7
   }
  },
  "systems": {
