@@ -1009,3 +1009,30 @@ fn a_request_that_covers_a_high_severity_finding_is_confirmed_by_a_senior_not_a_
     assert!(matches!(denied, Err(QueueError::Forbidden(_))), "{denied:?}");
     assert!(q.store.request_events(&id, 10).unwrap().is_empty() && q.store.get(&id, None).unwrap().unwrap()["decisions"].as_array().unwrap().is_empty(), "nothing sent, nothing recorded");
 }
+
+#[test]
+fn a_batch_can_be_taken_in_the_background_and_polled() {
+    let q = q();
+    let admin = q.p("CG-4004");
+    let claim = q.find("medium");
+    let job = q.queue.submit_claims_async(&admin, vec![claim.clone(), json!({"claim_id": "bad id"})]).unwrap();
+    let id = job["job_id"].as_str().unwrap().to_string();
+    assert_eq!((job["state"].as_str(), job["total"].as_i64()), (Some("running"), Some(2)));
+    let mut last = json!(null);
+    for _ in 0..200 {
+        last = q.queue.submit_job(&admin, &id).unwrap();
+        if last["state"] != "running" {
+            break;
+        }
+        std::thread::sleep(std::time::Duration::from_millis(25));
+    }
+    assert_eq!(last["state"], "done", "{last}");
+    assert_eq!((last["results"][0]["accepted"].as_bool(), last["results"][1]["accepted"].as_bool()), (Some(true), Some(false)));
+    assert!(last["batch_id"].is_string());
+    assert_eq!(q.state(claim["claim_id"].as_str().unwrap()), "triaged");
+    // the rules of the synchronous call apply: nobody below level 4, no empty batch, and a stranger's job id is not found
+    assert!(matches!(q.queue.submit_claims_async(&q.p("CG-3003"), vec![claim.clone()]), Err(QueueError::Forbidden(_))));
+    assert!(matches!(q.queue.submit_claims_async(&admin, vec![]), Err(QueueError::Invalid(_))));
+    assert!(matches!(q.queue.submit_job(&admin, "J0000000000000000"), Err(QueueError::NotFound(_))));
+    assert!(matches!(q.queue.submit_job(&q.p("CG-3003"), &id), Err(QueueError::Forbidden(_))));
+}

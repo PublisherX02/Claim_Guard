@@ -157,11 +157,31 @@ pub struct QueueService {
     rules: Mutex<Option<RulesFn>>,
     /// (computed at, skip_lower it was computed for, rules): the light-review set is a read over every decided claim, so it is kept for five minutes.
     light: Mutex<Option<(f64, f64, BTreeSet<String>)>>,
+    /// Batches being taken in the background (`submit_claims_async`) and the last few finished ones. In memory: a restart forgets them, and a batch that was
+    /// cut off is repaired by sending it again (a claim already stored is reported "already_stored", never stored twice).
+    jobs: Mutex<BTreeMap<String, Arc<Mutex<Job>>>>,
 }
+
+/// One background batch intake.
+pub struct Job {
+    started: f64,
+    total: usize,
+    phase: &'static str,
+    done: usize,
+    /// running, done or failed
+    state: &'static str,
+    batch_id: Option<String>,
+    rows: Option<Vec<Value>>,
+    error: Option<String>,
+}
+
+/// At most this many batches are taken in at the same time; more are told to wait (HTTP 409 "busy").
+pub const MAX_RUNNING_JOBS: usize = 2;
+const KEEP_FINISHED_JOBS: usize = 20;
 
 impl QueueService {
     pub fn new(store: Arc<dyn QueueStore>, dispatcher: Arc<Dispatcher>, access: Arc<AccessService>, securitylog: Arc<SecurityLog>, review_log: Arc<AuditLog>, clock: Clock) -> QueueService {
-        QueueService { store, dispatcher, access, securitylog, review_log, clock, intake: Mutex::new(None), rules: Mutex::new(None), light: Mutex::new(None) }
+        QueueService { store, dispatcher, access, securitylog, review_log, clock, intake: Mutex::new(None), rules: Mutex::new(None), light: Mutex::new(None), jobs: Mutex::new(BTreeMap::new()) }
     }
 
     /// Set by the wiring; only the submit route needs it.
@@ -878,6 +898,80 @@ impl QueueService {
             Ok((_, rows)) => Ok(rows),
             Err(crate::flow::IntakeError::Failed(m) | crate::flow::IntakeError::Refused(m)) => Err(QueueError::Invalid(m)),
         }
+    }
+
+    /// `submit_claims` without the wait: the checks that need no work are done now, the claims are taken in by a background thread, and the answer is a job id
+    /// to poll with `submit_job`. The batch is the same batch (one id, the exact audit sample, quarantine) as in the synchronous call.
+    pub fn submit_claims_async(&self, principal: &Principal, claims: Vec<Value>) -> R<Value> {
+        self.require(principal, "routing.manage")?;
+        let intake = self.intake.lock().unwrap_or_else(|e| e.into_inner()).clone().ok_or_else(|| QueueError::Invalid("this server was started without a claim intake".into()))?;
+        if claims.is_empty() || claims.len() > MAX_SUBMIT_CLAIMS {
+            return Err(QueueError::Invalid(format!("send between 1 and {MAX_SUBMIT_CLAIMS} claims at a time")));
+        }
+        use rand::RngCore;
+        let id = format!("J{:016x}", rand::rngs::OsRng.next_u64());
+        let job = Arc::new(Mutex::new(Job { started: (self.clock)(), total: claims.len(), phase: "reading", done: 0, state: "running", batch_id: None, rows: None, error: None }));
+        {
+            let mut jobs = self.jobs.lock().unwrap_or_else(|e| e.into_inner());
+            let state_of = |j: &Arc<Mutex<Job>>| j.lock().unwrap_or_else(|e| e.into_inner()).state;
+            if jobs.values().filter(|j| state_of(j) == "running").count() >= MAX_RUNNING_JOBS {
+                return Err(QueueError::Conflict("busy".into()));
+            }
+            let mut finished: Vec<(f64, String)> = jobs.iter().filter(|(_, j)| state_of(j) != "running").map(|(k, j)| (j.lock().unwrap_or_else(|e| e.into_inner()).started, k.clone())).collect();
+            finished.sort_by(|a, b| a.0.partial_cmp(&b.0).unwrap_or(std::cmp::Ordering::Equal));
+            while finished.len() >= KEEP_FINISHED_JOBS {
+                jobs.remove(&finished.remove(0).1);
+            }
+            jobs.insert(id.clone(), job.clone());
+        }
+        self.access.record("queue_admin", json!({"actor": principal.badge(), "command": "submit_http_async", "job": id, "claims": claims.len()}))?;
+        let (by, total) = (principal.badge().to_string(), claims.len());
+        let worker = job.clone();
+        std::thread::Builder::new()
+            .name("batch-intake".into())
+            .spawn(move || {
+                let progress = |phase: &str, done: usize, _total: usize| {
+                    let mut j = worker.lock().unwrap_or_else(|e| e.into_inner());
+                    j.phase = if phase == "storing" { "storing" } else { "reading" };
+                    j.done = done;
+                };
+                let outcome = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| intake.submit_batch_progress(&claims, &by, &progress)));
+                let mut j = worker.lock().unwrap_or_else(|e| e.into_inner());
+                match outcome {
+                    Ok(Ok((batch_id, rows))) => {
+                        j.state = "done";
+                        j.batch_id = batch_id;
+                        j.rows = Some(rows);
+                        j.done = total;
+                    }
+                    Ok(Err(crate::flow::IntakeError::Failed(m) | crate::flow::IntakeError::Refused(m))) => {
+                        j.state = "failed";
+                        j.error = Some(m.chars().take(300).collect());
+                    }
+                    Err(_) => {
+                        j.state = "failed";
+                        j.error = Some("the intake stopped unexpectedly; send the batch again (claims already stored are not stored twice)".into());
+                    }
+                }
+            })
+            .map_err(|e| QueueError::Invalid(format!("could not start the intake: {e}")))?;
+        Ok(json!({"job_id": id, "state": "running", "total": total}))
+    }
+
+    /// The state of a background batch intake: where it is while it runs, the same per-claim rows as the synchronous call when it is done.
+    pub fn submit_job(&self, principal: &Principal, id: &str) -> R<Value> {
+        self.require(principal, "routing.manage")?;
+        let job = self.jobs.lock().unwrap_or_else(|e| e.into_inner()).get(id).cloned().ok_or_else(|| QueueError::NotFound("job".into()))?;
+        let j = job.lock().unwrap_or_else(|e| e.into_inner());
+        let mut out = json!({"job_id": id, "state": j.state, "phase": j.phase, "done": j.done, "total": j.total, "seconds": ((self.clock)() - j.started).max(0.0)});
+        if j.state == "done" {
+            out["batch_id"] = json!(j.batch_id);
+            out["results"] = json!(j.rows);
+        }
+        if let Some(e) = &j.error {
+            out["error"] = json!(e);
+        }
+        Ok(out)
     }
 
     pub fn get_config(&self, principal: &Principal) -> R<Value> {

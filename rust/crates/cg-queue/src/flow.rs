@@ -155,6 +155,11 @@ impl Intake {
     /// exact share of them (`batch::sample_size`) from a seed written on the batch. `by` is the badge (or "cli") that submitted it. Returns the batch id
     /// (None when no claim was new) and one row per claim.
     pub fn submit_batch(&self, claims: &[Value], by: &str) -> std::result::Result<(Option<String>, Vec<Value>), IntakeError> {
+        self.submit_batch_progress(claims, by, &|_, _, _| {})
+    }
+
+    /// `submit_batch` that reports (phase, done, total) as it goes: "reading" (each claim read, checked and run through the rules), then "storing".
+    pub fn submit_batch_progress(&self, claims: &[Value], by: &str, progress: &dyn Fn(&str, usize, usize)) -> std::result::Result<(Option<String>, Vec<Value>), IntakeError> {
         use rand::{rngs::OsRng, RngCore};
         let cfg = routing_config(&*self.store);
         let fail = |e: cg_access::store::StoreError| IntakeError::Failed(e.to_string());
@@ -175,6 +180,9 @@ impl Intake {
         let mut fresh: Vec<usize> = vec![];
         let mut green: Vec<usize> = vec![];
         for (i, claim) in claims.iter().enumerate() {
+            if i % 10 == 0 {
+                progress("reading", i, claims.len());
+            }
             if rows[i].is_some() || !claim.is_object() || check_claim(claim).is_err() {
                 continue; // refused below, with its reason, by the ordinary path
             }
@@ -205,6 +213,9 @@ impl Intake {
             batch_id = Some(id);
         }
         for (i, claim) in claims.iter().enumerate() {
+            if i % 10 == 0 {
+                progress("storing", i, claims.len());
+            }
             if rows[i].is_some() {
                 continue;
             }

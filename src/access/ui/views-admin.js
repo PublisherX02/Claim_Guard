@@ -171,7 +171,18 @@
           out.appendChild(h('p', { class: 'muted', text: 'Triage lanes: ' + Object.keys(lanes).sort().map(function (l) { return l + ' ' + lanes[l]; }).join(', ') }));
           return;
         }
-        CG.api('POST', '/queue/submit', { claims: claims }).then(function (r) { rows = r.results; next(); }, function (e) { go.disabled = false; CG.clear(out); CG.fail(e); });
+        var stop = function (e) { go.disabled = false; CG.clear(out); CG.fail(e); };
+        // the server takes the batch in in the background: one quick answer with a job id, then the progress is read until it is done
+        function poll(id) {
+          CG.api('GET', '/queue/submit/' + encodeURIComponent(id)).then(function (j) {
+            if (j.state === 'running') {
+              progress.textContent = (j.phase === 'storing' ? 'Storing ' : 'Checking ') + Math.min(j.done, j.total) + ' of ' + j.total + ' claims (' + Math.round(j.seconds) + ' s)...';
+              setTimeout(function () { poll(id); }, 700);
+            } else if (j.state === 'done') { rows = j.results; next(); }
+            else { go.disabled = false; CG.clear(out); out.appendChild(h('div', { class: 'notice bad', text: 'The batch stopped: ' + (j.error || 'unknown error') + ' Sending it again is safe: claims already stored are not stored twice.' })); }
+          }, stop);
+        }
+        CG.api('POST', '/queue/submit', { claims: claims, async: true }).then(function (r) { poll(r.job_id); }, stop);
       })();
     });
     root.appendChild(h('h1', { text: 'Submit claims' }));

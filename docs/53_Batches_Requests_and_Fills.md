@@ -114,3 +114,16 @@ Only 15 of the 61 R001 failures could be filled: the others miss a header field 
 - The fills are checked against the engine's own answer: a fill that clears a rule is "consistent with the rulebook", not "correct against the real bill". A person checks each against the source.
 - Not driven in a browser: Release, "Send all back", and Decline on a request (the scripted run covers them).
 - Auto-clear and the audit percent are now settings in the console (**Routing settings**, "Clean claims and the audit sample"); before 2026-10-18 they could be changed only through the API.
+
+
+## 7. Asynchronous intake (2026-10-18)
+
+`POST /api/v1/queue/submit` with `"async": true` answers **202** at once with `{"job_id", "state": "running", "total"}` and takes the claims in on a background thread. `GET /api/v1/queue/submit/{job_id}` (level 4) returns `state` (running, done, failed), `phase` (reading: each claim read, checked and run through the rules; storing), `done`, `total`, `seconds`, and, when done, `batch_id` and the same per-claim `results` as the synchronous call. The batch is the same batch: one id, the exact 5% audit sample, quarantine, the same refusals. The console uses this and shows "Checking 620 of 1,000 claims".
+
+Measured (`rust/tools/batch_e2e.py`, release build, 1,000 claims, all checks pass): the request is answered in 0.06 s; the batch finishes in about 17.5 s; polling shows progress; a level 3 user cannot read the job (403); an unknown job is 404.
+
+Limits, stated plainly:
+- Jobs live **in memory**. A restart forgets them. If the server stops mid-batch, some claims are stored and the batch record may promise more than arrived; sending the batch again is the repair (a stored claim is reported `already_stored`, never stored twice), and the new submission becomes a batch of the claims that were missing.
+- At most 2 batches run at once (a third gets 409 `busy`); the last 20 finished jobs are kept.
+- The synchronous call (no `async`) is unchanged, for the command line and existing clients.
+- Not tested: two API copies behind a load balancer (the job lives on the copy that took the request, so polling needs the same copy: sticky routing, or a shared job store, would be needed; the demo and the single-machine install are unaffected).

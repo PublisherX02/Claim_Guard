@@ -81,7 +81,7 @@ How to read it, and what not to:
 ## 8. What this does not settle
 
 - No Linux run, no real certificate, no real traffic. Section 6 is a laptop comparison.
-- The long request: 1,000 claims take 17 s to take in because intake is synchronous (the demo's file store). A site whose proxy or load balancer cuts at 60 s is fine; one that cuts at 15 s is not. Accepting the batch and finishing it in the background would remove the constraint; it is not built.
+- The long request (now removed for the console, 2026-10-18): intake can be asynchronous (`"async": true`, docs/53 section 7): the request is answered in about 0.06 s with a job id and the 17 s of work happens in the background, so a gateway that cuts requests at 15 s no longer matters. The synchronous call still exists for the command line and old clients and still needs the 120 s read timeout.
 - Rate limits are per address. Behind a hospital's own gateway or NAT, many officers share one address and one limit; the numbers (30 a second, ten sign-ins a minute) are a starting point, chosen without measuring real use.
 - The stream's `limit_req` counts each reconnect; a console that reconnects in a loop could be limited. The stream was tested for being unbuffered, not for a reconnect storm.
 - Multiple API copies: untested (section 7).

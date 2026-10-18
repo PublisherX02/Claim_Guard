@@ -253,6 +253,9 @@ struct BatchDecisionBody {
 #[serde(deny_unknown_fields)]
 struct SubmitBody {
     claims: Vec<Value>,
+    /// true: answer at once with a job id (202) and take the claims in in the background; poll GET /api/v1/queue/submit/{job}
+    #[serde(default, rename = "async")]
+    run_async: bool,
 }
 
 fn too_long(s: &str, max: usize) -> bool {
@@ -571,6 +574,7 @@ impl Api {
             ["queue", "batches", id] if self.queue.is_some() => if m == "GET" { self.q_batch(req, id) } else { Err(wrong()) },
             ["queue", "batches", id, "decision"] if self.queue.is_some() => if m == "POST" { self.q_batch_decision(req, id) } else { Err(wrong()) },
             ["queue", "submit"] if self.queue.is_some() => if m == "POST" { self.q_submit(req) } else { Err(wrong()) },
+            ["queue", "submit", id] if self.queue.is_some() => if m == "GET" { self.q_submit_job(req, id) } else { Err(wrong()) },
             ["queue", "config"] if self.queue.is_some() => match m { "GET" => self.q_get_config(req), "PATCH" => self.q_patch_config(req), _ => Err(wrong()) },
             _ => Err(ApiError::new(404, "not_found")),
         }
@@ -1134,8 +1138,20 @@ impl Api {
     fn q_submit(&self, req: &ApiRequest) -> R {
         let p = self.need(req, "routing.manage")?;
         let b: SubmitBody = body_of(req).ok().filter(|b: &SubmitBody| (1..=cg_queue::service::MAX_SUBMIT_CLAIMS).contains(&b.claims.len()) && b.claims.iter().all(Value::is_object)).ok_or_else(invalid)?;
+        if b.run_async {
+            let job = self.queue()?.submit_claims_async(&p, b.claims).map_err(|e| self.qerr(e, req, &p))?;
+            return Ok(ApiResponse::json(202, &job));
+        }
         let rows = self.queue()?.submit_claims(&p, &b.claims).map_err(|e| self.qerr(e, req, &p))?;
         Ok(ApiResponse::json(200, &json!({"results": rows})))
+    }
+
+    fn q_submit_job(&self, req: &ApiRequest, id: &str) -> R {
+        let p = self.need(req, "routing.manage")?;
+        if id.len() > 40 || !id.bytes().all(|c| c.is_ascii_alphanumeric()) {
+            return Err(ApiError::new(404, "not_found"));
+        }
+        self.queue()?.submit_job(&p, id).map(|v| ApiResponse::json(200, &v)).map_err(|e| self.qerr(e, req, &p))
     }
 
     fn q_get_config(&self, req: &ApiRequest) -> R {

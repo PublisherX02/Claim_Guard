@@ -101,7 +101,7 @@ class AdminScreens(unittest.TestCase):
     def test_one_submission_is_one_batch(self):
         # claims were once sent 20 at a time, so a 25-claim paste became two batches (and two audit samples)
         self.assertNotRegex(self.text, r'claims\.slice\(\s*i\s*,')
-        self.assertRegex(self.text, r"CG\.api\('POST', '/queue/submit', \{ claims: claims \}\)")
+        self.assertRegex(self.text, r"CG\.api\('POST', '/queue/submit', \{ claims: claims, async: true \}\)")
         self.assertIn('var MAX_BATCH = 1000;', self.text)
 
     def test_routing_settings_carry_the_auto_clear_switch_and_the_audit_percent(self):

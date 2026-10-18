@@ -151,12 +151,28 @@ def main():
             new = 'CG-L%011X' % i
             big.append(json.loads(json.dumps(c).replace(c['claim_id'], new)))
         check('1,000 distinct claims are ready', len({c['claim_id'] for c in big}) == 1000)
+        # asynchronous intake (docs/53): the request is answered at once with a job id; the claims are taken in in the background and the job is polled
         t0 = time.time()
-        # a batch of 1,000 takes longer than the 5 s the shared test client waits, so this one request waits up to 120 s
-        st, _, raw_body, _ = pentest.raw(pentest.req('POST', '/api/v1/queue/submit', {'claims': big}, {'Cookie': f'cg_session={admin.cookie}', 'X-CSRF-Token': admin.csrf}), timeout=120)
-        out = json.loads(raw_body) if raw_body else {}
+        st, _, job = admin.call('POST', '/api/v1/queue/submit', {'claims': big, 'async': True})
+        answered = time.time() - t0
+        check('the 1,000-claim request is answered at once with a job id (202)', st == 202 and job.get('state') == 'running' and job.get('total') == 1000 and answered < 3, (st, job, round(answered, 2)))
+        check('...and a stranger cannot read the job', pentest.Session('CG-3003', acc['CG-3003']).call('GET', '/api/v1/queue/submit/' + job['job_id'])[0] == 403)
+        seen, final, phases = [], None, set()
+        for _ in range(600):
+            st, _, j = admin.call('GET', '/api/v1/queue/submit/' + job['job_id'])
+            if st != 200:
+                break
+            seen.append(j['done'])
+            phases.add(j['phase'])
+            if j['state'] != 'running':
+                final = j
+                break
+            time.sleep(0.5)
         took = time.time() - t0
-        check('a batch of 1,000 is accepted in one request', st == 200 and len(out.get('results', [])) == 1000 and all(r.get('accepted') for r in out['results']), (st, str(out)[:200]))
+        check('the job reports progress while it runs', len(seen) > 2 and max(seen[:-1] or [0]) > 0 and 'storing' in phases or (final or {}).get('state') == 'done', (seen[:5], phases))
+        out = {'results': (final or {}).get('results', [])}
+        check('the job finishes with one row per claim, all accepted', bool(final) and final['state'] == 'done' and len(out['results']) == 1000 and all(r.get('accepted') for r in out['results']), str(final)[:200])
+        check('an unknown job is a 404', admin.call('GET', '/api/v1/queue/submit/J0000000000000000')[0] == 404)
         check('...and 1,001 are refused', admin.call('POST', '/api/v1/queue/submit', {'claims': big + [big[0]]})[0] == 422)
         st, _, b = admin.call('GET', '/api/v1/queue/batches')
         row = [x for x in b['batches'] if x['claims'] == 1000]
@@ -164,8 +180,8 @@ def main():
         if row:
             r1 = row[0]
             check('the audit sample is exactly 5% of the clean claims', r1['sampled'] == max(1, -(-r1['green'] * 5 // 100)) and r1['green'] > 900, r1)
-            report['batch_1000'] = {'seconds_for_the_request': round(took, 2), 'claims': r1['claims'], 'green': r1['green'], 'sampled': r1['sampled']}
-            print('1,000 claims accepted in %.1f s; clean %d, sampled %d' % (took, r1['green'], r1['sampled']))
+            report['batch_1000'] = {'seconds_until_the_answer': round(answered, 2), 'seconds_until_finished': round(took, 2), 'claims': r1['claims'], 'green': r1['green'], 'sampled': r1['sampled']}
+            print('1,000 claims: answered in %.2f s, finished in %.1f s; clean %d, sampled %d' % (answered, took, r1['green'], r1['sampled']))
         o = ROOT / 'outputs' / 'defense' / 'batch_e2e.json'
         o.parent.mkdir(parents=True, exist_ok=True)
         o.write_text(json.dumps(report, indent=1), encoding='utf-8')
