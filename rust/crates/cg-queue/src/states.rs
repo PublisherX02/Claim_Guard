@@ -7,7 +7,8 @@
 //! Green claims go triaged -> ready directly (or, when an administrator has switched on `auto_clear_green`, triaged -> decided by `system:auto-clear`, except the random audit sample, which goes to a person); leased -> ready is a lease expiring or being handed back; a claim with a high-severity
 //! finding is signed by one senior (leased -> awaiting_countersign) and then leased again to a different senior, who countersigns
 //! (-> decided) or disagrees (-> ready, escalated, for a third senior); dead_lettered is the side state of a task that failed its
-//! retries (an administrator replays it back to triaged).
+//! retries (an administrator replays it back to triaged). decided -> ready happens only when an administrator orders a quarantined batch re-checked: a claim the
+//! system cleared goes back to the officers (docs/53).
 
 use serde_json::{json, Value};
 
@@ -25,7 +26,7 @@ pub fn allowed_from(state: &str) -> &'static [&'static str] {
         "ready" => &["leased", "dead_lettered"],
         "leased" => &["ready", "decided", "awaiting_countersign", "dead_lettered"],
         "awaiting_countersign" => &["leased", "dead_lettered"],
-        "decided" => &["rechecked"],
+        "decided" => &["rechecked", "ready"],
         "rechecked" => &["triaged"],
         "dead_lettered" => &["triaged"],
         _ => &[],

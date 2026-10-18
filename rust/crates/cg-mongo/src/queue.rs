@@ -13,7 +13,7 @@ use crate::bsonconv::{from_doc, to_bson, to_doc};
 use crate::crypt::FieldCrypt;
 use cg_access::store::StoreError;
 use cg_queue::states;
-use cg_queue::store::{check_config_doc, check_reliability_doc, check_reliability_move, reliability_event, check_decision, check_id_doc, check_job, check_number, check_set_fields, check_version, lane_key, prepare_new_doc, project_history, QueueStore, Result, DEALABLE};
+use cg_queue::store::{check_batch_event, check_config_doc, check_reliability_doc, check_reliability_move, reliability_event, check_decision, check_id_doc, check_job, check_number, check_set_fields, check_version, lane_key, prepare_new_doc, project_history, QueueStore, Result, DEALABLE};
 use mongodb::bson::{doc, Bson, DateTime, Document};
 use mongodb::options::{IndexOptions, ReturnDocument};
 use mongodb::sync::{Client, Collection};
@@ -52,6 +52,7 @@ pub struct MongoQueueStore {
     configs: Collection<Document>,
     reliability: Collection<Document>,
     deals: Collection<Document>,
+    batch_events: Collection<Document>,
     dead: Collection<Document>,
     cache: Collection<Document>,
     jobs: Collection<Document>,
@@ -124,6 +125,7 @@ impl MongoQueueStore {
             configs: db.collection("configs"),
             reliability: db.collection("reliability"),
             deals: db.collection("deals"),
+            batch_events: db.collection("batch_events"),
             dead: db.collection("dead_letters"),
             cache: db.collection("cache"),
             jobs: db.collection("jobs"),
@@ -149,6 +151,7 @@ impl MongoQueueStore {
         go(&self.claims, plain(doc! {"patient_key": 1}))?;
         go(&self.configs, with(doc! {"version": 1}, unique()))?;
         go(&self.reliability, with(doc! {"version": 1}, unique()))?;
+        go(&self.batch_events, plain(doc! {"batch_id": 1}))?;
         go(&self.dead, with(doc! {"dead_id": 1}, unique()))?;
         go(&self.cache, with(doc! {"key": 1}, unique()))?;
         go(&self.jobs, with(doc! {"name": 1}, unique()))?;
@@ -454,6 +457,24 @@ impl QueueStore for MongoQueueStore {
             return Ok(vec![]);
         }
         self.many(self.deals.find(doc! {}).sort(doc! {"_id": -1}).limit(limit as i64).run().map_err(unavailable)?)
+    }
+
+    fn append_batch_event(&self, e: &Value) -> Result<()> {
+        check_batch_event(e)?;
+        self.batch_events.insert_one(to_doc(e)).run().map(|_| ()).map_err(unavailable)
+    }
+
+    fn batch_events(&self, batch_id: Option<&str>, limit: usize) -> Result<Vec<Value>> {
+        if limit == 0 {
+            return Ok(vec![]);
+        }
+        let filter = match batch_id {
+            Some(b) => doc! {"batch_id": b},
+            None => doc! {},
+        };
+        let mut rows = self.many(self.batch_events.find(filter).sort(doc! {"_id": -1}).limit(limit as i64).run().map_err(unavailable)?)?;
+        rows.reverse();
+        Ok(rows)
     }
 
     fn add_dead_letter(&self, d: &Value) -> Result<()> {

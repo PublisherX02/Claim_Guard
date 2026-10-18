@@ -157,18 +157,37 @@
     return card;
   }
 
+  var RULE_CHOICES = ['R001', 'R002', 'R003', 'R004', 'R005', 'R006', 'R007', 'R008', 'R009', 'R010', 'R011', 'R012', 'R013', 'R014', 'R015'];
+
   function greenActions(view, ctx, refresh) {
+    var category = null, note = null;
     function send(action) {
-      CG.api('POST', '/work/claims/' + encodeURIComponent(ctx.id) + '/verify', { action: action }).then(function () {
-        CG.toast(action === 'verify_clear' ? 'Marked pre-validation clear (not a payer approval).' : 'Sent to a senior reviewer.', 'good'); refresh();
+      var body = { action: action };
+      if (action === 'escalate' && view.in_batch) {
+        if (!category.value) { CG.toast('Choose the rule that should have flagged this claim, or Other.', 'warn'); return; }
+        body.category = category.value;
+        if (note.value.trim()) body.note = note.value.trim();
+      }
+      CG.api('POST', '/work/claims/' + encodeURIComponent(ctx.id) + '/verify', body).then(function () {
+        CG.toast(action === 'verify_clear' ? 'Marked pre-validation clear (not a payer approval).' : (view.in_batch ? 'Flagged. The whole batch is held until an administrator decides.' : 'Sent to a senior reviewer.'), 'good'); refresh();
       }, CG.fail);
+    }
+    var flagBox = null;
+    if (view.in_batch) {
+      category = h('select', { 'aria-label': 'Which rule should have flagged this claim' }, h('option', { value: '', text: 'Which rule should have flagged it?' }),
+        RULE_CHOICES.map(function (r) { return h('option', { value: r, text: r }); }), h('option', { value: 'other', text: 'Other / none of them' }));
+      note = h('input', { type: 'text', maxlength: '200', placeholder: 'Optional note (no patient identifiers)' });
+      flagBox = h('div', { class: 'stack' },
+        h('div', { class: 'notice warn', text: 'This claim was picked at random to check how the system cleared its batch. If you find something the engine missed, flag it: the whole batch is held at once and an administrator decides what happens to it.' }),
+        h('div', { class: 'row' }, category, note));
     }
     return h('div', { class: 'card flag-pass stack' },
       h('h2', { text: 'No rule flagged this claim' }),
       h('p', { text: 'All checks completed with no finding. This is a pre-validation clearance only: it is not payer approval and promises no payment. A person still looks at every claim: confirm it, or send it up if something looks wrong to you.' }),
+      flagBox,
       h('div', { class: 'row' },
         h('button', { class: 'btn primary', type: 'button', text: 'Verify: pre-validation clear', onclick: function () { send('verify_clear'); } }),
-        h('button', { class: 'btn', type: 'button', text: 'Escalate to a senior', onclick: function () { send('escalate'); } })));
+        h('button', { class: 'btn', type: 'button', text: view.in_batch ? 'Flag: the engine missed something' : 'Escalate to a senior', onclick: function () { send('escalate'); } })));
   }
 
   function unmaskBox(ctx, redraw) {

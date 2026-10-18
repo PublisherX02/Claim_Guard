@@ -755,3 +755,161 @@ fn a_recheck_needs_a_reason_that_does_not_leak_the_identifier() {
     assert!(matches!(q.queue.recheck(&who, "FIX-4", &fix_both(&claim), &leak, None), Err(QueueError::Invalid(_))));
     assert!(q.store.get("FIX-4", Some(2)).unwrap().is_none());
 }
+
+// ---- batches: the audit sample is exact, one flag quarantines the batch, the administrator decides -----------------------------
+
+fn green_copies(q: &Q, n: usize) -> Vec<Value> {
+    let base = q.find("green");
+    (0..n)
+        .map(|i| {
+            let mut c = base.clone();
+            c["claim_id"] = json!(format!("BATCH-{i:03}"));
+            c
+        })
+        .collect()
+}
+
+fn batch_world(green: usize) -> (Q, String, Vec<String>) {
+    let q = q();
+    let admin = q.p("CG-4004");
+    let mut set = serde_json::Map::new();
+    set.insert("auto_clear_green".into(), json!(true));
+    set.insert("audit_percent".into(), json!(5));
+    q.queue.set_config(&admin, &set, 1).unwrap();
+    let mut claims = green_copies(&q, green);
+    let flagged = q.find("medium");
+    claims.push(flagged);
+    let (batch, rows) = q.intake.submit_batch(&claims, "CG-4004").unwrap();
+    assert!(rows.iter().all(|r| r["accepted"] == true));
+    let ids: Vec<String> = claims.iter().map(|c| c["claim_id"].as_str().unwrap().to_string()).collect();
+    for id in &ids {
+        let d = q.store.get(id, None).unwrap().unwrap();
+        process(&q.rt, id, 1, d["input_hash"].as_str().unwrap());
+    }
+    (q, batch.expect("a batch id"), ids)
+}
+
+fn sampled_ids(q: &Q, ids: &[String]) -> Vec<String> {
+    ids.iter().filter(|id| q.store.get(id, None).unwrap().unwrap()["audit_sample"] == true).cloned().collect()
+}
+
+fn is_cleared(q: &Q, id: &str) -> bool {
+    let d = q.store.get(id, None).unwrap().unwrap();
+    d["state"] == "decided" && d["auto_cleared"] == true
+}
+
+#[test]
+fn the_audit_sample_of_a_batch_is_an_exact_share_of_its_green_claims() {
+    for green in [1usize, 19, 100] {
+        let (q, batch, ids) = batch_world(green);
+        let expect = cg_queue::batch::sample_size(green, 5);
+        let sampled = sampled_ids(&q, &ids);
+        assert_eq!(sampled.len(), expect, "{green} green claims -> {expect} sampled");
+        assert_eq!(ids.iter().filter(|id| is_cleared(&q, id)).count(), green - expect, "every other green claim is cleared by the system");
+        for id in &sampled {
+            assert_eq!(q.state(id), "ready", "a sampled claim waits for an officer");
+        }
+        assert_ne!(q.state(ids.last().unwrap()), "decided", "a claim with a finding is never cleared by the system");
+        let view = q.queue.batch(&q.p("CG-4004"), &batch).unwrap();
+        assert_eq!(
+            (view["claims"].as_i64(), view["green"].as_i64(), view["sampled"].as_i64(), view["status"].as_str()),
+            (Some(green as i64 + 1), Some(green as i64), Some(expect as i64), Some("open"))
+        );
+    }
+}
+
+#[test]
+fn one_flagged_sample_claim_holds_the_whole_batch_and_the_administrator_decides_what_happens() {
+    let (q, batch, ids) = batch_world(100);
+    let (admin, officer, other) = (q.p("CG-4004"), q.p("CG-2002"), q.p("CG-2003"));
+    let sampled = sampled_ids(&q, &ids);
+    assert_eq!(sampled.len(), 5);
+    // an officer who finds the clearance wrong must say which rule should have caught it
+    q.lease_to(&sampled[0], "CG-2002");
+    assert!(matches!(q.queue.decide_green_in(&officer, &sampled[0], "escalate", None, None), Err(QueueError::Invalid(_))));
+    assert!(matches!(q.queue.decide_green_in(&officer, &sampled[0], "escalate", Some("R99"), None), Err(QueueError::Invalid(_))));
+    assert_eq!(q.queue.batch(&admin, &batch).unwrap()["status"], "open", "a refused flag changes nothing");
+    q.queue.decide_green_in(&officer, &sampled[0], "escalate", Some("R007"), Some("amount does not match quantity")).unwrap();
+    let view = q.queue.batch(&admin, &batch).unwrap();
+    assert_eq!(
+        (view["status"].as_str(), view["held"].as_bool(), view["sample_flagged"].as_i64(), view["sampled"].as_i64(), view["categories"]["R007"].as_i64()),
+        (Some("quarantined"), Some(true), Some(1), Some(5), Some(1))
+    );
+    assert!(!view.to_string().contains("amount does not match"), "the administrator sees categories, never the words of an officer");
+    assert!(!view.to_string().contains("BATCH-"), "and no claim id");
+    // a cleared claim of the batch says it is held
+    let cleared = ids.iter().find(|id| is_cleared(&q, id)).unwrap().clone();
+    let trace = q.queue.trace(&admin, &cleared).unwrap();
+    assert_eq!((trace["batch"]["held"].as_bool(), trace["batch"]["batch_id"].as_str()), (Some(true), Some(batch.as_str())));
+    // the rest of the sample is still analysed by officers; a second flag only adds to the count and is not a second quarantine
+    q.lease_to(&sampled[1], "CG-2003");
+    q.queue.decide_green_in(&other, &sampled[1], "escalate", Some("R012"), None).unwrap();
+    q.lease_to(&sampled[2], "CG-2002");
+    q.queue.decide_green_in(&officer, &sampled[2], "verify_clear", None, None).unwrap();
+    let view = q.queue.batch(&admin, &batch).unwrap();
+    assert_eq!((view["sample_flagged"].as_i64(), view["sample_verified"].as_i64(), view["sample_waiting"].as_i64()), (Some(2), Some(1), Some(2)));
+    assert_eq!(q.security_kinds().iter().filter(|k| *k == "batch_quarantined").count(), 1);
+    assert_eq!(q.security_kinds().iter().filter(|k| *k == "batch_created").count(), 1);
+    // only an administrator sees or decides batches
+    assert!(matches!(q.queue.batches(&officer), Err(QueueError::Forbidden(_))));
+    assert!(matches!(q.queue.decide_batch(&officer, &batch, "release", None, ""), Err(QueueError::Forbidden(_))));
+    assert_eq!(q.queue.batches(&admin).unwrap()["held"], 1);
+    // send some back: a random draw among the claims the system cleared
+    assert!(matches!(q.queue.decide_batch(&admin, &batch, "review_n", Some(0), ""), Err(QueueError::Invalid(_))));
+    assert!(matches!(q.queue.decide_batch(&admin, &batch, "review_n", Some(500), ""), Err(QueueError::Invalid(_))));
+    assert!(matches!(q.queue.decide_batch(&admin, &batch, "burn", None, ""), Err(QueueError::Invalid(_))));
+    let view = q.queue.decide_batch(&admin, &batch, "review_n", Some(3), "check a few").unwrap();
+    assert_eq!((view["status"].as_str(), view["review"]["sent_back"].as_i64(), view["review"]["still_with_officers"].as_i64()), (Some("in_review"), Some(3), Some(3)));
+    let back: Vec<String> = ids
+        .iter()
+        .filter(|id| q.store.get(id, None).unwrap().unwrap()["events"].as_array().unwrap().iter().any(|e| e["detail"]["event"] == "batch_review"))
+        .cloned()
+        .collect();
+    assert_eq!(back.len(), 3);
+    for id in &back {
+        let d = q.store.get(id, None).unwrap().unwrap();
+        assert_eq!((d["state"].as_str(), d["auto_cleared"].as_bool(), d["decided_by"].is_null()), (Some("ready"), Some(false), true), "back with the officers, no longer cleared by the system");
+    }
+    assert!(matches!(q.queue.decide_batch(&admin, &batch, "release", None, ""), Err(QueueError::Conflict(_))), "not while the claims sent back are still with officers");
+    for id in &back {
+        q.lease_to(id, "CG-2003");
+        q.queue.decide_green_in(&other, id, "verify_clear", None, None).unwrap();
+    }
+    let view = q.queue.batch(&admin, &batch).unwrap();
+    assert_eq!((view["status"].as_str(), view["review"]["still_with_officers"].as_i64()), (Some("review_done"), Some(0)));
+    // the administrator may now order everything that is left checked
+    let still_cleared = ids.iter().filter(|id| is_cleared(&q, id)).count() as i64;
+    let view = q.queue.decide_batch(&admin, &batch, "review_all", None, "").unwrap();
+    assert_eq!((view["status"].as_str(), view["review"]["sent_back"].as_i64()), (Some("in_review"), Some(3 + still_cleared)));
+}
+
+#[test]
+fn a_released_batch_holds_nothing_and_a_batch_nobody_flagged_cannot_be_decided() {
+    let (q, batch, ids) = batch_world(40);
+    let (admin, officer) = (q.p("CG-4004"), q.p("CG-2002"));
+    assert!(matches!(q.queue.decide_batch(&admin, &batch, "release", None, ""), Err(QueueError::Conflict(_))), "an open batch is not being held");
+    assert!(matches!(q.queue.batch(&admin, "B-nope"), Err(QueueError::NotFound(_))));
+    let sampled = sampled_ids(&q, &ids);
+    assert_eq!(sampled.len(), 2);
+    q.lease_to(&sampled[0], "CG-2002");
+    q.queue.decide_green_in(&officer, &sampled[0], "escalate", Some("other"), None).unwrap();
+    let view = q.queue.decide_batch(&admin, &batch, "release", None, "one-off, understood").unwrap();
+    assert_eq!((view["status"].as_str(), view["held"].as_bool()), (Some("released"), Some(false)));
+    let cleared = ids.iter().find(|id| is_cleared(&q, id)).unwrap().clone();
+    assert_eq!(q.queue.trace(&admin, &cleared).unwrap()["batch"]["held"], false);
+    assert_eq!(q.security_kinds().iter().filter(|k| *k == "batch_decision").count(), 1);
+    // a later flag in the same batch holds it again
+    q.lease_to(&sampled[1], "CG-2002");
+    q.queue.decide_green_in(&officer, &sampled[1], "escalate", Some("R007"), None).unwrap();
+    assert_eq!(q.queue.batch(&admin, &batch).unwrap()["status"], "quarantined");
+    assert_eq!(q.security_kinds().iter().filter(|k| *k == "batch_quarantined").count(), 2);
+}
+
+#[test]
+fn a_claim_that_is_not_in_a_batch_keeps_working_as_before() {
+    let q = q();
+    let id = q.ready("green");
+    q.lease_to(&id, "CG-2002");
+    q.queue.decide_green_in(&q.p("CG-2002"), &id, "escalate", None, None).unwrap();
+    assert!(q.queue.batches(&q.p("CG-4004")).unwrap()["batches"].as_array().unwrap().is_empty());
+}

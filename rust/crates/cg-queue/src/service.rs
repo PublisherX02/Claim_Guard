@@ -263,7 +263,8 @@ impl QueueService {
         }
         let receipt = &doc["receipt"];
         let mut view = json!({"claim_id": doc["claim_id"], "version": doc["version"], "lane": receipt["lane"], "score": receipt["score"], "eligibility": receipt["eligibility"],
-            "escalated": doc["escalated"] == true, "signoff_stage": stage(doc), "leased_until": doc["lease"]["expires_at"], "claim": claim, "findings": findings});
+            "escalated": doc["escalated"] == true, "signoff_stage": stage(doc), "leased_until": doc["lease"]["expires_at"], "claim": claim, "findings": findings,
+            "in_batch": doc["batch_id"].is_string()});
         if doc["advisory"].as_array().is_some_and(|a| !a.is_empty()) {
             // advisory (extension) results: shown for information, shaped by the same masking, and never offered as decidable
             view["advisory"] = masking::shape_claim(&doc["claim"], &doc["advisory"], perms, key, false, true).map_err(|_| QueueError::Redaction)?.1;
@@ -408,6 +409,12 @@ impl QueueService {
     }
 
     pub fn decide_green(&self, principal: &Principal, claim_id: &str, action: &str) -> R<Value> {
+        self.decide_green_in(principal, claim_id, action, None, None)
+    }
+
+    /// A green claim, decided by an officer. For a claim of a batch, `escalate` means "the engine missed something": the officer says which rule should have
+    /// caught it (`category`: R001 to R015 or "other") and the batch is quarantined at once (docs/53). The note stays in the batch history; the administrator never sees it.
+    pub fn decide_green_in(&self, principal: &Principal, claim_id: &str, action: &str, category: Option<&str>, note: Option<&str>) -> R<Value> {
         let now = self.now();
         self.require(principal, "claims.decide")?;
         if !GREEN_ACTIONS.contains(&action) {
@@ -417,13 +424,28 @@ impl QueueService {
         if !triage::flagged(&doc["results"]).is_empty() {
             return Err(QueueError::Invalid("this claim has findings to decide one by one".into()));
         }
+        let batch = doc["batch_id"].as_str().map(str::to_string);
+        let category = category.map(str::trim).filter(|c| !c.is_empty());
+        if action == "escalate" && batch.is_some() && !category.is_some_and(crate::batch::is_category) {
+            return Err(QueueError::Invalid("say which rule should have flagged this claim (R001 to R015), or other".into()));
+        }
+        let note: String = note.unwrap_or("").trim().chars().take(crate::batch::NOTE_CHARS).collect();
         let version = doc["version"].as_i64().unwrap_or(0);
         let lease_lost = || QueueError::Conflict("lease_lost".into());
+        if action == "escalate" {
+            if let Some(b) = &batch {
+                // written first: if anything after it fails the batch is held, which is the safe direction
+                self.flag_batch(b, claim_id, category.unwrap_or("other"), &note, principal.badge(), now)?;
+            }
+        }
         if action == "verify_clear" {
             let mut set = Map::new();
             set.insert("decided_by".into(), json!(principal.badge()));
             self.store.transition(claim_id, version, "leased", "decided", principal.badge(), now, Some(json!({"findings": 0})), Some(set), Some(principal.badge())).map_err(store_err)?.ok_or_else(lease_lost)?;
             self.access.record("claim_decided_green", json!({"badge_id": principal.badge(), "claim_id": claim_id, "action": "verify_clear"}))?;
+            if let Some(b) = &batch {
+                let _ = self.store.append_batch_event(&json!({"batch_id": b, "kind": "sample_verified", "at": now, "claim_id": claim_id, "by": principal.badge()}));
+            }
             return Ok(json!({"claim_state": "decided"}));
         }
         let mut set = Map::new();
@@ -432,6 +454,122 @@ impl QueueService {
         self.store.transition(claim_id, version, "leased", "ready", principal.badge(), now, Some(json!({"event": "escalated", "badge_id": principal.badge()})), Some(set), Some(principal.badge())).map_err(store_err)?.ok_or_else(lease_lost)?;
         self.access.record("claim_decided_green", json!({"badge_id": principal.badge(), "claim_id": claim_id, "action": "escalate"}))?;
         Ok(json!({"claim_state": "ready"}))
+    }
+
+    // ---- batches (docs/53) ------------------------------------------------------------------------------------------
+    fn batch_view(&self, batch_id: &str) -> R<Option<crate::batch::BatchView>> {
+        Ok(crate::batch::fold(&self.store.batch_events(Some(batch_id), 100_000).map_err(store_err)?))
+    }
+
+    /// Records that a sampled (or re-checked) green claim was wrong. The first flag quarantines the batch and is written to the security log.
+    fn flag_batch(&self, batch_id: &str, claim_id: &str, category: &str, note: &str, badge: &str, now: f64) -> R<()> {
+        let before = self.batch_view(batch_id)?;
+        let held = before.as_ref().is_some_and(|v| crate::batch::holds(&v.status));
+        self.store.append_batch_event(&json!({"batch_id": batch_id, "kind": "flagged", "at": now, "claim_id": claim_id, "category": category, "note": note, "by": badge})).map_err(store_err)?;
+        if !held {
+            self.access.record("batch_quarantined", json!({"batch_id": batch_id, "claim_id": claim_id, "category": category, "badge_id": badge}))?;
+        }
+        Ok(())
+    }
+
+    /// Claims sent back for review that an officer has not decided yet.
+    fn review_pending(&self, v: &crate::batch::BatchView) -> R<i64> {
+        let mut pending = 0;
+        for id in &v.reopened {
+            if self.store.get(id, None).map_err(store_err)?.is_some_and(|d| d["state"] != "decided") {
+                pending += 1;
+            }
+        }
+        Ok(pending)
+    }
+
+    fn batch_json(&self, v: &crate::batch::BatchView) -> R<Value> {
+        let pending = if v.status == "in_review" { Some(self.review_pending(v)?) } else { None };
+        Ok(v.to_json(pending))
+    }
+
+    /// Every batch, newest first: id, counts and categories only (administrator).
+    pub fn batches(&self, principal: &Principal) -> R<Value> {
+        self.require(principal, "routing.manage")?;
+        let events = self.store.batch_events(None, 100_000).map_err(store_err)?;
+        let mut ids: Vec<String> = vec![];
+        for e in &events {
+            if let Some(b) = e["batch_id"].as_str() {
+                if !ids.iter().any(|i| i == b) {
+                    ids.push(b.to_string());
+                }
+            }
+        }
+        let mut rows = vec![];
+        for id in ids.iter().rev().take(200) {
+            let mine: Vec<Value> = events.iter().filter(|e| e["batch_id"] == id.as_str()).cloned().collect();
+            if let Some(v) = crate::batch::fold(&mine) {
+                rows.push(self.batch_json(&v)?);
+            }
+        }
+        let held = rows.iter().filter(|r| r["held"] == true).count();
+        Ok(json!({"batches": rows, "held": held}))
+    }
+
+    pub fn batch(&self, principal: &Principal, batch_id: &str) -> R<Value> {
+        self.require(principal, "routing.manage")?;
+        let v = self.batch_view(batch_id)?.ok_or_else(|| QueueError::NotFound(batch_id.into()))?;
+        self.batch_json(&v)
+    }
+
+    /// The administrator's decision on a held batch: `release` it, send `n` of its cleared claims back to officers (`review_n`), or all of them (`review_all`).
+    /// The claims sent back are a random draw among the claims the system cleared; they go to the ordinary pool.
+    pub fn decide_batch(&self, principal: &Principal, batch_id: &str, action: &str, n: Option<i64>, note: &str) -> R<Value> {
+        use rand::{rngs::OsRng, RngCore};
+        let now = self.now();
+        self.require(principal, "routing.manage")?;
+        if !["release", "review_n", "review_all"].contains(&action) {
+            return Err(QueueError::Invalid("action must be release, review_n or review_all".into()));
+        }
+        let v = self.batch_view(batch_id)?.ok_or_else(|| QueueError::NotFound(batch_id.into()))?;
+        if !crate::batch::holds(&v.status) {
+            return Err(QueueError::Conflict("this batch is not being held".into()));
+        }
+        if v.status == "in_review" && self.review_pending(&v)? > 0 {
+            return Err(QueueError::Conflict("claims already sent back are still with officers".into()));
+        }
+        let note: String = note.trim().chars().take(crate::batch::NOTE_CHARS).collect();
+        let mut sent: Vec<String> = vec![];
+        if action != "release" {
+            let mut candidates: Vec<(String, i64)> = vec![];
+            for id in &v.members {
+                if let Some(d) = self.store.get(id, None).map_err(store_err)? {
+                    if d["batch_id"] == batch_id && d["state"] == "decided" && d["auto_cleared"] == true {
+                        candidates.push((id.clone(), d["version"].as_i64().unwrap_or(0)));
+                    }
+                }
+            }
+            let count = if action == "review_all" {
+                candidates.len()
+            } else {
+                match n {
+                    Some(n) if n >= 1 && (n as usize) <= candidates.len() => n as usize,
+                    _ => return Err(QueueError::Invalid(format!("n must be between 1 and {} (the claims the system cleared that are still there)", candidates.len()))),
+                }
+            };
+            if count == 0 {
+                return Err(QueueError::Invalid("no claim the system cleared is left to send back".into()));
+            }
+            for (id, version) in crate::batch::pick(&candidates, count, OsRng.next_u64()) {
+                let mut set = Map::new();
+                set.insert("auto_cleared".into(), json!(false));
+                set.insert("decided_by".into(), Value::Null);
+                let detail = json!({"event": "batch_review", "batch_id": batch_id});
+                if self.store.transition(&id, version, "decided", "ready", principal.badge(), now, Some(detail), Some(set), None).map_err(store_err)?.is_some() {
+                    sent.push(id);
+                }
+            }
+        }
+        self.store
+            .append_batch_event(&json!({"batch_id": batch_id, "kind": "decision", "at": now, "action": action, "n": sent.len(), "note": note, "by": principal.badge(), "reopened": sent}))
+            .map_err(store_err)?;
+        self.access.record("batch_decision", json!({"batch_id": batch_id, "action": action, "n": sent.len(), "by": principal.badge()}))?;
+        self.batch(principal, batch_id)
     }
 
     /// The rules whose findings reviewers almost always uphold (the exact lower bound of the upheld rate is at least `bulk_confirm_skip_lower`), from the
@@ -616,7 +754,15 @@ impl QueueService {
         }
         let log: Vec<Value> = self.securitylog.scan(50_000).unwrap_or_default().into_iter().filter(|r| r["event"]["claim_id"] == claim_id).collect();
         let skip = log.len().saturating_sub(200);
-        Ok(json!({"claim_id": claim_id, "versions": versions, "security_log": log[skip..]}))
+        // a claim the system cleared is held while its batch is quarantined or under review: the claim keeps its record, the batch decides whether the clearance stands
+        let batch = match latest["batch_id"].as_str() {
+            Some(b) => {
+                let status = self.batch_view(b)?.map(|v| v.status).unwrap_or_default();
+                json!({"batch_id": b, "status": status, "held": crate::batch::holds(&status), "audit_sample": latest["audit_sample"]})
+            }
+            None => Value::Null,
+        };
+        Ok(json!({"claim_id": claim_id, "versions": versions, "batch": batch, "security_log": log[skip..]}))
     }
 
     pub fn dashboard(&self, principal: &Principal) -> R<Value> {
@@ -665,16 +811,10 @@ impl QueueService {
             return Err(QueueError::Invalid(format!("send between 1 and {MAX_SUBMIT} claims at a time")));
         }
         self.access.record("queue_admin", json!({"actor": principal.badge(), "command": "submit_http"}))?;
-        let mut rows = vec![];
-        for claim in claims {
-            let id = claim["claim_id"].as_str();
-            match intake.submit(claim) {
-                Ok(receipt) => rows.push(json!({"claim_id": id, "accepted": true, "lane": receipt["lane"], "score": receipt["score"]})),
-                Err(crate::flow::IntakeError::Refused(m)) => rows.push(json!({"claim_id": id, "accepted": false, "reason": format!("claim refused: {m}").chars().take(200).collect::<String>()})),
-                Err(crate::flow::IntakeError::Failed(m)) => return Err(QueueError::Invalid(m)),
-            }
+        match intake.submit_batch(claims, principal.badge()) {
+            Ok((_, rows)) => Ok(rows),
+            Err(crate::flow::IntakeError::Failed(m) | crate::flow::IntakeError::Refused(m)) => Err(QueueError::Invalid(m)),
         }
-        Ok(rows)
     }
 
     pub fn get_config(&self, principal: &Principal) -> R<Value> {

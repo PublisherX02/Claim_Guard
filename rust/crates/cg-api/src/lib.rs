@@ -221,6 +221,21 @@ struct CreateUserBody {
 #[serde(deny_unknown_fields)]
 struct VerifyBody {
     action: String,
+    /// For a claim of a batch, `escalate` names the rule that should have flagged it (R001 to R015 or "other"). Ignored for a claim on its own.
+    #[serde(default)]
+    category: Option<String>,
+    #[serde(default)]
+    note: Option<String>,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct BatchDecisionBody {
+    action: String,
+    #[serde(default)]
+    n: Option<i64>,
+    #[serde(default)]
+    note: Option<String>,
 }
 
 #[derive(Deserialize)]
@@ -540,6 +555,9 @@ impl Api {
             ["queue", "import", "file"] => if m == "POST" { self.import_file(req) } else { Err(wrong()) },
             ["queue", "import", "csv"] => if m == "POST" { self.import_csv(req) } else { Err(wrong()) },
             ["queue", "import", "validate"] => if m == "POST" { self.import_validate(req) } else { Err(wrong()) },
+            ["queue", "batches"] if self.queue.is_some() => if m == "GET" { self.q_batches(req) } else { Err(wrong()) },
+            ["queue", "batches", id] if self.queue.is_some() => if m == "GET" { self.q_batch(req, id) } else { Err(wrong()) },
+            ["queue", "batches", id, "decision"] if self.queue.is_some() => if m == "POST" { self.q_batch_decision(req, id) } else { Err(wrong()) },
             ["queue", "submit"] if self.queue.is_some() => if m == "POST" { self.q_submit(req) } else { Err(wrong()) },
             ["queue", "config"] if self.queue.is_some() => match m { "GET" => self.q_get_config(req), "PATCH" => self.q_patch_config(req), _ => Err(wrong()) },
             _ => Err(ApiError::new(404, "not_found")),
@@ -1056,8 +1074,33 @@ impl Api {
 
     fn work_verify(&self, req: &ApiRequest, id: &str) -> R {
         let p = self.need(req, "claims.decide")?;
-        let b: VerifyBody = body_of(req).ok().filter(|b: &VerifyBody| b.action == "verify_clear" || b.action == "escalate").ok_or_else(invalid)?;
-        self.queue()?.decide_green(&p, id, &b.action).map(|v| ApiResponse::json(200, &v)).map_err(|e| self.qerr(e, req, &p))
+        let b: VerifyBody = body_of(req)
+            .ok()
+            .filter(|b: &VerifyBody| (b.action == "verify_clear" || b.action == "escalate") && b.category.as_deref().map_or(true, |c| !too_long(c, 10)) && b.note.as_deref().map_or(true, |n| !too_long(n, 1000)))
+            .ok_or_else(invalid)?;
+        self.queue()?.decide_green_in(&p, id, &b.action, b.category.as_deref(), b.note.as_deref()).map(|v| ApiResponse::json(200, &v)).map_err(|e| self.qerr(e, req, &p))
+    }
+
+    fn q_batches(&self, req: &ApiRequest) -> R {
+        let p = self.need(req, "routing.manage")?;
+        self.queue()?.batches(&p).map(|v| ApiResponse::json(200, &v)).map_err(|e| self.qerr(e, req, &p))
+    }
+
+    fn q_batch(&self, req: &ApiRequest, id: &str) -> R {
+        let p = self.need(req, "routing.manage")?;
+        if too_long(id, 40) {
+            return Err(ApiError::new(404, "not_found"));
+        }
+        self.queue()?.batch(&p, id).map(|v| ApiResponse::json(200, &v)).map_err(|e| self.qerr(e, req, &p))
+    }
+
+    fn q_batch_decision(&self, req: &ApiRequest, id: &str) -> R {
+        let p = self.need(req, "routing.manage")?;
+        if too_long(id, 40) {
+            return Err(ApiError::new(404, "not_found"));
+        }
+        let b: BatchDecisionBody = body_of(req).ok().filter(|b: &BatchDecisionBody| b.note.as_deref().map_or(true, |n| !too_long(n, 1000))).ok_or_else(invalid)?;
+        self.queue()?.decide_batch(&p, id, &b.action, b.n, b.note.as_deref().unwrap_or("")).map(|v| ApiResponse::json(200, &v)).map_err(|e| self.qerr(e, req, &p))
     }
 
     fn q_dashboard(&self, req: &ApiRequest) -> R {

@@ -259,5 +259,57 @@
     load(); loadApprovals();
   };
 
+  // ---- batches: the audit sample of each batch, and what to do with a batch that was held -------------------------------------
+  // The administrator sees the batch number, how many sampled claims were flagged and why (the rule categories). No claim, no identifier, no officer's words.
+  CG.views.batches = function (root) {
+    var out = h('div', { class: 'stack' }), detail = h('div', { class: 'stack' });
+    root.appendChild(h('div', { class: 'row between' }, h('h1', { text: 'Batches' }), h('button', { class: 'btn', type: 'button', text: 'Refresh', onclick: load })));
+    root.appendChild(h('p', { class: 'muted', text: 'Each submission is a batch. The system clears its clean claims except a small random sample that officers check. If an officer finds one of the sampled claims wrong, the whole batch is held here until you decide.' }));
+    root.appendChild(out); root.appendChild(detail);
+    var STATUS = { open: 'nothing wrong found', quarantined: 'held: needs your decision', in_review: 'sent back to officers', review_done: 'review finished: needs your decision', released: 'released' };
+    function reasons(b) { var k = Object.keys(b.categories || {}); return k.length ? k.sort().map(function (c) { return c + (b.categories[c] > 1 ? ' x' + b.categories[c] : ''); }).join(', ') : '-'; }
+    function needsDecision(b) { return b.status === 'quarantined' || b.status === 'review_done'; }
+    function load() {
+      CG.api('GET', '/queue/batches').then(function (d) {
+        CG.clear(out);
+        out.appendChild(h('div', { class: 'tiles' }, tile(d.held, 'held batches', d.held ? 'bad' : null), tile(d.batches.length, 'batches')));
+        out.appendChild(d.batches.length ? CG.table([
+          { label: 'Batch', get: function (b) { return h('b', { class: 'mono', text: b.batch_id }); } },
+          { label: 'Received', get: function (b) { return CG.fmtTime(b.created_at); } },
+          { label: 'Claims', num: true, get: function (b) { return b.claims; } },
+          { label: 'Clean', num: true, get: function (b) { return b.green; } },
+          { label: 'Checked by officers', num: true, get: function (b) { return b.sample_flagged + b.sample_verified + ' of ' + b.sampled; } },
+          { label: 'Flagged', num: true, get: function (b) { return b.sample_flagged; } },
+          { label: 'Why', get: reasons },
+          { label: 'Status', get: function (b) { return CG.chip(STATUS[b.status] || b.status, needsDecision(b) ? 'bad' : (b.status === 'released' ? 'good' : null)); } },
+          { label: '', get: function (b) { return needsDecision(b) ? h('button', { class: 'btn small primary', type: 'button', text: 'Decide', onclick: function () { decide(b); } }) : null; } }], d.batches)
+          : h('p', { class: 'muted', text: 'No batches yet. Claims submitted from "Submit claims" or by the command line form a batch.' }));
+      }, CG.fail);
+    }
+    function decide(b) {
+      CG.clear(detail);
+      var n = h('input', { type: 'number', min: '1', value: '10', 'aria-label': 'How many claims to send back' });
+      var note = h('input', { type: 'text', maxlength: '200', placeholder: 'Why (kept with the decision)' });
+      function go(action) {
+        var body = { action: action, note: note.value.trim() };
+        if (action === 'review_n') body.n = parseInt(n.value, 10);
+        CG.api('POST', '/queue/batches/' + encodeURIComponent(b.batch_id) + '/decision', body).then(function (r) {
+          CG.toast(action === 'release' ? 'Batch released.' : (r.review.sent_back + ' claims sent back to officers so far.'), 'good'); CG.clear(detail); load();
+        }, CG.fail);
+      }
+      detail.appendChild(h('div', { class: 'card stack' },
+        h('h2', { text: 'Batch ' + b.batch_id }),
+        h('p', { text: b.sample_flagged + ' of the ' + b.sampled + ' claims picked for checking were flagged (' + reasons(b) + '); ' + b.sample_verified + ' were confirmed; ' + b.sample_waiting + ' are still with officers. The system cleared ' + Math.max(0, b.green - b.sampled) + ' clean claims of this batch; they stay held until you decide.' }),
+        b.review && b.review.sent_back ? h('p', { class: 'muted', text: 'Already sent back: ' + b.review.sent_back + ' (flagged again: ' + b.review.flagged + ').' }) : null,
+        h('div', { class: 'field' }, h('label', { text: 'Reason' }), note),
+        h('div', { class: 'row' }, h('button', { class: 'btn primary', type: 'button', text: 'Release the batch', onclick: function () { go('release'); } }),
+          h('span', { class: 'muted', text: 'or send' }), n, h('button', { class: 'btn', type: 'button', text: 'claims back to officers', onclick: function () { go('review_n'); } }),
+          h('span', { class: 'muted', text: 'or' }), h('button', { class: 'btn', type: 'button', text: 'Send all back', onclick: function () { go('review_all'); } })),
+        h('button', { class: 'btn small', type: 'button', text: 'Close', onclick: function () { CG.clear(detail); } })));
+    }
+    load();
+    CG.every(20000, load);
+  };
+
   // ---- audit ------------------------------------------------------------------------------------------------------------------
 })();

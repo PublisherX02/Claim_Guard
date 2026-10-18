@@ -3,6 +3,7 @@
 //! different seniors, and every move is one append-only event.
 
 pub mod breaker;
+pub mod batch;
 pub mod broker;
 pub mod consumer;
 pub mod contract;

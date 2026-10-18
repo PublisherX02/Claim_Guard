@@ -44,7 +44,7 @@ pub fn check_set_fields(f: &Option<Map<String, Value>>) -> Result<Map<String, Va
 /// Validates a document handed to `put_triaged` and returns the full stored form (state triaged, outbox marker set).
 pub fn prepare_new_doc(doc: &Value) -> Result<Value> {
     let obj = doc.as_object().filter(|o| {
-        ["claim_id", "version", "input_hash", "claim", "results", "receipt"].iter().all(|k| o.contains_key(*k)) && o.keys().all(|k| ["claim_id", "version", "input_hash", "claim", "results", "receipt", "advisory", "corrected_from"].contains(&k.as_str()))
+        ["claim_id", "version", "input_hash", "claim", "results", "receipt"].iter().all(|k| o.contains_key(*k)) && o.keys().all(|k| ["claim_id", "version", "input_hash", "claim", "results", "receipt", "advisory", "corrected_from", "batch_id", "audit_sample"].contains(&k.as_str()))
     });
     let Some(obj) = obj else { return invalid("a new claim document must have: claim, claim_id, input_hash, receipt, results, version (and may have advisory and corrected_from)") };
     if obj.get("advisory").is_some_and(|a| !a.is_array()) {
@@ -120,6 +120,17 @@ pub fn check_id_doc(doc: &Value, key: &str) -> Result<()> {
     if doc.get(key).and_then(Value::as_str).is_some_and(|s| !s.is_empty()) { Ok(()) } else { invalid(format!("the document needs a text {key}")) }
 }
 
+/// A batch event: `{batch_id, kind, at, ...}`. Small plain data (no claim values; claim ids only inside `members`).
+pub fn check_batch_event(e: &Value) -> Result<()> {
+    check_id_doc(e, "batch_id")?;
+    check_id_doc(e, "kind")?;
+    match e.get("at").and_then(Value::as_f64) {
+        Some(at) => check_number(at, "at")?,
+        None => return invalid("a batch event needs a time"),
+    }
+    Ok(())
+}
+
 pub fn project_history(claim: &Value) -> Value {
     Value::Object(HISTORY_FIELDS.iter().map(|k| ((*k).to_string(), claim.get(*k).cloned().unwrap_or(Value::Null))).collect())
 }
@@ -180,6 +191,10 @@ pub trait QueueStore: Send + Sync {
     fn append_deal(&self, doc: &Value) -> Result<()>;
     fn get_deal(&self, deal_id: &str) -> Result<Option<Value>>;
     fn deals(&self, limit: usize) -> Result<Vec<Value>>;
+    // batch events: append-only (a batch's status is the fold of its events, see batch.rs)
+    fn append_batch_event(&self, event: &Value) -> Result<()>;
+    /// Oldest first. One batch, or (None) the newest `limit` events of every batch.
+    fn batch_events(&self, batch_id: Option<&str>, limit: usize) -> Result<Vec<Value>>;
     fn add_dead_letter(&self, doc: &Value) -> Result<()>;
     fn dead_letters(&self, limit: usize) -> Result<Vec<Value>>;
     fn pop_dead_letter(&self, dead_id: &str) -> Result<Option<Value>>;
@@ -197,6 +212,7 @@ struct Inner {
     configs: Vec<Value>,
     reliability: Vec<Value>,
     deals: Vec<Value>,
+    batch_events: Vec<Value>,
     dead: Vec<(String, Value)>,
     jobs: BTreeMap<String, Value>,
     cache: HashMap<String, String>,
@@ -501,6 +517,19 @@ impl QueueStore for MemoryQueueStore {
 
     fn deals(&self, limit: usize) -> Result<Vec<Value>> {
         Ok(self.lock().deals.iter().rev().take(limit).cloned().collect())
+    }
+
+    fn append_batch_event(&self, event: &Value) -> Result<()> {
+        check_batch_event(event)?;
+        self.lock().batch_events.push(event.clone());
+        Ok(())
+    }
+
+    fn batch_events(&self, batch_id: Option<&str>, limit: usize) -> Result<Vec<Value>> {
+        let g = self.lock();
+        let mut rows: Vec<Value> = g.batch_events.iter().filter(|e| batch_id.is_none_or(|b| e["batch_id"] == b)).cloned().collect();
+        let skip = rows.len().saturating_sub(limit);
+        Ok(rows.split_off(skip))
     }
 
     fn add_dead_letter(&self, doc: &Value) -> Result<()> {

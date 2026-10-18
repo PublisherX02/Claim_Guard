@@ -132,6 +132,65 @@ impl Intake {
 
     /// `submit`, with a provenance record (`corrected_from`: who corrected which version and what changed) stored on the new version.
     pub fn submit_with(&self, claim: &Value, corrected_from: Option<Value>) -> std::result::Result<Value, IntakeError> {
+        self.submit_tagged(claim, corrected_from, None)
+    }
+
+    /// Submits many claims as ONE batch (docs/53): every new claim carries the batch id, and the audit sample of the green claims is drawn here, once, as an
+    /// exact share of them (`batch::sample_size`) from a seed written on the batch. `by` is the badge (or "cli") that submitted it. Returns the batch id
+    /// (None when no claim was new) and one row per claim.
+    pub fn submit_batch(&self, claims: &[Value], by: &str) -> std::result::Result<(Option<String>, Vec<Value>), IntakeError> {
+        use rand::{rngs::OsRng, RngCore};
+        let cfg = routing_config(&*self.store);
+        let fail = |e: cg_access::store::StoreError| IntakeError::Failed(e.to_string());
+        let mut rows: Vec<Option<Value>> = vec![None; claims.len()];
+        let mut fresh: Vec<usize> = vec![];
+        let mut green: Vec<usize> = vec![];
+        for (i, claim) in claims.iter().enumerate() {
+            if !claim.is_object() || check_claim(claim).is_err() {
+                continue; // refused below, with its reason, by the ordinary path
+            }
+            let (id, ihash) = (claim["claim_id"].as_str().unwrap_or("").to_string(), triage::input_hash(claim));
+            if let Some(found) = self.receipt_for(&id, &ihash).map_err(fail)? {
+                rows[i] = Some(json!({"claim_id": id, "accepted": true, "lane": found["lane"], "score": found["score"], "already_stored": true}));
+                continue;
+            }
+            fresh.push(i);
+            if let Ok(results) = (self.engine)(claim) {
+                if !triage::degraded(&results) && triage::flagged(&results).is_empty() {
+                    green.push(i);
+                }
+            }
+        }
+        let mut batch_id = None;
+        let mut sampled: std::collections::BTreeSet<usize> = Default::default();
+        if !fresh.is_empty() {
+            let (id, seed, now) = (crate::batch::new_batch_id((self.clock)()), OsRng.next_u64(), (self.clock)());
+            sampled = crate::batch::choose(green.len(), cfg.audit_percent, seed).into_iter().map(|pos| green[pos]).collect();
+            let members: Vec<&str> = fresh.iter().map(|i| claims[*i]["claim_id"].as_str().unwrap_or("")).collect();
+            // written BEFORE the claims, so a flag on a sampled claim can never arrive at a batch that does not exist yet
+            self.store
+                .append_batch_event(&json!({"batch_id": id, "kind": "created", "at": now, "by": by, "submitted": claims.len(), "accepted": fresh.len(), "green": green.len(), "sampled": sampled.len(),
+                                            "percent": cfg.audit_percent, "auto_clear": cfg.auto_clear_green, "seed": seed, "members": members}))
+                .map_err(fail)?;
+            let _ = self.log.record("batch_created", json!({"batch_id": id, "claims": fresh.len(), "green": green.len(), "sampled": sampled.len(), "auto_clear": cfg.auto_clear_green, "by": by}));
+            batch_id = Some(id);
+        }
+        for (i, claim) in claims.iter().enumerate() {
+            if rows[i].is_some() {
+                continue;
+            }
+            let id = claim["claim_id"].as_str();
+            let tag = batch_id.as_deref().filter(|_| fresh.contains(&i)).map(|b| (b, sampled.contains(&i)));
+            rows[i] = Some(match self.submit_tagged(claim, None, tag) {
+                Ok(receipt) => json!({"claim_id": id, "accepted": true, "lane": receipt["lane"], "score": receipt["score"]}),
+                Err(IntakeError::Refused(m)) => json!({"claim_id": id, "accepted": false, "reason": format!("claim refused: {m}").chars().take(200).collect::<String>()}),
+                Err(e) => return Err(e),
+            });
+        }
+        Ok((batch_id, rows.into_iter().flatten().collect()))
+    }
+
+    fn submit_tagged(&self, claim: &Value, corrected_from: Option<Value>, batch: Option<(&str, bool)>) -> std::result::Result<Value, IntakeError> {
         if !claim.is_object() {
             return Err(IntakeError::Refused("a claim must be an object".into()));
         }
@@ -150,6 +209,10 @@ impl Intake {
             let mut doc = json!({"claim_id": claim_id, "version": version, "input_hash": ihash, "claim": claim, "results": results, "receipt": receipt, "advisory": self.advisory_for(claim)});
             if let Some(from) = &corrected_from {
                 doc["corrected_from"] = from.clone();
+            }
+            if let Some((b, sample)) = batch {
+                doc["batch_id"] = json!(b);
+                doc["audit_sample"] = json!(sample);
             }
             if self.store.put_triaged(&doc).map_err(fail)? {
                 // shadow mode must never affect a claim
@@ -348,9 +411,24 @@ fn green_path(store: &dyn QueueStore, doc: &Value, claim_id: &str, version: i64,
     if !cfg.auto_clear_green || triage::degraded(&doc["results"]) || !triage::flagged(&doc["results"]).is_empty() {
         return make_ready(store, claim_id, version, "triaged", now, "green");
     }
-    let draw = audit_draw();
-    if draw < cfg.audit_percent as f64 {
-        return match store.transition(claim_id, version, "triaged", "ready", "system:pipeline", now, Some(json!({"why": "green_audit", "audit_draw": draw})), None, None) {
+    // a claim of a batch was sampled (or not) when the batch came in: an exact share of the batch (batch.rs). A claim on its own is drawn by chance.
+    let batch = doc["batch_id"].as_str();
+    let (sampled, draw) = match batch {
+        Some(_) => (doc["audit_sample"] == true, None),
+        None => {
+            let d = audit_draw();
+            (d < cfg.audit_percent as f64, Some(d))
+        }
+    };
+    let mut detail = json!({"why": "green_audit"});
+    if sampled {
+        if let Some(d) = draw {
+            detail["audit_draw"] = json!(d);
+        }
+        if let Some(b) = batch {
+            detail["batch_id"] = json!(b);
+        }
+        return match store.transition(claim_id, version, "triaged", "ready", "system:pipeline", now, Some(detail), None, None) {
             Ok(Some(_)) => "ready",
             _ => "noop",
         };
@@ -358,7 +436,14 @@ fn green_path(store: &dyn QueueStore, doc: &Value, claim_id: &str, version: i64,
     let mut set = Map::new();
     set.insert("decided_by".into(), json!(AUTO_CLEAR));
     set.insert("auto_cleared".into(), json!(true));
-    match store.transition(claim_id, version, "triaged", "decided", AUTO_CLEAR, now, Some(json!({"auto_cleared": true, "findings": 0, "audit_draw": draw})), Some(set), None) {
+    detail = json!({"auto_cleared": true, "findings": 0});
+    if let Some(d) = draw {
+        detail["audit_draw"] = json!(d);
+    }
+    if let Some(b) = batch {
+        detail["batch_id"] = json!(b);
+    }
+    match store.transition(claim_id, version, "triaged", "decided", AUTO_CLEAR, now, Some(detail), Some(set), None) {
         Ok(Some(_)) => "decided",
         _ => "noop",
     }

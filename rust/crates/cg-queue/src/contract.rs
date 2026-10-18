@@ -279,6 +279,15 @@ pub fn run(fresh: &dyn Fn() -> Box<dyn QueueStore>) {
     assert!(s.get_deal("NOPE").unwrap().is_none());
     assert_eq!(s.deals(10).unwrap().iter().map(|d| d["deal_id"].as_str().unwrap().to_string()).collect::<Vec<_>>(), ["D2", "D1"], "newest first");
     assert!(s.append_deal(&json!({"seed": 3})).is_err());
+    // batch events: append-only, oldest first, one batch or all, validated
+    s.append_batch_event(&json!({"batch_id": "B1", "kind": "created", "at": NOW})).unwrap();
+    s.append_batch_event(&json!({"batch_id": "B2", "kind": "created", "at": NOW + 1.0})).unwrap();
+    s.append_batch_event(&json!({"batch_id": "B1", "kind": "flagged", "at": NOW + 2.0, "category": "R007"})).unwrap();
+    assert_eq!(s.batch_events(Some("B1"), 10).unwrap().iter().map(|e| e["kind"].as_str().unwrap().to_string()).collect::<Vec<_>>(), ["created", "flagged"], "oldest first, one batch");
+    assert_eq!(s.batch_events(None, 10).unwrap().len(), 3);
+    assert_eq!(s.batch_events(None, 2).unwrap().iter().map(|e| e["batch_id"].as_str().unwrap().to_string()).collect::<Vec<_>>(), ["B2", "B1"], "the newest N, still oldest first");
+    assert!(s.batch_events(Some("nope"), 10).unwrap().is_empty() && s.batch_events(Some("B1"), 0).unwrap().is_empty());
+    assert!(s.append_batch_event(&json!({"kind": "created", "at": NOW})).is_err() && s.append_batch_event(&json!({"batch_id": "B3", "kind": "created"})).is_err());
     s.add_dead_letter(&json!({"dead_id": "X1", "claim_id": "C1", "reason": "boom", "at": NOW})).unwrap();
     assert_eq!(s.dead_letters(10).unwrap().len(), 1);
     assert_eq!(s.pop_dead_letter("X1").unwrap().unwrap()["reason"], "boom");
