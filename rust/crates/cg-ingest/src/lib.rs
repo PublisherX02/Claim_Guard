@@ -51,6 +51,30 @@ pub fn detect_format(bytes: &[u8]) -> &'static str {
 
 /// The common gate: whatever the source, the result must pass the transport contract.
 fn finish(mut item: Ingested) -> Ingested {
+    // a claim written in Arabic is read into the canonical one first (docs/55); what was changed is kept in the report
+    if let Some(claim) = item.claim.take() {
+        match cg_core::localize::localize(&claim) {
+            Ok(l) => {
+                if !l.changes.is_empty() || l.arabic_text {
+                    let mut loc = l.to_json();
+                    loc["original"] = claim.clone();
+                    match item.report.as_object_mut() {
+                        Some(o) => {
+                            o.insert("localization".into(), loc);
+                        }
+                        None => item.report = json!({"localization": loc}),
+                    }
+                }
+                item.claim = Some(l.claim);
+            }
+            Err(r) => {
+                item.error = Some(format!("Could not read the claim: {}: {}", if r.path.is_empty() { "/" } else { &r.path }, r.reason));
+                if item.raw.is_none() {
+                    item.raw = Some(claim);
+                }
+            }
+        }
+    }
     if let Some(claim) = &item.claim {
         if let Err(e) = cg_core::transport::validate(claim) {
             item.error = Some(format!("Failed transport validation: {e}"));

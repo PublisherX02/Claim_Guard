@@ -125,8 +125,12 @@ impl Api {
         self.need(req, "routing.manage")?;
         let body: Value = serde_json::from_slice(&req.body).map_err(|_| ApiError::new(422, "invalid_request"))?;
         let claim = body.get("claim").filter(|c| c.is_object()).ok_or_else(|| ApiError::new(422, "invalid_request"))?;
-        Ok(match cg_core::transport::validate(claim) {
-            Ok(()) => ApiResponse::json(200, &json!({"valid": true, "error": null})),
+        let l = match cg_core::localize::localize(claim) {
+            Ok(l) => l,
+            Err(r) => return Ok(ApiResponse::json(200, &json!({"valid": false, "error": format!("{}: {}", if r.path.is_empty() { "/" } else { &r.path }, r.reason)}))),
+        };
+        Ok(match cg_core::transport::validate(&l.claim) {
+            Ok(()) => ApiResponse::json(200, &json!({"valid": true, "error": null, "claim": l.claim, "localization": l.to_json()})),
             Err(e) => ApiResponse::json(200, &json!({"valid": false, "error": e})),
         })
     }

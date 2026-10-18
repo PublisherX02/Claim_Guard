@@ -2,7 +2,7 @@
 //! `src/csv_to_jsonl.py` with Python's csv reader rules (quotes, doubled quotes, newlines inside quotes, blank lines skipped, byte-order mark).
 //!
 //! A text cell in a numeric column is kept as text, so that one claim fails the transport contract and is quarantined alone; a number is read
-//! only from plain ASCII (no Arabic-Indic or full-width digits: that would be a silent repair). Where Python would crash on a short row in a
+//! only from plain ASCII here; Arabic-Indic digits stay text and are read, with the change recorded, by `cg_core::localize` (docs/55). Where Python would crash on a short row in a
 //! numeric column (an AttributeError nobody catches), this reads the missing cell as null and the claim fails validation instead.
 
 use num_bigint::BigInt;
@@ -182,6 +182,14 @@ pub fn number(v: &str) -> Value {
     }
 }
 
+/// A column named in Arabic (docs/55) gets its canonical name; a header the glossary does not know stays as written and the claim is refused for the unknown field.
+fn arabic_headers(table: &str, row: Map<String, Value>) -> Map<String, Value> {
+    if row.keys().all(|k| k.is_ascii()) {
+        return row;
+    }
+    row.into_iter().map(|(k, v)| (if k.is_ascii() { k } else { cg_core::localize::column_name(table, &k).unwrap_or(k) }, v)).collect()
+}
+
 fn blank_to_null(v: &Value) -> Value {
     match v {
         Value::String(s) if s.is_empty() => Value::Null,
@@ -203,7 +211,8 @@ pub fn convert(files: &BTreeMap<String, Vec<u8>>) -> Result<Vec<Value>, String> 
     let mut tables: BTreeMap<&str, Vec<Map<String, Value>>> = BTreeMap::new();
     for t in TABLES {
         let bytes = files.get(t).ok_or_else(|| format!("{t}.csv is missing"))?;
-        tables.insert(t, dict_rows(bytes).map_err(|e| format!("{t}.csv: {e}"))?);
+        let rows = dict_rows(bytes).map_err(|e| format!("{t}.csv: {e}"))?;
+        tables.insert(t, rows.into_iter().map(|r| arabic_headers(t, r)).collect());
     }
     let mut claims: Vec<Map<String, Value>> = tables.remove("claims").unwrap_or_default();
     let mut by: BTreeMap<String, usize> = BTreeMap::new();

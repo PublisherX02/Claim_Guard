@@ -6,6 +6,7 @@
 
 pub mod config;
 pub mod date;
+pub mod localize;
 pub mod num;
 pub mod text;
 pub mod transport;

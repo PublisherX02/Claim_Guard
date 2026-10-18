@@ -53,6 +53,22 @@ pub fn check_claim(claim: &Value) -> std::result::Result<(), String> {
     if claim["claim_id"].as_str().is_some_and(claim_id_ok) { Ok(()) } else { Err("claim_id must be 1 to 64 letters, digits, underscore or hyphen".into()) }
 }
 
+/// Reads a claim that may be written in Arabic (docs/55): the canonical claim and, when anything was converted, the record of what changed.
+/// An English claim comes back as it is with no record. A claim that cannot be read with certainty is refused with the field and the reason.
+pub fn localize_claim(claim: &Value) -> std::result::Result<(Value, Option<Value>), String> {
+    match cg_core::localize::localize(claim) {
+        Ok(l) => {
+            let record = (!l.changes.is_empty() || l.arabic_text).then(|| {
+                let mut r = l.to_json();
+                r["original"] = claim.clone();
+                r
+            });
+            Ok((l.claim, record))
+        }
+        Err(r) => Err(format!("{}: {}", if r.path.is_empty() { "/" } else { &r.path }, r.reason)),
+    }
+}
+
 /// engine(claim) -> the fifteen results as a JSON list.
 pub type EngineFn = Arc<dyn Fn(&Value) -> std::result::Result<Value, String> + Send + Sync>;
 
@@ -143,10 +159,23 @@ impl Intake {
         let cfg = routing_config(&*self.store);
         let fail = |e: cg_access::store::StoreError| IntakeError::Failed(e.to_string());
         let mut rows: Vec<Option<Value>> = vec![None; claims.len()];
+        // Arabic claims are read first; from here on the batch works on the canonical claims
+        let mut read: Vec<(Value, Option<Value>)> = Vec::with_capacity(claims.len());
+        for (i, c) in claims.iter().enumerate() {
+            match localize_claim(c) {
+                Ok(pair) => read.push(pair),
+                Err(reason) => {
+                    rows[i] = Some(json!({"claim_id": c["claim_id"], "accepted": false, "reason": format!("claim refused: {reason}").chars().take(300).collect::<String>()}));
+                    read.push((c.clone(), None));
+                }
+            }
+        }
+        let claims: Vec<Value> = read.iter().map(|(c, _)| c.clone()).collect();
+        let claims = &claims[..];
         let mut fresh: Vec<usize> = vec![];
         let mut green: Vec<usize> = vec![];
         for (i, claim) in claims.iter().enumerate() {
-            if !claim.is_object() || check_claim(claim).is_err() {
+            if rows[i].is_some() || !claim.is_object() || check_claim(claim).is_err() {
                 continue; // refused below, with its reason, by the ordinary path
             }
             let (id, ihash) = (claim["claim_id"].as_str().unwrap_or("").to_string(), triage::input_hash(claim));
@@ -181,7 +210,7 @@ impl Intake {
             }
             let id = claim["claim_id"].as_str();
             let tag = batch_id.as_deref().filter(|_| fresh.contains(&i)).map(|b| (b, sampled.contains(&i)));
-            rows[i] = Some(match self.submit_tagged(claim, None, tag) {
+            rows[i] = Some(match self.submit_prepared(claim, read[i].1.clone(), None, tag) {
                 Ok(receipt) => json!({"claim_id": id, "accepted": true, "lane": receipt["lane"], "score": receipt["score"]}),
                 Err(IntakeError::Refused(m)) => json!({"claim_id": id, "accepted": false, "reason": format!("claim refused: {m}").chars().take(200).collect::<String>()}),
                 Err(e) => return Err(e),
@@ -191,6 +220,12 @@ impl Intake {
     }
 
     fn submit_tagged(&self, claim: &Value, corrected_from: Option<Value>, batch: Option<(&str, bool)>) -> std::result::Result<Value, IntakeError> {
+        let (canonical, record) = localize_claim(claim).map_err(IntakeError::Refused)?;
+        self.submit_prepared(&canonical, record, corrected_from, batch)
+    }
+
+    /// `submit_tagged` for a claim that has already been read by `localize_claim`; `localization` is the record of what was converted.
+    fn submit_prepared(&self, claim: &Value, localization: Option<Value>, corrected_from: Option<Value>, batch: Option<(&str, bool)>) -> std::result::Result<Value, IntakeError> {
         if !claim.is_object() {
             return Err(IntakeError::Refused("a claim must be an object".into()));
         }
@@ -209,6 +244,9 @@ impl Intake {
             let mut doc = json!({"claim_id": claim_id, "version": version, "input_hash": ihash, "claim": claim, "results": results, "receipt": receipt, "advisory": self.advisory_for(claim)});
             if let Some(from) = &corrected_from {
                 doc["corrected_from"] = from.clone();
+            }
+            if let Some(loc) = &localization {
+                doc["localization"] = loc.clone();
             }
             if let Some((b, sample)) = batch {
                 doc["batch_id"] = json!(b);
