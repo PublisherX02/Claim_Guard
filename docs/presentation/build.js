@@ -128,12 +128,13 @@ section("Opening");
     ["1", "Human in the loop: confirm, dismiss with reason, request information, correct and revalidate, prioritised and traceable", { text: "Built. Lanes and a transparent score, four-eyes on high severity, full audit trail", bold: true }],
     ["2", "All 15 rules right; extra rules kept apart from the benchmark", { text: "F1 1.00 on 600 public claims. 8 advisory rules in a separate pack", bold: true }],
     ["3", "AI that helps a claims officer, grounded, with a plan for wrong output", { text: "Explainer, correction assistant, what-if, reviewer summary, feedback analysis", bold: true }],
-    ["4", "R006 as documented; three public claims to review together", { text: "Kept as documented. Three claims to discuss (slide 22)", bold: true }],
+    ["4", "R006 as documented; three public claims to review together", { text: "Kept as documented. Three claims to discuss (slide 40)", bold: true }],
     ["5", "Authorization aggregated per claim; cross-claim only as an extension", { text: "R009 per claim. Cross-claim is advisory rule E102, separate", bold: true }],
     ["6", "Pre-validation clearance, not payer approval", { text: "Wording fixed in the console. Auto-clear exists, off by default, audited", bold: true }],
     ["7", "Keep the JSONL schema; confidence null, not_probabilistic", { text: "Unchanged and enforced in the audit log", bold: true }],
     ["8", "One convincing end-to-end workflow", { text: "Six steps run in the console (next slide)", bold: true }],
-  ], MX, 1.55, 12.1, [0.5, 6.4, 5.2], 14, 0.58);
+    ["9", "ML routing is optional; if used, show the gain over deterministic", { text: "None in use. Routing is the deterministic score. A trained model was tested and set aside (slide 28)", bold: true }],
+  ], MX, 1.4, 12.1, [0.5, 6.4, 5.2], 13, 0.5);
 }
 
 // 3  The workflow
@@ -426,15 +427,39 @@ section("Queue, load balancing and AI");
 // ---- RAG
 {
   const s = slide("Ask the rulebook: answers that quote, never invent", { n: "rag" });
-  stat(s, MX, 1.5, 3.6, "88%", "right passage first, on 26 reviewer-style questions", T.teal, 44);
-  stat(s, MX + 4.1, 1.5, 3.6, "96%", "right passage in the top 3", T.teal, 44);
-  stat(s, MX + 8.2, 1.5, 3.9, "5 of 5", "off-topic or clinical questions refused", T.teal, 44);
+  stat(s, MX, 1.5, 3.6, "81%", "right passage in the top 3 when the question is in the officer's own words (was 5% with keywords)", T.teal, 44);
+  stat(s, MX + 4.1, 1.5, 3.6, "6 of 6", "French and Arabic questions answered (keywords: 0 of 6)", T.teal, 44);
+  stat(s, MX + 8.2, 1.5, 3.9, "96%", "top 3 on the original 26 questions, unchanged", T.teal, 44);
   card(s, MX, 3.5, 5.9, 3.15, T.soft, "rag how");
   s.addText("How it works", { x: MX + 0.25, y: 3.6, w: 5.4, h: 0.4, fontSize: 17, bold: true, fontFace: "Cambria", color: T.dark, margin: 0, isTextBox: true, objectName: "h" });
-  bullets(s, ["Searches the text of the 15 rules and the payer policy table as it is now, each passage naming its rule or table version", "Plain ranking (BM25): no model, no network, deterministic", "The answer is the quoted passage and its source. Nothing is generated", "A question that barely touches the documents is refused, not answered with the nearest guess"], MX + 0.25, 4.1, 5.4, 2.5, 13);
+  bullets(s, ["Searches the text of the 15 rules and the payer policy table as it is now, each passage naming its rule or table version", "Ranks by meaning: a small multilingual model on the server's own CPU, offline, in its own container with no route out", "If that service is off or down, the keyword search answers and the console says so", "The answer is the quoted passage and its source. Nothing is generated"], MX + 0.25, 4.1, 5.4, 2.5, 13);
   card(s, MX + 6.2, 3.5, 5.9, 3.15, T.soft, "rag limits");
   s.addText("Why it is safe, and where it stops", { x: MX + 6.45, y: 3.6, w: 5.4, h: 0.4, fontSize: 17, bold: true, fontFace: "Cambria", color: T.dark, margin: 0, isTextBox: true, objectName: "h" });
-  bullets(s, ["It never reads a claim, so it adds no privacy risk", "An approved change to the payer table is what people read next", "It is retrieval, not reasoning: it will not combine passages", "It matches words: the one miss asked for 'identical lines' where the rule says 'duplicate'"], MX + 6.45, 4.1, 5.4, 2.5, 13);
+  bullets(s, ["It never reads a claim, so it adds no privacy risk", "Retrieval, not reasoning: it will not combine passages", "A question near the topic but not answered by it gets the nearest passage, so every answer says: it may not answer your question", "Right passage first fell from 88% to 81% on the original 26 (next slide)"], MX + 6.45, 4.1, 5.4, 2.5, 13);
+}
+
+// ---- RAG measured
+{
+  const s = slide("Ask the rulebook: what changed, measured", { n: "rag2" });
+  const bad = { color: T.red, bold: true }, good = { color: T.teal, bold: true };
+  table(s, ["Questions (number in brackets)", "Keywords (BM25)", "By meaning"], [
+    ["Operator wording, English: right passage in top 3 (21)", "5%", { text: "81%", ...good }],
+    ["...refused although the documents answer it", "76%", { text: "5%", ...good }],
+    ["No word shared with the rule (8)", "0%", { text: "75%", ...good }],
+    ["French and Arabic (6)", "0%", { text: "100%", ...good }],
+    ["Original 26 questions: right passage first / in top 3", "88% / 96%", { text: "81% / 96%", ...bad }],
+    ["Off-topic, plainly (4): refused", "100%", "100%"],
+    ["Off-topic, close to the topic (4): refused", "75%", { text: "25%", ...bad }],
+  ], MX, 1.45, 7.6, [4.6, 1.5, 1.5], 12.5, 0.5);
+  card(s, 8.5, 1.45, 4.3, 5.2, T.dark, "rag proof");
+  s.addText("The product gives these numbers", { x: 8.75, y: 1.6, w: 3.8, h: 0.4, fontSize: 16, bold: true, fontFace: "Cambria", color: "FFFFFF", margin: 0, isTextBox: true, objectName: "h" });
+  s.addText([
+    { text: "The experiment ran in Python on a graphics card. The product is a Rust server with a CPU service. Through the real route, every figure matches to four decimals (rust/tools/rag_parity.py).", options: { breakLine: true, paraSpaceAfter: 8 } },
+    { text: "With the service stopped, the keyword search answers and keeps its old numbers.", options: { breakLine: true, paraSpaceAfter: 8 } },
+    { text: "A relevance judge (Laya) and a keyword-plus-meaning mix were tried and left out: neither beat this.", options: {} },
+  ], { x: 8.75, y: 2.1, w: 3.8, h: 3.4, fontSize: 13, color: "DDEEEB", margin: 0, valign: "top", isTextBox: true, objectName: "proof text" });
+  s.addText("Small sets (4 to 21 questions), written by the team, not by officers. French and Arabic not reviewed by a native speaker. Not run on the target server.", { x: 8.75, y: 5.45, w: 3.8, h: 1.0, fontSize: 11.5, italic: true, color: "CADCD9", margin: 0, valign: "top", isTextBox: true, objectName: "rag limits note" });
+  note(s, "Dev half used to choose the threshold (0.29); the table shows the held-out half. Counts in brackets are test questions.", 6.8);
 }
 
 // Storage and encryption
@@ -820,7 +845,8 @@ section("Trust");
   card(s, MX, 4.7, 12.1, 2.0, "FFF1DB", "vllm card");
   s.addText([
     { text: "Through the real queue step: 399 claims, 777 findings, empty cache, 8 workers.", options: { bold: true, color: T.dark, breakLine: true, paraSpaceAfter: 6 } },
-    { text: "74 model calls (90.5% of findings needed none), 49 seconds, about 490 claims a minute; warm cache about 2,050 a minute, 18 calls that retried 3 templates the guard had refused. 0 model errors. A debug build on this laptop: these are measurements of this machine only.", options: { color: T.ink } },
+    { text: "74 model calls (90.5% of findings needed none), 49 seconds, about 490 claims a minute; warm cache about 2,050 a minute, 18 calls that retried 3 templates the guard had refused. 0 model errors. A debug build on this laptop: these are measurements of this machine only.", options: { color: T.ink, breakLine: true } },
+    { text: "Served with Ollama. vLLM has not been run: this laptop has too little free disk and the gated model needs a token. Nothing here is a vLLM result.", options: { bold: true, color: T.dark } },
   ], { x: MX + 0.25, y: 4.7, w: 11.6, h: 2.0, fontSize: 14, valign: "middle", margin: 0, isTextBox: true, objectName: "vllm text" });
 }
 
