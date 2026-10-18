@@ -301,6 +301,7 @@
         h('h2', { text: 'Batch ' + b.batch_id }),
         h('p', { text: b.sample_flagged + ' of the ' + b.sampled + ' claims picked for checking were flagged (' + reasons(b) + '); ' + b.sample_verified + ' were confirmed; ' + b.sample_waiting + ' are still with officers. The system cleared ' + Math.max(0, b.green - b.sampled) + ' clean claims of this batch; they stay held until you decide.' }),
         b.review && b.review.sent_back ? h('p', { class: 'muted', text: 'Already sent back: ' + b.review.sent_back + ' (flagged again: ' + b.review.flagged + ').' }) : null,
+        b.notes && b.notes.length ? h('div', null, h('h3', { text: 'What the officers wrote' }), h('ul', { class: 'plain' }, b.notes.map(function (n) { return h('li', { text: n }); }))) : null,
         h('div', { class: 'field' }, h('label', { text: 'Reason' }), note),
         h('div', { class: 'row' }, h('button', { class: 'btn primary', type: 'button', text: 'Release the batch', onclick: function () { go('release'); } }),
           h('span', { class: 'muted', text: 'or send' }), n, h('button', { class: 'btn', type: 'button', text: 'claims back to officers', onclick: function () { go('review_n'); } }),

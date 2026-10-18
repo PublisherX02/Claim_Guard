@@ -6,7 +6,7 @@ Built after the mentor session of 2026-10-18. What the mentor answered, what was
 
 ## 1. What the mentor said
 
-1. **Information that is missing and must come from outside our system** (the provider, the patient): the system flags it, writes the whole request itself, and the officer only confirms the last step, which is sending.
+1. **Information that is missing and must come from outside our system** (the mentor's words, as relayed: back to the patient): the system flags it, writes the whole request itself, and the officer only confirms the last step, which is sending. **What was built goes to the provider named on the claim, not to the patient:** the claim carries no patient contact details and the patient is a pseudonym everywhere in the system. Whether the mentor meant the patient literally is an open question for him.
 2. **Corrections**: the copilot fills the values in automatically, for every rule it can, and the officer confirms the fills.
 3. **Green claims in a batch** (100 or 1,000): about 5% of them go to officers. When one of those is found wrong, the whole batch is quarantined at once. The rest of the 5% is still analysed by the officers. The administrator sees only the batch number, how many of the sampled green claims were flagged, and the general reason, and decides: let it go, have some of the batch's claims checked by officers, or have all of them checked.
 
@@ -38,11 +38,11 @@ A cleared claim keeps its own record. Whether its clearance stands is read from 
 
 ### 2.4 The flag
 
-`escalate` on a green claim of a batch (the officer's "the engine missed something") now **requires a category**: the rule that should have flagged it (R001 to R015) or `other`, plus an optional note of 200 characters. The note stays in the batch history; the administrator's screen never shows it. The flag is written to the batch **before** the claim moves, so a failure after it holds the batch (the safe direction). The first flag writes `batch_quarantined` to the security log; later flags only add to the counts. A flag after a release holds the batch again.
+`escalate` on a green claim of a batch (the officer's "the engine missed something") now **requires a category**: the rule that should have flagged it (R001 to R015) or `other`, plus an optional note of 200 characters. The note is checked against the claim's patient and member identifiers when it is written (a note containing one is refused, as for a decision reason) and is shown to the administrator, without the claim and without the officer. The check finds identifiers, not a name typed in free text. The flag is written to the batch **before** the claim moves, so a failure after it holds the batch (the safe direction). The first flag writes `batch_quarantined` to the security log; later flags only add to the counts. A flag after a release holds the batch again.
 
 ### 2.5 The administrator
 
-`GET /api/v1/queue/batches` and `/{id}` (permission `routing.manage`) return: batch id, time, claims, clean claims, audit percent, how many were sampled, flagged, confirmed and are still waiting, the categories, the status, what was sent back. **No claim id, no claim value, no officer, no note.** The console page **Batches** lists them and opens a decision form.
+`GET /api/v1/queue/batches` and `/{id}` (permission `routing.manage`) return: batch id, time, claims, clean claims, audit percent, how many were sampled, flagged, confirmed and are still waiting, the categories, the status, what was sent back. **No claim id, no claim value, no officer badge.** The officers' notes are listed (one per flagged claim). The console page **Batches** lists them and opens a decision form.
 
 `POST /api/v1/queue/batches/{id}/decision`:
 - `release`: the batch is let go.
@@ -53,7 +53,7 @@ Only a held batch can be decided; while claims already sent back are still with 
 
 ### 2.6 Measured
 
-- `cargo test -p cg-queue --test service_flow batch`: the sample is exact for 1, 19 and 100 green claims; one flag holds the batch, a second is not a second quarantine; a refused flag changes nothing; the administrator's view contains neither a claim id nor the note; an officer is refused; review N, release refused while claims are out, review all; release; a later flag holds the batch again; a claim outside any batch behaves as before.
+- `cargo test -p cg-queue --test service_flow batch`: the sample is exact for 1, 19 and 100 green claims; one flag holds the batch, a second is not a second quarantine; a refused flag changes nothing; the administrator's view lists the note but contains neither a claim id nor the officer; a note with the patient identifier is refused; a flagged claim that a second officer then confirms is not also counted as confirmed; an officer is refused; review N, release refused while claims are out, review all; release; a later flag holds the batch again; a claim outside any batch behaves as before.
 - `batch::tests`: exact size and no repeats for 1 to 1,000 green claims, same seed same draw, every position can be drawn, the fold.
 - The store contract (`contract::run`) covers the new event methods in the in-memory store and **in MongoDB** (run against the `cg-test-mongo` container).
 - `python rust/tools/batch_e2e.py --cg <cg.exe>` (real HTTP, a demo server it starts): 17 of 17 checks, output `outputs/defense/batch_e2e.json`.
@@ -97,7 +97,7 @@ On the 600 public claims, 777 flagged findings, every proposal applied to a copy
 
 Applying all proposals of a claim together: 103 claims had a proposal, 68 had no flagged finding afterwards, **0 flagged a new rule**.
 
-R008 and R009 have no case in the public claims (their failures never carry a matching authorization), so they were measured by damaging clean public claims (`outputs/defense/copilot_fills.json`): 339 lines each, the engine flagged every one, the copilot proposed the original authorization every time it was the only one that fits, applying it cleared the rule 339 of 339 times, **0 new findings**. When two authorizations fit, it holds back (the old run of 368 R008 lines had 29 of those). This shows the fill is right when the claim carries the answer; it says nothing about how often real submissions do.
+R008 and R009 have no case in the public claims (their failures never carry a matching authorization), so they were measured by damaging clean public claims (`outputs/defense/copilot_fills.json`): 339 lines each, the engine flagged every one, the copilot proposed the original authorization every time it was the only one that fits, applying it cleared the rule 339 of 339 times, **0 new findings**. When two authorizations fit, it holds back: a separate test duplicates the fitting authorization on a claim and checks that no value is proposed and the finding becomes a request (`with_two_authorizations_that_fit_the_copilot_proposes_nothing_and_asks`). This shows the fill is right when the claim carries the answer; it says nothing about how often real submissions do.
 
 Only 15 of the 61 R001 failures could be filled: the others miss a header field or a value that appears nowhere else on the claim. The 61 include 46 that are asked for instead.
 
@@ -108,6 +108,7 @@ Only 15 of the 61 R001 failures could be filled: the others miss a header field 
 - A batch is whatever one submission was. A batch cannot be assembled from several requests; a 1,000-claim batch needs the command line.
 - The administrator's decision needs no second person. Releasing a batch the officers flagged is one click.
 - The sample catches a miss in proportion to its size: with 5% of 100 green claims (5 claims) a rate of misses below about 1 in 5 can pass unnoticed; the table in docs/50 (section 3.2) says how large an audit must be to bound a miss rate. A flag is a person's opinion; this system cannot tell a real miss from a mistaken flag.
+- The notes are free text by people: they are checked for the claim's identifiers, not for names or other personal details typed in.
 - Quarantine is a status, not a lock: a consumer that reads `auto_cleared` without the batch (section 2.3) will treat a held claim as cleared.
 - The fills are checked against the engine's own answer: a fill that clears a rule is "consistent with the rulebook", not "correct against the real bill". A person checks each against the source.
 - Browser: the Batches page, the flag form and the request card were not driven in a browser.

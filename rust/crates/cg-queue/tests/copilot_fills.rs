@@ -98,3 +98,39 @@ fn authorization_fills_clear_the_rule_they_are_proposed_for_and_create_nothing_n
         assert_eq!(s.5, 0, "{}: and flags nothing new", s.0);
     }
 }
+
+#[test]
+fn with_two_authorizations_that_fit_the_copilot_proposes_nothing_and_asks() {
+    let engine = Engine::load(&root()).expect("the rule engine loads");
+    let cfg = engine.cfg();
+    let mut pool: Vec<Value> = vec![];
+    for dir in ["development", "validation", "stress"] {
+        pool.extend(lines(root().join("data").join(dir).join("claims.jsonl")));
+    }
+    let mut checked = 0;
+    for claim in &pool {
+        let base = run(&engine, claim);
+        if status(&base, "R008") != "PASS" || status(&base, "R009") != "PASS" {
+            continue;
+        }
+        let Some((i, auth)) = claim["lines"].as_array().unwrap().iter().enumerate().find_map(|(i, l)| {
+            let id = l["authorization_id"].as_str()?;
+            claim["authorizations"].as_array()?.iter().find(|a| a["authorization_id"] == id).map(|a| (i, a.clone()))
+        }) else { continue };
+        let mut twice = claim.clone();
+        let mut twin = auth.clone();
+        twin["authorization_id"] = json!("AUTH-TWIN");
+        twice["authorizations"].as_array_mut().unwrap().push(twin);
+        twice["lines"][i]["authorization_id"] = Value::Null;
+        let before = run(&engine, &twice);
+        if status(&before, "R008") != "FAIL" {
+            continue;
+        }
+        let s = copilot::suggest(&twice, &before, &cfg);
+        let mine = s.iter().find(|x| x["rule_id"] == "R008").unwrap();
+        assert!(mine["proposed_edits"].as_array().unwrap().is_empty(), "two authorizations fit: choosing is a person's decision");
+        assert_eq!(mine["kind"], "request_information");
+        checked += 1;
+    }
+    assert!(checked >= 10, "enough claims were tried ({checked})");
+}

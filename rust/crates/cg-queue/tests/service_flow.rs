@@ -829,14 +829,17 @@ fn one_flagged_sample_claim_holds_the_whole_batch_and_the_administrator_decides_
     assert!(matches!(q.queue.decide_green_in(&officer, &sampled[0], "escalate", None, None), Err(QueueError::Invalid(_))));
     assert!(matches!(q.queue.decide_green_in(&officer, &sampled[0], "escalate", Some("R99"), None), Err(QueueError::Invalid(_))));
     assert_eq!(q.queue.batch(&admin, &batch).unwrap()["status"], "open", "a refused flag changes nothing");
+    let leak = format!("wrong for {}", q.store.get(&sampled[0], None).unwrap().unwrap()["claim"]["patient_id"].as_str().unwrap());
+    assert!(matches!(q.queue.decide_green_in(&officer, &sampled[0], "escalate", Some("R007"), Some(&leak)), Err(QueueError::Invalid(_))), "a note with the patient identifier is refused");
+    assert_eq!(q.queue.batch(&admin, &batch).unwrap()["status"], "open", "and flags nothing");
     q.queue.decide_green_in(&officer, &sampled[0], "escalate", Some("R007"), Some("amount does not match quantity")).unwrap();
     let view = q.queue.batch(&admin, &batch).unwrap();
     assert_eq!(
         (view["status"].as_str(), view["held"].as_bool(), view["sample_flagged"].as_i64(), view["sampled"].as_i64(), view["categories"]["R007"].as_i64()),
         (Some("quarantined"), Some(true), Some(1), Some(5), Some(1))
     );
-    assert!(!view.to_string().contains("amount does not match"), "the administrator sees categories, never the words of an officer");
-    assert!(!view.to_string().contains("BATCH-"), "and no claim id");
+    assert_eq!(view["notes"], json!(["amount does not match quantity"]), "the administrator sees what the officer wrote");
+    assert!(!view.to_string().contains("BATCH-") && !view.to_string().contains("CG-2002"), "and no claim id and no officer");
     // a cleared claim of the batch says it is held
     let cleared = ids.iter().find(|id| is_cleared(&q, id)).unwrap().clone();
     let trace = q.queue.trace(&admin, &cleared).unwrap();

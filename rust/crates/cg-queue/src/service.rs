@@ -417,7 +417,7 @@ impl QueueService {
     }
 
     /// A green claim, decided by an officer. For a claim of a batch, `escalate` means "the engine missed something": the officer says which rule should have
-    /// caught it (`category`: R001 to R015 or "other") and the batch is quarantined at once (docs/53). The note stays in the batch history; the administrator never sees it.
+    /// caught it (`category`: R001 to R015 or "other") and the batch is quarantined at once (docs/53). The short note is checked for the claim's identifiers and shown to the administrator without the claim or the officer.
     pub fn decide_green_in(&self, principal: &Principal, claim_id: &str, action: &str, category: Option<&str>, note: Option<&str>) -> R<Value> {
         let now = self.now();
         self.require(principal, "claims.decide")?;
@@ -434,6 +434,9 @@ impl QueueService {
             return Err(QueueError::Invalid("say which rule should have flagged this claim (R001 to R015), or other".into()));
         }
         let note: String = note.unwrap_or("").trim().chars().take(crate::batch::NOTE_CHARS).collect();
+        if action == "escalate" && masking::text_leaks_identifier(&note, &doc["claim"], &self.access.settings.pii_key) {
+            return Err(QueueError::Invalid("the note must not contain the patient or member identifier".into()));
+        }
         let version = doc["version"].as_i64().unwrap_or(0);
         let lease_lost = || QueueError::Conflict("lease_lost".into());
         if action == "escalate" {

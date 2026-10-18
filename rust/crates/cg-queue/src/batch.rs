@@ -6,7 +6,7 @@
 //!
 //! The moment an officer says one of the sampled claims was wrong (`escalate`, with the rule that should have caught it), the whole batch is
 //! quarantined: its cleared claims are held. The administrator sees only the batch id, how many sampled claims were flagged out of how many, and the
-//! categories (never a claim value or an officer's free-text note), and decides: release the batch, send N of its cleared claims back to officers, or
+//! categories and the officers' short notes (checked for patient identifiers when written; never a claim id, a claim value or a badge), and decides: release the batch, send N of its cleared claims back to officers, or
 //! send all of them back.
 //!
 //! A batch has no mutable record. Its status is the fold of its append-only events (`fold`), the same shape as the review log: nothing is
@@ -90,6 +90,8 @@ pub struct BatchView {
     pub flagged_claims: BTreeSet<String>,
     pub verified_claims: BTreeSet<String>,
     pub categories: BTreeMap<String, i64>,
+    /// The officers' notes on flagged claims, one per flagged claim, with no claim id and no badge.
+    pub notes: Vec<String>,
     pub decisions: Vec<Value>,
     pub reopened: BTreeSet<String>,
     /// Claim ids of the batch (the administrator's view never shows them).
@@ -116,7 +118,8 @@ pub fn fold(events: &[Value]) -> Option<BatchView> {
                 v.members = e["members"].as_array().into_iter().flatten().filter_map(|m| m.as_str().map(str::to_string)).collect();
             }
             "sample_verified" if seen => {
-                if let Some(c) = e["claim_id"].as_str() {
+                // a claim already flagged stays flagged: a second officer confirming it afterwards must not count it as confirmed too
+                if let Some(c) = e["claim_id"].as_str().filter(|c| !v.flagged_claims.contains(*c)) {
                     v.verified_claims.insert(c.to_string());
                 }
             }
@@ -124,6 +127,9 @@ pub fn fold(events: &[Value]) -> Option<BatchView> {
                 let Some(c) = e["claim_id"].as_str() else { continue };
                 if v.flagged_claims.insert(c.to_string()) {
                     *v.categories.entry(e["category"].as_str().unwrap_or("other").to_string()).or_insert(0) += 1;
+                    if let Some(n) = e["note"].as_str().map(str::trim).filter(|n| !n.is_empty()) {
+                        v.notes.push(n.to_string());
+                    }
                 }
                 v.verified_claims.remove(c);
                 if v.status != "in_review" && v.status != "quarantined" {
@@ -154,7 +160,7 @@ pub fn holds(status: &str) -> bool {
 }
 
 impl BatchView {
-    /// What the administrator sees: the batch id, counts and categories. No claim id, no claim value, no officer name and no note.
+    /// What the administrator sees: the batch id, counts, categories and the officers' notes. No claim id, no claim value, no officer badge.
     /// `pending` is how many claims sent back for review are still with officers (None when it was not computed).
     pub fn to_json(&self, pending: Option<i64>) -> Value {
         let sample_flagged = self.flagged_claims.iter().filter(|c| !self.reopened.contains(*c)).count() as i64;
@@ -164,7 +170,7 @@ impl BatchView {
         json!({
             "batch_id": self.batch_id, "created_at": self.created_at, "claims": self.accepted, "green": self.green, "audit_percent": self.percent, "auto_clear": self.auto_clear,
             "sampled": self.sampled, "sample_flagged": sample_flagged, "sample_verified": sample_verified, "sample_waiting": (self.sampled - sample_flagged - sample_verified).max(0),
-            "status": status, "held": holds(&self.status), "quarantined_at": self.quarantined_at, "categories": self.categories,
+            "status": status, "held": holds(&self.status), "quarantined_at": self.quarantined_at, "categories": self.categories, "notes": self.notes,
             "review": {"sent_back": self.reopened.len(), "flagged": review_flagged, "still_with_officers": pending},
             "decisions": self.decisions,
         })
@@ -251,6 +257,19 @@ mod tests {
         ev.push(json!({"batch_id": "B1", "kind": "flagged", "at": 31.0, "claim_id": "C5", "category": "R007"}));
         let j = fold(&ev).unwrap().to_json(Some(1));
         assert_eq!((j["review"]["flagged"].as_i64(), j["sample_flagged"].as_i64()), (Some(1), Some(2)), "flags are split into the audit sample and the claims sent back");
+    }
+
+    #[test]
+    fn a_flagged_claim_that_a_second_officer_then_confirms_is_still_only_flagged_and_notes_carry_no_claim() {
+        let ev = vec![
+            created(),
+            json!({"batch_id": "B1", "kind": "flagged", "at": 12.0, "claim_id": "C2", "category": "R007", "note": "  amount does not match  ", "by": "CG-2002"}),
+            json!({"batch_id": "B1", "kind": "sample_verified", "at": 13.0, "claim_id": "C2", "by": "CG-3003"}),
+        ];
+        let j = fold(&ev).unwrap().to_json(None);
+        assert_eq!((j["sample_flagged"].as_i64(), j["sample_verified"].as_i64(), j["sample_waiting"].as_i64()), (Some(1), Some(0), Some(1)), "C2 is flagged, not also confirmed; the other sample claim is still waiting");
+        assert_eq!(j["notes"], json!(["amount does not match"]));
+        assert!(!j.to_string().contains("C2") && !j.to_string().contains("CG-2002"));
     }
 
     #[test]

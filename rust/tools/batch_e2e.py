@@ -117,7 +117,7 @@ def main():
         st, _, b = admin.call('GET', f'/api/v1/queue/batches/{bid}')
         check('the whole batch is held', st == 200 and b['status'] == 'quarantined' and b['held'] is True and b['sample_flagged'] == 1 and b['categories'] == {'R007': 1}, b)
         text = json.dumps(b)
-        check('the administrator sees no claim id, no note and no officer', 'amount looks wrong' not in text and cid not in text and badge not in text)
+        check('the administrator sees the note, but no claim id and no officer', b['notes'] == ['amount looks wrong'] and cid not in text and badge not in text)
 
         st, _, out = admin.call('POST', f'/api/v1/queue/batches/{bid}/decision', {'action': 'review_n', 'n': 3, 'note': 'check a few'})
         check('the administrator sends 3 claims back to officers', st == 200 and out['status'] == 'in_review' and out['review']['sent_back'] == 3, out)
