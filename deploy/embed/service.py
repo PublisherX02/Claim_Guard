@@ -8,7 +8,7 @@ It sees only the text of the rulebook passages and the reviewer's question, neve
 pinned revision and the process runs with HF_HUB_OFFLINE=1.
 
 The vectors must be exactly what the experiment measured: sentence-transformers, `encode(..., normalize_embeddings=True)`. The refusal threshold in the server
-(EMBEDDER_THRESHOLD, 0.29) was chosen on those vectors; a different model, runtime or pooling needs its own threshold and a new run of rust/tools/rag_parity.py.
+(EMBEDDER_THRESHOLD, 0.415) was chosen on those vectors; a different model, runtime or pooling needs its own threshold and a new run of rust/tools/rag_parity.py.
 
 Environment: EMBED_TOKEN (required), EMBED_MODEL (default sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2), EMBED_DEVICE (default cpu),
 EMBED_HOST (127.0.0.1), EMBED_PORT (8091).

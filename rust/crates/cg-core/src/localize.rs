@@ -95,7 +95,7 @@ pub fn normalize_label(s: &str) -> String {
             'ة' => 'ه',
             c => c,
         };
-        if c.is_whitespace() || matches!(c, '_' | '-' | ':' | ',' | '،' | '.' | '/' | '\\' | '(' | ')' | '[' | ']' | '؛' | ';') {
+        if c.is_whitespace() || matches!(c, '_' | '-' | ':' | ',' | '،' | '.' | '/' | '\\' | '(' | ')' | '[' | ']' | '؛' | ';' | '؟' | '?' | '!') {
             if !gap {
                 out.push(' ');
                 gap = true;
@@ -537,6 +537,46 @@ pub fn field_entries() -> Vec<FieldEntry> {
     out
 }
 
+/// The fields a question written in Arabic names ("ما هو رقم الفاتورة"), as passage sources (`field invoice_number`), best match first. Only a question that
+/// asks what something is or means counts (a rule question that happens to contain a field name must not be answered with the field), and only a whole
+/// label counts, with at most one prefix letter (بتاريخ التقديم). Dictionary lookup, not search: it is precise where the embedding is weak (docs/55).
+pub fn fields_named(question: &str) -> Vec<String> {
+    const CUES: [&str; 9] = ["ما هو", "ما هي", "ماذا", "المقصود", "معني", "يعني", "تعريف", "حقل", "فائده"];
+    let q = format!(" {} ", normalize_label(question));
+    if !has_arabic_script(&q) || !CUES.iter().any(|c| q.contains(c)) {
+        return vec![];
+    }
+    let g = glossary();
+    let mut found: Vec<(usize, usize, String)> = vec![];
+    for (si, scope) in SCOPES.iter().enumerate() {
+        for (label, key) in &g.labels[scope] {
+            let hit = q.contains(&format!(" {label} ")) || ['ب', 'ل', 'و', 'ف', 'ك'].iter().any(|c| q.contains(&format!(" {c}{label} ")));
+            if hit {
+                let path = match *scope {
+                    "claim" => key.clone(),
+                    "coverage" => format!("coverage.{key}"),
+                    "line" => format!("lines[].{key}"),
+                    "authorization" => format!("authorizations[].{key}"),
+                    _ => format!("attachments[].{key}"),
+                };
+                found.push((label.chars().count(), si, format!("field {path}")));
+            }
+        }
+    }
+    found.sort_by(|a, b| b.0.cmp(&a.0).then(a.1.cmp(&b.1)).then(a.2.cmp(&b.2)));
+    let longest = found.first().map(|f| f.0).unwrap_or(0);
+    let mut out: Vec<String> = vec![];
+    for (len, _, src) in found {
+        // a short label inside a longer one ("التغطية" in "تاريخ انتهاء التغطية") is not a second field the person asked about
+        if len * 2 < longest || out.contains(&src) {
+            continue;
+        }
+        out.push(src);
+    }
+    out.truncate(3);
+    out
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -744,6 +784,18 @@ mod tests {
         assert_eq!(column_name("lines", "المبلغ الصافي").as_deref(), Some("net_amount"));
         assert_eq!(column_name("coverage", "حالة التغطية").as_deref(), Some("status"));
         assert_eq!(column_name("claims", "غير معروف"), None);
+    }
+
+    #[test]
+    fn an_arabic_question_that_names_a_field_finds_it() {
+        assert_eq!(fields_named("ما هو رقم الفاتورة"), ["field invoice_number"]);
+        assert_eq!(fields_named("ما المقصود بتاريخ التقديم؟"), ["field submission_date"]);
+        assert_eq!(fields_named("ما هو تاريخ انتهاء التغطية")[0], "field coverage.end_date");
+        assert!(fields_named("ماذا يعني رقم العضوية").contains(&"field member_id".to_string()));
+        // a rule question that contains a field name is not a field question; neither is anything English or off-topic
+        assert!(fields_named("رقم العضوية لا يطابق المستفيد").is_empty());
+        assert!(fields_named("what is the invoice number").is_empty());
+        assert!(fields_named("ما هو الطقس اليوم").is_empty());
     }
 
     #[test]

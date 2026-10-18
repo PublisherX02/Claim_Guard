@@ -17,6 +17,9 @@ use std::collections::{BTreeMap, HashMap};
 const STOP: &[&str] = &["a", "an", "and", "are", "as", "at", "be", "by", "can", "do", "does", "for", "how", "if", "in", "is", "it", "of", "on", "or", "that", "the", "to", "what", "when", "which", "who", "with", "must", "should", "this", "there", "than", "then"];
 const K1: f64 = 1.5;
 const B: f64 = 0.75;
+/// Whether a field passage is embedded together with its Arabic names (experiments/rag_v2: no gain, so off).
+const EMBED_ALIASES: bool = false;
+
 /// A hit must score at least this much, or the question is refused (a single weak word shared with a passage is not an answer).
 const MIN_SCORE: f64 = 1.2;
 
@@ -25,6 +28,8 @@ pub struct Passage {
     pub source: String,
     pub kind: String,
     pub text: String,
+    /// Other names the passage is asked about (the Arabic names of a field). Used only for the embedding and for BM25 tokens, never quoted.
+    aliases: String,
     tokens: Vec<String>,
 }
 
@@ -93,7 +98,7 @@ fn sentences(text: &str) -> Vec<String> {
 
 fn passage(source: &str, kind: &str, text: String) -> Passage {
     let tokens = tokens(&format!("{source} {text}"));
-    Passage { source: source.into(), kind: kind.into(), text, tokens }
+    Passage { source: source.into(), kind: kind.into(), text, aliases: String::new(), tokens }
 }
 
 fn num(v: &Value) -> String {
@@ -134,6 +139,13 @@ impl Index {
                 ps.push(passage(&src, "policy", format!("Policy {id}: the highest quantity on one line for {svc} is {}.", num(n))));
             }
         }
+        // the data dictionary (docs/55): what each claim field means, in English, found by its Arabic names too
+        for f in cg_core::localize::field_entries() {
+            let mut p = passage(&f.source, "field", f.text);
+            p.tokens.extend(tokens(&f.aliases));
+            p.aliases = f.aliases;
+            ps.push(p);
+        }
         let mut df: HashMap<String, usize> = HashMap::new();
         for p in &ps {
             let mut seen: Vec<&String> = p.tokens.iter().collect();
@@ -153,7 +165,7 @@ impl Index {
 
     /// The text embedded for each passage, in index order. The experiment (docs/52) embedded exactly this: the source and kind in front of the passage.
     pub fn embed_texts(&self) -> Vec<String> {
-        self.passages.iter().map(|p| format!("{} ({}): {}", p.source, p.kind, p.text)).collect()
+        self.passages.iter().map(|p| if EMBED_ALIASES && !p.aliases.is_empty() { format!("{} ({}): {} Arabic names: {}", p.source, p.kind, p.text, p.aliases) } else { format!("{} ({}): {}", p.source, p.kind, p.text) }).collect()
     }
 
     /// Semantic search: the passages whose vectors are closest to the question's, one per (source, kind), best first. Refused (empty) when even the closest is
@@ -185,6 +197,15 @@ impl Index {
         out
     }
 
+    /// The field passages an Arabic question names (`cg_core::localize::fields_named`): a dictionary lookup that does not depend on the embedding.
+    pub fn named_fields(&self, question: &str) -> Vec<Hit> {
+        cg_core::localize::fields_named(question)
+            .iter()
+            .filter_map(|src| self.passages.iter().find(|p| p.kind == "field" && &p.source == src))
+            .map(|p| Hit { source: p.source.clone(), kind: p.kind.clone(), text: p.text.clone(), score: 1.0 })
+            .collect()
+    }
+
     pub fn is_empty(&self) -> bool {
         self.passages.is_empty()
     }
@@ -197,7 +218,18 @@ impl Index {
         }
         let n = self.passages.len() as f64;
         let mut scored: Vec<(f64, usize)> = vec![];
+        let asked = question.to_lowercase();
+        let asked_spaced = asked.replace('_', " ");
         for (i, p) in self.passages.iter().enumerate() {
+            // keyword search reads a field passage only when the question asks what a field is or means: otherwise the many shared words
+            // ("service date", "unit price") would let the dictionary push the rule that answers the question out of first place
+            if p.kind == "field" {
+                let key = p.source.rsplit(['.', ' ']).next().unwrap_or("");
+                let defining = ["field", "mean", "used for", "stands for", "defin"].iter().any(|w| asked.contains(w));
+                if !(defining && (asked.contains(key) || asked_spaced.contains(&key.replace('_', " ")) || asked.contains("field"))) {
+                    continue;
+                }
+            }
             let mut tf: BTreeMap<&String, usize> = BTreeMap::new();
             for t in &p.tokens {
                 *tf.entry(t).or_insert(0) += 1;
@@ -335,7 +367,7 @@ mod tests {
         let hits = ix.search("highest unit price for SVC-LAB", 3);
         assert!(!hits.is_empty());
         for h in &hits {
-            assert!(h.source.starts_with("rule R") || h.source.starts_with("policy "), "{}", h.source);
+            assert!(h.source.starts_with("rule R") || h.source.starts_with("policy ") || h.source.starts_with("field "), "{}", h.source);
             assert!(!h.text.is_empty());
         }
         assert!(hits.iter().any(|h| h.text.contains("260")), "the policy passage quotes the actual limit: {:?}", hits.iter().map(|h| h.text.clone()).collect::<Vec<_>>());

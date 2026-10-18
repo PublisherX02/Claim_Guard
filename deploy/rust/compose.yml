@@ -47,7 +47,7 @@ x-app: &app
     # "Ask the rulebook" by meaning (docs/52): the embedding service's address (empty: the keyword search answers; it also answers whenever this service is down)
     EMBEDDER_URL: ${EMBEDDER_URL:-}
     EMBEDDER_TOKEN: ${EMBEDDER_TOKEN:-}
-    EMBEDDER_THRESHOLD: ${EMBEDDER_THRESHOLD:-0.29}
+    EMBEDDER_THRESHOLD: ${EMBEDDER_THRESHOLD:-0.415}
   volumes:
     - claimguard_data:/data
   depends_on:

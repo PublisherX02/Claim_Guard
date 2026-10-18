@@ -251,7 +251,14 @@ impl PayerRules {
             if vectors.len() != texts.len() || vectors.iter().any(|v| v.len() != q.len()) || q.iter().any(|x| !x.is_finite()) {
                 return Err("the embedder returned vectors of the wrong shape".into());
             }
-            Ok(ix.search_dense(&vectors, &q, k, threshold))
+            let mut hits = ix.named_fields(question);
+            for h in ix.search_dense(&vectors, &q, k, threshold) {
+                if !hits.iter().any(|x| x.source == h.source && x.kind == h.kind) {
+                    hits.push(h);
+                }
+            }
+            hits.truncate(k);
+            Ok(hits)
         })();
         let mut d = self.dense.lock().unwrap_or_else(|e| e.into_inner());
         d.failed_at = if result.is_err() { Some(std::time::Instant::now()) } else { None };
