@@ -913,3 +913,96 @@ fn a_claim_that_is_not_in_a_batch_keeps_working_as_before() {
     q.queue.decide_green_in(&q.p("CG-2002"), &id, "escalate", None, None).unwrap();
     assert!(q.queue.batches(&q.p("CG-4004")).unwrap()["batches"].as_array().unwrap().is_empty());
 }
+
+// ---- the request for information the system drafts: the officer only confirms that it is sent --------------------------------
+
+/// A stress claim whose findings include a request for information, with the draft the system makes for it.
+fn claim_needing_a_request(high: bool) -> (Value, Value) {
+    let e = engine();
+    for c in claims() {
+        let mut errs = vec![];
+        let results = serde_json::to_value(e.review(&c, &mut errs).unwrap()).unwrap();
+        let bundle = cg_queue::copilot::bundle(&c, &results, &e.cfg());
+        let Some(draft) = cg_queue::copilot::info_request(&c, &results, bundle["suggestions"].as_array().unwrap(), 1) else { continue };
+        let has_high = triage::flagged(&results).iter().any(|r| r["severity"] == "high");
+        // the request must cover every flagged finding, so the claim is finished by sending it (keeps the test about the request, not about the other findings)
+        let covered = draft["items"].as_array().unwrap().len() == triage::flagged(&results).len();
+        if covered && has_high == high {
+            return (c, draft);
+        }
+    }
+    panic!("no stress claim whose findings are all requests for information (high: {high})");
+}
+
+#[test]
+fn the_system_drafts_the_whole_request_and_the_officer_only_confirms_that_it_is_sent() {
+    let q = q();
+    let (claim, draft) = claim_needing_a_request(false);
+    let id = claim["claim_id"].as_str().unwrap().to_string();
+    let rid = draft["request_id"].as_str().unwrap().to_string();
+    let body = draft["body"].as_str().unwrap();
+    assert!(body.contains(&id) && body.contains("not a decision on the claim and not a promise of payment"), "{body}");
+    assert!(!body.contains(claim["patient_id"].as_str().unwrap()) && !body.contains(claim["member_id"].as_str().unwrap()), "the message names no patient");
+    assert_eq!(draft["status"], "drafted");
+    q.intake.submit(&claim).unwrap();
+    let d = q.store.get(&id, None).unwrap().unwrap();
+    assert_eq!(process(&q.rt, &id, 1, d["input_hash"].as_str().unwrap()), "ready");
+    q.lease_to(&id, "CG-2002");
+    let who = q.p("CG-2002");
+    // the officer sees the draft with the claim
+    let seen = q.queue.inbox(&who).unwrap().into_iter().find(|v| v["claim_id"] == id.as_str());
+    if let Some(v) = &seen {
+        assert_eq!((v["info_request"]["request_id"].as_str(), v["info_request"]["status"].as_str()), (Some(rid.as_str()), Some("drafted")));
+    }
+    // a stale or invented request id sends nothing
+    assert!(matches!(q.queue.decide_info_request(&who, &id, "0000000000000000", true), Err(QueueError::Conflict(m)) if m == "request_changed"));
+    assert!(q.store.request_events(&id, 10).unwrap().is_empty());
+    assert!(!q.security_kinds().contains(&"info_request_sent".to_string()));
+    // only a person with the permission can confirm
+    assert!(q.queue.decide_info_request(&q.p("CG-4004"), &id, &rid, true).is_err());
+    let out = q.queue.decide_info_request(&who, &id, &rid, true).unwrap();
+    assert_eq!((out["status"].as_str(), out["channel"].as_str()), (Some("sent"), Some("outbox")));
+    assert_eq!(out["decisions_recorded"].as_u64(), Some(draft["items"].as_array().unwrap().len() as u64), "the system recorded the request on every finding it covers");
+    let after = q.store.get(&id, None).unwrap().unwrap();
+    assert!(after["decisions"].as_array().unwrap().iter().all(|d| d["action"] == "request_information"));
+    assert_eq!(after["state"], "leased", "a request is a follow-up, not a resolution: the claim stays with the officer until the information comes back, as when the officer records the request by hand");
+    let events = q.store.request_events(&id, 10).unwrap();
+    assert_eq!((events.len(), events[0]["kind"].as_str(), events[0]["message"]["body"].as_str()), (1, Some("sent"), Some(body)), "the complete message is in the outbox record");
+    assert_eq!(q.security_kinds().iter().filter(|k| *k == "info_request_sent").count(), 1);
+    // it cannot be sent twice
+    assert!(q.queue.decide_info_request(&who, &id, &rid, true).is_err());
+}
+
+#[test]
+fn an_officer_may_decline_a_drafted_request_and_nothing_is_recorded_on_the_findings() {
+    let q = q();
+    let (claim, draft) = claim_needing_a_request(false);
+    let id = claim["claim_id"].as_str().unwrap().to_string();
+    let rid = draft["request_id"].as_str().unwrap().to_string();
+    q.intake.submit(&claim).unwrap();
+    let d = q.store.get(&id, None).unwrap().unwrap();
+    process(&q.rt, &id, 1, d["input_hash"].as_str().unwrap());
+    q.lease_to(&id, "CG-2002");
+    let who = q.p("CG-2002");
+    let out = q.queue.decide_info_request(&who, &id, &rid, false).unwrap();
+    assert_eq!(out["status"], "declined");
+    assert!(q.store.get(&id, None).unwrap().unwrap()["decisions"].as_array().unwrap().is_empty());
+    assert_eq!(q.store.request_events(&id, 10).unwrap()[0]["kind"], "declined");
+    assert!(!q.security_kinds().contains(&"info_request_sent".to_string()));
+    assert!(matches!(q.queue.decide_info_request(&who, &id, &rid, true), Err(QueueError::Conflict(m)) if m == "already_declined"), "a declined draft is not sent afterwards");
+}
+
+#[test]
+fn a_request_that_covers_a_high_severity_finding_is_confirmed_by_a_senior_not_a_reviewer() {
+    let q = q();
+    let (claim, draft) = claim_needing_a_request(true);
+    let id = claim["claim_id"].as_str().unwrap().to_string();
+    let rid = draft["request_id"].as_str().unwrap().to_string();
+    q.intake.submit(&claim).unwrap();
+    let d = q.store.get(&id, None).unwrap().unwrap();
+    process(&q.rt, &id, 1, d["input_hash"].as_str().unwrap());
+    q.lease_to(&id, "CG-2002");
+    let denied = q.queue.decide_info_request(&q.p("CG-2002"), &id, &rid, true);
+    assert!(matches!(denied, Err(QueueError::Forbidden(_))), "{denied:?}");
+    assert!(q.store.request_events(&id, 10).unwrap().is_empty() && q.store.get(&id, None).unwrap().unwrap()["decisions"].as_array().unwrap().is_empty(), "nothing sent, nothing recorded");
+}

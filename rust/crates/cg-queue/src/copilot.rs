@@ -480,3 +480,41 @@ pub fn rules_with_edits(suggestions: &[Value]) -> Vec<String> {
     }
     out.keys().cloned().collect()
 }
+
+// ---- the request for information that leaves the system ---------------------------------------------------------------------------
+
+/// The message the system drafts for the findings that need something from outside (a provider's missing value, an authorization, a document). It is
+/// complete: who it goes to, what is asked, in the rulebook's own words. The officer's only part is to confirm that it is sent. The text names no patient,
+/// invents no deadline and promises nothing; it asks for the information and says it is not a decision. None when no finding needs a request.
+pub fn info_request(claim: &Value, results: &Value, suggestions: &[Value], version: i64) -> Option<Value> {
+    use sha2::{Digest, Sha256};
+    let flagged: Vec<&Value> = results.as_array().into_iter().flatten().filter(|r| is_flagged(r)).collect();
+    let mut items = vec![];
+    for s in suggestions.iter().filter(|s| s["kind"] == "request_information") {
+        let Some(f) = flagged.iter().find(|r| r["rule_id"] == s["rule_id"]) else { continue };
+        let missing: Vec<String> = missing_paths(f).iter().map(|p| field_label(p)).collect();
+        let step: String = f["corrective_action"].as_str().unwrap_or("").trim().chars().take(300).collect();
+        let ask = if !missing.is_empty() {
+            format!("Please send: {}.", missing.join(", "))
+        } else if !step.is_empty() {
+            step
+        } else {
+            "Please check this part of the claim and send the correct information.".to_string()
+        };
+        let lines: Vec<&str> = f["affected_line_ids"].as_array().into_iter().flatten().filter_map(Value::as_str).collect();
+        items.push(json!({"rule_id": s["rule_id"], "severity": s["severity"], "lines": lines, "ask": ask}));
+    }
+    if items.is_empty() {
+        return None;
+    }
+    let id = claim["claim_id"].as_str().unwrap_or("");
+    let mut body = format!("Claim {id} could not be fully validated. Please send the following so that it can be checked again:\n");
+    for (n, it) in items.iter().enumerate() {
+        let lines = it["lines"].as_array().filter(|l| !l.is_empty()).map(|l| format!(", lines {}", l.iter().filter_map(Value::as_str).collect::<Vec<_>>().join(" ")));
+        body.push_str(&format!("{}. ({}{}) {}\n", n + 1, it["rule_id"].as_str().unwrap_or(""), lines.unwrap_or_default(), it["ask"].as_str().unwrap_or("")));
+    }
+    body.push_str("This is a request for information only. It is not a decision on the claim and not a promise of payment.");
+    let request_id: String = Sha256::digest(format!("{id}|{version}|{body}").as_bytes()).iter().take(8).map(|b| format!("{b:02x}")).collect();
+    Some(json!({"request_id": request_id, "claim_id": id, "version": version, "to": {"role": "provider", "provider_id": claim["provider_id"]},
+        "subject": format!("Claim {id}: information needed"), "body": body, "items": items, "status": "drafted", "channel": "outbox"}))
+}

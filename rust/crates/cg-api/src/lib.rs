@@ -230,6 +230,14 @@ struct VerifyBody {
 
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
+struct InfoRequestBody {
+    request_id: String,
+    /// "send" (the officer confirms) or "decline".
+    action: String,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
 struct BatchDecisionBody {
     action: String,
     #[serde(default)]
@@ -546,6 +554,7 @@ impl Api {
             ["work", "heartbeat"] if self.queue.is_some() => if m == "POST" { self.work_heartbeat(req) } else { Err(wrong()) },
             ["work", "claims", id, "findings", rule, "decision"] if self.queue.is_some() => if m == "POST" { self.work_decide(req, id, rule) } else { Err(wrong()) },
             ["work", "claims", id, "verify"] if self.queue.is_some() => if m == "POST" { self.work_verify(req, id) } else { Err(wrong()) },
+            ["work", "claims", id, "info-request"] if self.queue.is_some() => if m == "POST" { self.work_info_request(req, id) } else { Err(wrong()) },
             ["work", "claims", id, "whatif"] if self.queue.is_some() => if m == "POST" { self.work_whatif(req, id) } else { Err(wrong()) },
             ["work", "claims", id, "recheck"] if self.queue.is_some() => if m == "POST" { self.work_recheck(req, id) } else { Err(wrong()) },
             ["work", "bulk-confirm"] if self.queue.is_some() => if m == "POST" { self.work_bulk_confirm(req) } else { Err(wrong()) },
@@ -1079,6 +1088,12 @@ impl Api {
             .filter(|b: &VerifyBody| (b.action == "verify_clear" || b.action == "escalate") && b.category.as_deref().map_or(true, |c| !too_long(c, 10)) && b.note.as_deref().map_or(true, |n| !too_long(n, 1000)))
             .ok_or_else(invalid)?;
         self.queue()?.decide_green_in(&p, id, &b.action, b.category.as_deref(), b.note.as_deref()).map(|v| ApiResponse::json(200, &v)).map_err(|e| self.qerr(e, req, &p))
+    }
+
+    fn work_info_request(&self, req: &ApiRequest, id: &str) -> R {
+        let p = self.need(req, "claims.decide")?;
+        let b: InfoRequestBody = body_of(req).ok().filter(|b: &InfoRequestBody| (1..=40).contains(&b.request_id.len()) && (b.action == "send" || b.action == "decline")).ok_or_else(invalid)?;
+        self.queue()?.decide_info_request(&p, id, &b.request_id, b.action == "send").map(|v| ApiResponse::json(200, &v)).map_err(|e| self.qerr(e, req, &p))
     }
 
     fn q_batches(&self, req: &ApiRequest) -> R {

@@ -242,6 +242,7 @@
     var fix = null;
     if (ctx.mode === 'work' && view.can_correct && CG.fixPanel) fix = CG.fixPanel(view, ctx, refresh);
     if (ctx.mode === 'work' && view.copilot && CG.copilotPanel) root.appendChild(CG.copilotPanel(view.copilot, fix ? fix.tryEdits : null));
+    if (ctx.mode === 'work' && view.info_request && CG.infoRequestCard) root.appendChild(CG.infoRequestCard(view, ctx, refresh));
     root.appendChild(claimSummary(view.claim));
     if (fix) root.appendChild(fix);
     if (ctx.mode === 'work' && view.allowed_actions && view.allowed_actions.indexOf('verify_clear') >= 0) root.appendChild(greenActions(view, ctx, refresh));

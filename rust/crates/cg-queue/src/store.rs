@@ -131,6 +131,20 @@ pub fn check_batch_event(e: &Value) -> Result<()> {
     Ok(())
 }
 
+/// A request event: `{request_id, claim_id, kind: "sent" | "declined", at, ...}`.
+pub fn check_request_event(e: &Value) -> Result<()> {
+    check_id_doc(e, "request_id")?;
+    check_id_doc(e, "claim_id")?;
+    if !matches!(e.get("kind").and_then(Value::as_str), Some("sent" | "declined")) {
+        return invalid("a request event is sent or declined");
+    }
+    match e.get("at").and_then(Value::as_f64) {
+        Some(at) => check_number(at, "at")?,
+        None => return invalid("a request event needs a time"),
+    }
+    Ok(())
+}
+
 pub fn project_history(claim: &Value) -> Value {
     Value::Object(HISTORY_FIELDS.iter().map(|k| ((*k).to_string(), claim.get(*k).cloned().unwrap_or(Value::Null))).collect())
 }
@@ -191,6 +205,10 @@ pub trait QueueStore: Send + Sync {
     fn append_deal(&self, doc: &Value) -> Result<()>;
     fn get_deal(&self, deal_id: &str) -> Result<Option<Value>>;
     fn deals(&self, limit: usize) -> Result<Vec<Value>>;
+    // requests for information that leave the system: an append-only record of what an officer confirmed or declined to send (docs/53)
+    fn append_request_event(&self, event: &Value) -> Result<()>;
+    /// Oldest first, for one claim.
+    fn request_events(&self, claim_id: &str, limit: usize) -> Result<Vec<Value>>;
     // batch events: append-only (a batch's status is the fold of its events, see batch.rs)
     fn append_batch_event(&self, event: &Value) -> Result<()>;
     /// Oldest first. One batch, or (None) the newest `limit` events of every batch.
@@ -213,6 +231,7 @@ struct Inner {
     reliability: Vec<Value>,
     deals: Vec<Value>,
     batch_events: Vec<Value>,
+    request_events: Vec<Value>,
     dead: Vec<(String, Value)>,
     jobs: BTreeMap<String, Value>,
     cache: HashMap<String, String>,
@@ -528,6 +547,19 @@ impl QueueStore for MemoryQueueStore {
     fn batch_events(&self, batch_id: Option<&str>, limit: usize) -> Result<Vec<Value>> {
         let g = self.lock();
         let mut rows: Vec<Value> = g.batch_events.iter().filter(|e| batch_id.is_none_or(|b| e["batch_id"] == b)).cloned().collect();
+        let skip = rows.len().saturating_sub(limit);
+        Ok(rows.split_off(skip))
+    }
+
+    fn append_request_event(&self, event: &Value) -> Result<()> {
+        check_request_event(event)?;
+        self.lock().request_events.push(event.clone());
+        Ok(())
+    }
+
+    fn request_events(&self, claim_id: &str, limit: usize) -> Result<Vec<Value>> {
+        let g = self.lock();
+        let mut rows: Vec<Value> = g.request_events.iter().filter(|e| e["claim_id"] == claim_id).cloned().collect();
         let skip = rows.len().saturating_sub(limit);
         Ok(rows.split_off(skip))
     }

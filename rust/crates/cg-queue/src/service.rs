@@ -273,7 +273,11 @@ impl QueueService {
             view["allowed_actions"] = json!(GREEN_ACTIONS);
         }
         if let Some(cfg) = self.rules_now() {
-            view["copilot"] = crate::copilot::bundle(&doc["claim"], &doc["results"], &cfg);
+            let bundle = crate::copilot::bundle(&doc["claim"], &doc["results"], &cfg);
+            if let Some(draft) = self.drafted_request(doc, bundle["suggestions"].as_array().map(Vec::as_slice).unwrap_or(&[])) {
+                view["info_request"] = draft;
+            }
+            view["copilot"] = bundle;
         }
         if perms.contains("claims.recheck") && stage(doc).is_none() {
             view["can_correct"] = json!(true);
@@ -454,6 +458,60 @@ impl QueueService {
         self.store.transition(claim_id, version, "leased", "ready", principal.badge(), now, Some(json!({"event": "escalated", "badge_id": principal.badge()})), Some(set), Some(principal.badge())).map_err(store_err)?.ok_or_else(lease_lost)?;
         self.access.record("claim_decided_green", json!({"badge_id": principal.badge(), "claim_id": claim_id, "action": "escalate"}))?;
         Ok(json!({"claim_state": "ready"}))
+    }
+
+    // ---- requests for information that leave the system (docs/53) -----------------------------------------------------
+    /// The request the system drafted for this claim version, with what became of it (`drafted`, `sent` or `declined`).
+    fn drafted_request(&self, doc: &Value, suggestions: &[Value]) -> Option<Value> {
+        let mut draft = crate::copilot::info_request(&doc["claim"], &doc["results"], suggestions, doc["version"].as_i64().unwrap_or(0))?;
+        let events = self.store.request_events(doc["claim_id"].as_str().unwrap_or(""), 200).unwrap_or_default();
+        if let Some(e) = events.iter().rev().find(|e| e["request_id"] == draft["request_id"]) {
+            draft["status"] = json!(if e["kind"] == "sent" { "sent" } else { "declined" });
+            draft["decided_at"] = e["at"].clone();
+        }
+        Some(draft)
+    }
+
+    /// The officer's one step on a drafted request: confirm that it is sent, or decline. Confirming also records `request_information` on every finding the
+    /// request covers (the system fills that in), puts the complete message in the outbox record and writes the security log. Nothing is delivered from here:
+    /// there is no outbound channel in this system, the record is what a delivery step would read.
+    pub fn decide_info_request(&self, principal: &Principal, claim_id: &str, request_id: &str, send: bool) -> R<Value> {
+        let now = self.now();
+        let perms = self.require(principal, "claims.decide")?;
+        let doc = self.mine(principal, claim_id, now)?;
+        let cfg = self.rules_now().ok_or_else(|| QueueError::Invalid("the copilot is not available on this server".into()))?;
+        let bundle = crate::copilot::bundle(&doc["claim"], &doc["results"], &cfg);
+        let draft = self.drafted_request(&doc, bundle["suggestions"].as_array().map(Vec::as_slice).unwrap_or(&[])).ok_or_else(|| QueueError::Invalid("nothing on this claim needs a request for information".into()))?;
+        if draft["request_id"] != request_id {
+            return Err(QueueError::Conflict("request_changed".into()));
+        }
+        if draft["status"] != "drafted" {
+            return Err(QueueError::Conflict(format!("already_{}", draft["status"].as_str().unwrap_or("decided"))));
+        }
+        let version = doc["version"].as_i64().unwrap_or(0);
+        if !send {
+            self.store.append_request_event(&json!({"request_id": request_id, "claim_id": claim_id, "version": version, "kind": "declined", "at": now, "by": principal.badge()})).map_err(store_err)?;
+            return Ok(json!({"status": "declined", "request_id": request_id}));
+        }
+        // the system records the request on each finding it covers; the officer must be allowed to decide all of them, or nothing is sent
+        let latest = latest_actions(&doc, Some(round(&doc)));
+        let items: Vec<String> = draft["items"].as_array().into_iter().flatten().filter_map(|i| i["rule_id"].as_str().map(str::to_string)).collect();
+        let finding = |rule: &str| doc["results"].as_array().into_iter().flatten().find(|r| r["rule_id"] == rule).cloned().unwrap_or(Value::Null);
+        for rule in items.iter().filter(|r| !auto_requested(&doc, r)) {
+            if Self::actions(&perms, &finding(rule), &latest).is_none() {
+                return Err(QueueError::Forbidden("claims.decide_high".into()));
+            }
+        }
+        let mut recorded = 0;
+        for rule in items.iter().filter(|r| !auto_requested(&doc, r)) {
+            self.decide_finding(principal, claim_id, rule, "request_information", &format!("Requested from the provider (request {request_id})."))?;
+            recorded += 1;
+        }
+        let mut sent = draft.clone();
+        sent["status"] = json!("sent");
+        self.store.append_request_event(&json!({"request_id": request_id, "claim_id": claim_id, "version": version, "kind": "sent", "at": now, "by": principal.badge(), "channel": "outbox", "message": sent})).map_err(store_err)?;
+        self.access.record("info_request_sent", json!({"badge_id": principal.badge(), "claim_id": claim_id, "request_id": request_id, "channel": "outbox"}))?;
+        Ok(json!({"status": "sent", "request_id": request_id, "decisions_recorded": recorded, "channel": "outbox"}))
     }
 
     // ---- batches (docs/53) ------------------------------------------------------------------------------------------

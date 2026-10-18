@@ -287,6 +287,12 @@ pub fn run(fresh: &dyn Fn() -> Box<dyn QueueStore>) {
     assert_eq!(s.batch_events(None, 10).unwrap().len(), 3);
     assert_eq!(s.batch_events(None, 2).unwrap().iter().map(|e| e["batch_id"].as_str().unwrap().to_string()).collect::<Vec<_>>(), ["B2", "B1"], "the newest N, still oldest first");
     assert!(s.batch_events(Some("nope"), 10).unwrap().is_empty() && s.batch_events(Some("B1"), 0).unwrap().is_empty());
+    s.append_request_event(&json!({"request_id": "Q1", "claim_id": "C1", "kind": "sent", "at": NOW})).unwrap();
+    s.append_request_event(&json!({"request_id": "Q2", "claim_id": "C2", "kind": "declined", "at": NOW + 1.0})).unwrap();
+    s.append_request_event(&json!({"request_id": "Q3", "claim_id": "C1", "kind": "declined", "at": NOW + 2.0})).unwrap();
+    assert_eq!(s.request_events("C1", 10).unwrap().iter().map(|e| e["request_id"].as_str().unwrap().to_string()).collect::<Vec<_>>(), ["Q1", "Q3"], "one claim, oldest first");
+    assert!(s.request_events("C9", 10).unwrap().is_empty() && s.request_events("C1", 0).unwrap().is_empty());
+    assert!(s.append_request_event(&json!({"request_id": "Q4", "claim_id": "C1", "kind": "maybe", "at": NOW})).is_err() && s.append_request_event(&json!({"claim_id": "C1", "kind": "sent", "at": NOW})).is_err());
     assert!(s.append_batch_event(&json!({"kind": "created", "at": NOW})).is_err() && s.append_batch_event(&json!({"batch_id": "B3", "kind": "created"})).is_err());
     s.add_dead_letter(&json!({"dead_id": "X1", "claim_id": "C1", "reason": "boom", "at": NOW})).unwrap();
     assert_eq!(s.dead_letters(10).unwrap().len(), 1);

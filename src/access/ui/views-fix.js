@@ -153,4 +153,28 @@
     };
     return card;
   };
+
+  // ---- the request for information the system drafted: the officer confirms that it is sent ---------------------------------
+  CG.infoRequestCard = function (view, ctx, refresh) {
+    var r = view.info_request;
+    if (!r) return null;
+    function act(action) {
+      CG.api('POST', '/work/claims/' + encodeURIComponent(ctx.id) + '/info-request', { request_id: r.request_id, action: action }).then(function (out) {
+        CG.toast(action === 'send' ? 'Request confirmed and placed in the outbox (' + out.decisions_recorded + ' finding(s) recorded as requested).' : 'Request declined. Nothing was sent.', 'good'); refresh();
+      }, function (e) { CG.toast(detail(e), 'bad'); });
+    }
+    var state = r.status === 'sent' ? CG.chip('confirmed: in the outbox', 'good') : (r.status === 'declined' ? CG.chip('declined', 'muted') : CG.chip('drafted by the system, not sent', 'ai'));
+    var card = h('div', { class: 'card stack' },
+      h('div', { class: 'row between' }, h('h2', { text: 'Request for information' }), state),
+      h('p', { class: 'muted small', text: 'The system wrote this message from the findings. Nothing in it is filled in by you; read it, then confirm that it is sent. Confirming also records the request on each finding it covers. This system has no outgoing channel: the confirmed message is put in the outbox for delivery.' }),
+      h('div', { class: 'row' }, h('b', { text: 'To: ' }), h('span', { text: 'provider ' + (r.to && r.to.provider_id ? r.to.provider_id : '') })),
+      h('div', { class: 'row' }, h('b', { text: 'Subject: ' }), h('span', { text: r.subject })),
+      h('pre', { class: 'mono small', text: r.body }));
+    if (r.status === 'drafted') {
+      card.appendChild(h('div', { class: 'row' },
+        h('button', { class: 'btn primary', type: 'button', text: 'Confirm: send this request', onclick: function () { act('send'); } }),
+        h('button', { class: 'btn', type: 'button', text: 'Do not send', onclick: function () { act('decline'); } })));
+    }
+    return card;
+  };
 })();
