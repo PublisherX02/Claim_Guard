@@ -1,0 +1,26 @@
+{
+  "method": "a clean public claim, one line damaged (authorization removed for R008, replaced by an id that is not on the claim for R009), then the copilot's proposal applied and the engine run again",
+  "rules": [
+    {
+      "rule": "R008",
+      "damaged_lines": 339,
+      "engine_flagged_it": 339,
+      "copilot_proposed_the_original_authorization": 339,
+      "cleared_the_rule": 339,
+      "created_a_new_finding": 0,
+      "left_to_a_person_because_several_authorizations_fit": 0,
+      "left_to_a_person_although_only_one_fits": 0
+    },
+    {
+      "rule": "R009",
+      "damaged_lines": 339,
+      "engine_flagged_it": 339,
+      "copilot_proposed_the_original_authorization": 339,
+      "cleared_the_rule": 339,
+      "created_a_new_finding": 0,
+      "left_to_a_person_because_several_authorizations_fit": 0,
+      "left_to_a_person_although_only_one_fits": 0
+    }
+  ],
+  "note": "Perturbation test: it shows the fill is right when the claim carries exactly one fitting authorization. The public claims' own R008/R009 failures have none, so there the copilot only asks."
+}

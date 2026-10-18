@@ -30,11 +30,18 @@
           h('button', { class: 'btn small', type: 'button', text: 'Try this in a what-if', onclick: function () { onTry(edits); } }),
           h('span', { class: 'muted small', text: edits.map(function (e) { return e.path + ': ' + CG.fmtValue(e.from) + ' to ' + CG.fmtValue(e.to) + ' (' + e.basis + ')'; }).join('; ') })) : null);
     })));
+    var all = [], seen = {};
+    (copilot.suggestions || []).forEach(function (x) { (x.proposed_edits || []).forEach(function (e) { if (!seen[e.path]) { seen[e.path] = 1; all.push(e); } }); });
+    if (all.length && onTry) {
+      card.appendChild(h('div', { class: 'row' },
+        h('button', { class: 'btn primary', type: 'button', text: 'Fill in all ' + all.length + ' proposed value' + (all.length > 1 ? 's' : '') + ' for me', onclick: function () { onTry(all, true); } }),
+        h('span', { class: 'muted small', text: 'The system fills the values in and shows what would happen. Nothing is saved until you check them against the bill, tick the box and confirm.' })));
+    }
     if (s.next_steps && s.next_steps.length) {
       card.appendChild(h('h3', { text: 'In this order' }));
       card.appendChild(h('ul', { class: 'plain' }, s.next_steps.map(function (t) { return h('li', { text: t }); })));
     }
-    card.appendChild(h('p', { class: 'muted small', text: 'A proposed value is only ever worked out from other values on this claim (or the policy currency). Nothing missing is filled in, and no identifier can be edited here.' }));
+    card.appendChild(h('p', { class: 'muted small', text: 'A proposed value is only ever worked out from other values on this claim (a missing amount from the other two on its line, a total from its lines, an authorization the claim itself carries, or the policy currency). Anything that is not on the claim is asked for, never invented, and no identifier can be edited here.' }));
     return card;
   };
 
@@ -144,9 +151,10 @@
       h('h3', { text: 'Save it' }), reason,
       h('div', { class: 'row' }, h('label', { class: 'row', for: 'fixack' }, ack, h('span', { text: 'I checked the changed values against the source record.' })), applyBtn));
     sync();
-    card.tryEdits = function (edits) {
+    card.tryEdits = function (edits, prefill) {
       card.open = true;
       edits.forEach(function (e) { setValue(e.path, e.to); });
+      if (prefill && !reason.value.trim()) reason.value = 'Confirmed the values the copilot filled in, after checking them against the bill.';
       sync();
       card.scrollIntoView({ behavior: 'smooth', block: 'start' });
       whatBtn.click();

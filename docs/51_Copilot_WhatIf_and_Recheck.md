@@ -57,3 +57,7 @@ Limits. The public claims are synthetic. "Clears the finding" means the rule pas
 ## 6. Tests
 
 `cargo test -p cg-queue --test service_flow` (four new tests): a what-if changes nothing and refuses identifiers, notes, nonexistent fields, no-ops and non-scalar values, and cannot be run by someone who does not hold the claim; a recheck makes version 2, closes version 1, preserves the original claim byte for byte, writes the review-log events and the security events, and cannot be sent twice; a junior may what-if but not recheck away a high-severity finding and a refused recheck stores nothing; a reason is required and may not contain the patient identifier.
+
+## 7. Added after the mentor session (2026-10-18)
+
+The copilot now fills more than R007, R012 and R015: R001 (a missing quantity, price or line amount from the other two), R008 and R009 (the one authorization the claim itself carries). **Fill in all proposed values for me** puts every proposal into the form and runs the what-if; the officer still confirms. Findings that need something from outside get a drafted request the officer only confirms. Measurements, the table of which rule gets which route, and the limits are in docs/53 section 3 and 4.

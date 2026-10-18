@@ -1,0 +1,87 @@
+{
+ "batch": {
+  "claims": 25,
+  "green": 25,
+  "sampled": 2,
+  "sample_flagged": 1,
+  "categories": {
+   "R007": 1
+  },
+  "review": {
+   "sent_back": 3,
+   "flagged": 0,
+   "still_with_officers": null
+  },
+  "status": "released"
+ },
+ "checks": [
+  {
+   "check": "the administrator switches auto-clear on at a 5% audit",
+   "ok": true
+  },
+  {
+   "check": "25 clean claims are available for the batch",
+   "ok": true
+  },
+  {
+   "check": "the batch is accepted",
+   "ok": true
+  },
+  {
+   "check": "the administrator sees the batch",
+   "ok": true
+  },
+  {
+   "check": "the sample is at least one and about 5% of the clean claims",
+   "ok": true
+  },
+  {
+   "check": "nothing is wrong yet",
+   "ok": true
+  },
+  {
+   "check": "the sampled claim reaches an officer",
+   "ok": true
+  },
+  {
+   "check": "flagging without a rule is refused",
+   "ok": true
+  },
+  {
+   "check": "flagging with an unknown rule is refused",
+   "ok": true
+  },
+  {
+   "check": "an officer cannot read a batch",
+   "ok": true
+  },
+  {
+   "check": "flagging with a rule is accepted",
+   "ok": true
+  },
+  {
+   "check": "the whole batch is held",
+   "ok": true
+  },
+  {
+   "check": "the administrator sees no claim id, no note and no officer",
+   "ok": true
+  },
+  {
+   "check": "the administrator sends 3 claims back to officers",
+   "ok": true
+  },
+  {
+   "check": "release is refused while those claims are with officers",
+   "ok": true
+  },
+  {
+   "check": "after the officers have looked, the review is finished",
+   "ok": true
+  },
+  {
+   "check": "the administrator releases the batch",
+   "ok": true
+  }
+ ]
+}

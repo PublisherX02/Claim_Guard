@@ -195,6 +195,51 @@ fn levenshtein(a: &str, b: &str) -> usize {
     prev[b.len()]
 }
 
+/// The one value missing on a line, from the other two (net amount = quantity x unit price). Only when exactly that one is missing, the others are numbers, and
+/// the result is exact (a unit price in whole cents, a whole positive quantity). Anything else stays a request.
+fn derive_line_value(claim: &Value, idx: usize, field: &str) -> Option<(Value, &'static str)> {
+    let l = claim["lines"].get(idx)?;
+    let (q, p, n) = (num_of(&l["quantity"]), num_of(&l["unit_price"]), num_of(&l["net_amount"]));
+    let zero = BigDecimal::from(0);
+    match (field, q, p, n) {
+        ("net_amount", Some(q), Some(p), None) => Some((money(&cents(&(q * p))), "quantity x unit price")),
+        ("unit_price", Some(q), None, Some(n)) if q > zero => {
+            let p = cents(&(n.clone() / q.clone()));
+            (cents(&(q * p.clone())) == cents(&n)).then(|| (money(&p), "line amount / quantity"))
+        }
+        ("quantity", None, Some(p), Some(n)) if p > zero => {
+            let q = (n / p).normalized();
+            (q > zero && q.fractional_digit_count() <= 0).then(|| (money(&q), "line amount / unit price"))
+        }
+        _ => None,
+    }
+}
+
+/// The claim's own approved authorization that covers a line: same patient and service, the service date inside its validity, and room left in its maximum
+/// quantity. Only when there is exactly one; two candidates is a choice a person makes.
+fn matching_authorization(claim: &Value, idx: usize) -> Option<String> {
+    let l = claim["lines"].get(idx)?;
+    let date = l["service_date"].as_str()?;
+    let qty = num_of(&l["quantity"])?;
+    let mut found: Vec<String> = vec![];
+    for a in claim["authorizations"].as_array()? {
+        let id = a["authorization_id"].as_str()?;
+        let ok = a["status"] == "approved"
+            && a["service_code"] == l["service_code"]
+            && a["patient_id"] == claim["patient_id"]
+            && a["valid_from"].as_str().is_some_and(|f| f <= date)
+            && a["valid_to"].as_str().is_some_and(|t| date <= t);
+        if !ok {
+            continue;
+        }
+        let others: BigDecimal = claim["lines"].as_array().into_iter().flatten().enumerate().filter(|(j, x)| *j != idx && x["authorization_id"] == id).filter_map(|(_, x)| num_of(&x["quantity"])).sum();
+        if num_of(&a["max_quantity"]).is_none_or(|max| others + qty.clone() <= max) {
+            found.push(id.to_string());
+        }
+    }
+    (found.len() == 1).then(|| found.remove(0))
+}
+
 fn suggestion(finding: &Value, kind: &str, text: String, edits: Vec<Value>, options: Vec<String>) -> Value {
     let cites: Vec<&Value> = finding["evidence"].as_array().into_iter().flatten().filter_map(|e| e.get("path")).collect();
     json!({"rule_id": finding["rule_id"], "severity": finding["severity"], "status": finding["status"], "kind": kind, "text": text,
@@ -220,7 +265,34 @@ pub fn suggest_one(claim: &Value, finding: &Value, cfg: &Config) -> Value {
         return suggestion(finding, "request_information", text, vec![], vec![]);
     }
     match rule {
-        "R001" => request(finding, &missing, "A required field is empty. Request it from the source."),
+        "R001" => {
+            let (mut edits, mut notes, mut rest) = (vec![], vec![], vec![]);
+            for path in missing_paths(finding) {
+                let seg: Vec<&str> = path.split('/').skip(1).collect();
+                let derived = match seg.as_slice() {
+                    ["lines", i, f] => i.parse::<usize>().ok().and_then(|idx| derive_line_value(claim, idx, f).map(|d| (idx, d))),
+                    _ => None,
+                };
+                match derived {
+                    Some((idx, (value, basis))) => {
+                        notes.push(format!("{} = {} ({basis})", field_label(&path), money_text(&num_of(&value).unwrap_or_default())));
+                        edits.push(edit(&path, &Value::Null, value, basis));
+                        let _ = idx;
+                    }
+                    None => rest.push(field_label(&path)),
+                }
+            }
+            if edits.is_empty() {
+                return request(finding, &missing, "A required field is empty. Request it from the source.");
+            }
+            let mut text = format!("A required value is empty, and it follows from the other values on the same line: {}. Check it against the bill before accepting it.", notes.join("; "));
+            if !rest.is_empty() {
+                text.push_str(&format!(" Still missing, to ask the provider for: {}.", rest.join(", ")));
+            }
+            let mut s = suggestion(finding, "correct_value", text, edits, vec![]);
+            s["still_missing"] = json!(rest);
+            s
+        }
         "R002" => {
             let sub = claim["submission_date"].as_str().unwrap_or("?");
             let late: Vec<String> = lines.iter().map(|i| format!("{} ({})", line_label(claim, *i), claim["lines"][*i]["service_date"].as_str().unwrap_or("?"))).collect();
@@ -265,8 +337,27 @@ pub fn suggest_one(claim: &Value, finding: &Value, cfg: &Config) -> Value {
             suggestion(finding, "correct_value", format!("The line amount does not equal quantity x unit price ({}). If the quantity and price are right, the amount is wrong; if the amount is right, one of them is. Check the bill before changing any.", notes.join("; ")), edits, vec![])
         }
         "R008" => {
-            let names: Vec<String> = lines.iter().map(|i| format!("{} ({})", line_label(claim, *i), claim["lines"][*i]["service_code"].as_str().unwrap_or("?"))).collect();
-            suggestion(finding, "request_information", format!("This service needs an authorization reference and line {} has none. Ask the provider for the reference; do not enter one that was not issued.", names.join(", ")), vec![], vec![])
+            let (mut edits, mut notes, mut rest) = (vec![], vec![], vec![]);
+            for i in &lines {
+                let label = format!("{} ({})", line_label(claim, *i), claim["lines"][*i]["service_code"].as_str().unwrap_or("?"));
+                match matching_authorization(claim, *i) {
+                    Some(id) => {
+                        notes.push(format!("{label}: the claim already carries one approved authorization for this patient, service and date ({id})"));
+                        edits.push(edit(&format!("/lines/{i}/authorization_id"), &claim["lines"][*i]["authorization_id"], json!(id), "the claim's own approved authorization"));
+                    }
+                    None => rest.push(label),
+                }
+            }
+            if edits.is_empty() {
+                return suggestion(finding, "request_information", format!("This service needs an authorization reference and line {} has none. Ask the provider for the reference; do not enter one that was not issued.", rest.join(", ")), vec![], vec![]);
+            }
+            let mut text = format!("This service needs an authorization reference and the line has none. {}. Check that it is the one the provider meant.", notes.join("; "));
+            if !rest.is_empty() {
+                text.push_str(&format!(" No single authorization on the claim fits {}: ask the provider for the reference; do not enter one that was not issued.", rest.join(", ")));
+            }
+            let mut s = suggestion(finding, "correct_value", text, edits, vec![]);
+            s["still_missing"] = json!(rest.iter().map(|l| format!("authorization reference for {l}")).collect::<Vec<_>>());
+            s
         }
         "R009" => {
             let mut reasons = vec![];
@@ -301,7 +392,28 @@ pub fn suggest_one(claim: &Value, finding: &Value, cfg: &Config) -> Value {
                     }
                 }
             }
-            suggestion(finding, "request_information", format!("The authorization does not match the service: {}. Ask the provider or the payer for the correct approval; the authorization record is not edited here.", if reasons.is_empty() { "see the evidence".into() } else { reasons.join("; ") }), vec![], vec![])
+            let (mut edits, mut swaps, mut rest) = (vec![], vec![], vec![]);
+            for i in &lines {
+                let cur = claim["lines"][*i]["authorization_id"].clone();
+                match matching_authorization(claim, *i) {
+                    Some(id) if cur != json!(id) => {
+                        swaps.push(format!("{}: {id} is the only authorization on the claim that fits this patient, service and date", line_label(claim, *i)));
+                        edits.push(edit(&format!("/lines/{i}/authorization_id"), &cur, json!(id), "the claim's own approved authorization"));
+                    }
+                    _ => rest.push(line_label(claim, *i)),
+                }
+            }
+            let why = if reasons.is_empty() { "see the evidence".to_string() } else { reasons.join("; ") };
+            if edits.is_empty() {
+                return suggestion(finding, "request_information", format!("The authorization does not match the service: {why}. Ask the provider or the payer for the correct approval; the authorization record is not edited here."), vec![], vec![]);
+            }
+            let mut text = format!("The authorization does not match the service: {why}. {}. Check that it is the one the provider meant.", swaps.join("; "));
+            if !rest.is_empty() {
+                text.push_str(&format!(" For {} no single authorization on the claim fits: ask the provider or the payer for the correct approval.", rest.join(", ")));
+            }
+            let mut s = suggestion(finding, "correct_value", text, edits, vec![]);
+            s["still_missing"] = json!(rest.iter().map(|l| format!("a matching authorization for {l}")).collect::<Vec<_>>());
+            s
         }
         "R010" => {
             let mut parts = vec![];
@@ -490,9 +602,10 @@ pub fn info_request(claim: &Value, results: &Value, suggestions: &[Value], versi
     use sha2::{Digest, Sha256};
     let flagged: Vec<&Value> = results.as_array().into_iter().flatten().filter(|r| is_flagged(r)).collect();
     let mut items = vec![];
-    for s in suggestions.iter().filter(|s| s["kind"] == "request_information") {
+    for s in suggestions.iter().filter(|s| s["kind"] == "request_information" || s["still_missing"].as_array().is_some_and(|a| !a.is_empty())) {
         let Some(f) = flagged.iter().find(|r| r["rule_id"] == s["rule_id"]) else { continue };
-        let missing: Vec<String> = missing_paths(f).iter().map(|p| field_label(p)).collect();
+        let still: Vec<String> = s["still_missing"].as_array().into_iter().flatten().filter_map(|x| x.as_str().map(str::to_string)).collect();
+        let missing: Vec<String> = if still.is_empty() { missing_paths(f).iter().map(|p| field_label(p)).collect() } else { still };
         let step: String = f["corrective_action"].as_str().unwrap_or("").trim().chars().take(300).collect();
         let ask = if !missing.is_empty() {
             format!("Please send: {}.", missing.join(", "))
