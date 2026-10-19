@@ -53,6 +53,22 @@ pub fn check_claim(claim: &Value) -> std::result::Result<(), String> {
     if claim["claim_id"].as_str().is_some_and(claim_id_ok) { Ok(()) } else { Err("claim_id must be 1 to 64 letters, digits, underscore or hyphen".into()) }
 }
 
+/// Reads a claim that may be written in Arabic (docs/55): the canonical claim and, when anything was converted, the record of what changed.
+/// An English claim comes back as it is with no record. A claim that cannot be read with certainty is refused with the field and the reason.
+pub fn localize_claim(claim: &Value) -> std::result::Result<(Value, Option<Value>), String> {
+    match cg_core::localize::localize(claim) {
+        Ok(l) => {
+            let record = (!l.changes.is_empty() || l.arabic_text).then(|| {
+                let mut r = l.to_json();
+                r["original"] = claim.clone();
+                r
+            });
+            Ok((l.claim, record))
+        }
+        Err(r) => Err(format!("{}: {}", if r.path.is_empty() { "/" } else { &r.path }, r.reason)),
+    }
+}
+
 /// engine(claim) -> the fifteen results as a JSON list.
 pub type EngineFn = Arc<dyn Fn(&Value) -> std::result::Result<Value, String> + Send + Sync>;
 
@@ -127,6 +143,100 @@ impl Intake {
     /// Validates, runs the engine, writes the triage receipt and stores everything in one atomic write. The same claim twice is stored
     /// once and returns the same receipt; a changed body under an existing claim id becomes the next version.
     pub fn submit(&self, claim: &Value) -> std::result::Result<Value, IntakeError> {
+        self.submit_with(claim, None)
+    }
+
+    /// `submit`, with a provenance record (`corrected_from`: who corrected which version and what changed) stored on the new version.
+    pub fn submit_with(&self, claim: &Value, corrected_from: Option<Value>) -> std::result::Result<Value, IntakeError> {
+        self.submit_tagged(claim, corrected_from, None)
+    }
+
+    /// Submits many claims as ONE batch (docs/53): every new claim carries the batch id, and the audit sample of the green claims is drawn here, once, as an
+    /// exact share of them (`batch::sample_size`) from a seed written on the batch. `by` is the badge (or "cli") that submitted it. Returns the batch id
+    /// (None when no claim was new) and one row per claim.
+    pub fn submit_batch(&self, claims: &[Value], by: &str) -> std::result::Result<(Option<String>, Vec<Value>), IntakeError> {
+        self.submit_batch_progress(claims, by, &|_, _, _| {})
+    }
+
+    /// `submit_batch` that reports (phase, done, total) as it goes: "reading" (each claim read, checked and run through the rules), then "storing".
+    pub fn submit_batch_progress(&self, claims: &[Value], by: &str, progress: &dyn Fn(&str, usize, usize)) -> std::result::Result<(Option<String>, Vec<Value>), IntakeError> {
+        use rand::{rngs::OsRng, RngCore};
+        let cfg = routing_config(&*self.store);
+        let fail = |e: cg_access::store::StoreError| IntakeError::Failed(e.to_string());
+        let mut rows: Vec<Option<Value>> = vec![None; claims.len()];
+        // Arabic claims are read first; from here on the batch works on the canonical claims
+        let mut read: Vec<(Value, Option<Value>)> = Vec::with_capacity(claims.len());
+        for (i, c) in claims.iter().enumerate() {
+            match localize_claim(c) {
+                Ok(pair) => read.push(pair),
+                Err(reason) => {
+                    rows[i] = Some(json!({"claim_id": c["claim_id"], "accepted": false, "reason": format!("claim refused: {reason}").chars().take(300).collect::<String>()}));
+                    read.push((c.clone(), None));
+                }
+            }
+        }
+        let claims: Vec<Value> = read.iter().map(|(c, _)| c.clone()).collect();
+        let claims = &claims[..];
+        let mut fresh: Vec<usize> = vec![];
+        let mut green: Vec<usize> = vec![];
+        for (i, claim) in claims.iter().enumerate() {
+            if i % 10 == 0 {
+                progress("reading", i, claims.len());
+            }
+            if rows[i].is_some() || !claim.is_object() || check_claim(claim).is_err() {
+                continue; // refused below, with its reason, by the ordinary path
+            }
+            let (id, ihash) = (claim["claim_id"].as_str().unwrap_or("").to_string(), triage::input_hash(claim));
+            if let Some(found) = self.receipt_for(&id, &ihash).map_err(fail)? {
+                rows[i] = Some(json!({"claim_id": id, "accepted": true, "lane": found["lane"], "score": found["score"], "already_stored": true}));
+                continue;
+            }
+            fresh.push(i);
+            if let Ok(results) = (self.engine)(claim) {
+                if !triage::degraded(&results) && triage::flagged(&results).is_empty() {
+                    green.push(i);
+                }
+            }
+        }
+        let mut batch_id = None;
+        let mut sampled: std::collections::BTreeSet<usize> = Default::default();
+        if !fresh.is_empty() {
+            let (id, seed, now) = (crate::batch::new_batch_id((self.clock)()), OsRng.next_u64(), (self.clock)());
+            sampled = crate::batch::choose(green.len(), cfg.audit_percent, seed).into_iter().map(|pos| green[pos]).collect();
+            let members: Vec<&str> = fresh.iter().map(|i| claims[*i]["claim_id"].as_str().unwrap_or("")).collect();
+            // written BEFORE the claims, so a flag on a sampled claim can never arrive at a batch that does not exist yet
+            self.store
+                .append_batch_event(&json!({"batch_id": id, "kind": "created", "at": now, "by": by, "submitted": claims.len(), "accepted": fresh.len(), "green": green.len(), "sampled": sampled.len(),
+                                            "percent": cfg.audit_percent, "auto_clear": cfg.auto_clear_green, "seed": seed, "members": members}))
+                .map_err(fail)?;
+            let _ = self.log.record("batch_created", json!({"batch_id": id, "claims": fresh.len(), "green": green.len(), "sampled": sampled.len(), "auto_clear": cfg.auto_clear_green, "by": by}));
+            batch_id = Some(id);
+        }
+        for (i, claim) in claims.iter().enumerate() {
+            if i % 10 == 0 {
+                progress("storing", i, claims.len());
+            }
+            if rows[i].is_some() {
+                continue;
+            }
+            let id = claim["claim_id"].as_str();
+            let tag = batch_id.as_deref().filter(|_| fresh.contains(&i)).map(|b| (b, sampled.contains(&i)));
+            rows[i] = Some(match self.submit_prepared(claim, read[i].1.clone(), None, tag) {
+                Ok(receipt) => json!({"claim_id": id, "accepted": true, "lane": receipt["lane"], "score": receipt["score"]}),
+                Err(IntakeError::Refused(m)) => json!({"claim_id": id, "accepted": false, "reason": format!("claim refused: {m}").chars().take(200).collect::<String>()}),
+                Err(e) => return Err(e),
+            });
+        }
+        Ok((batch_id, rows.into_iter().flatten().collect()))
+    }
+
+    fn submit_tagged(&self, claim: &Value, corrected_from: Option<Value>, batch: Option<(&str, bool)>) -> std::result::Result<Value, IntakeError> {
+        let (canonical, record) = localize_claim(claim).map_err(IntakeError::Refused)?;
+        self.submit_prepared(&canonical, record, corrected_from, batch)
+    }
+
+    /// `submit_tagged` for a claim that has already been read by `localize_claim`; `localization` is the record of what was converted.
+    fn submit_prepared(&self, claim: &Value, localization: Option<Value>, corrected_from: Option<Value>, batch: Option<(&str, bool)>) -> std::result::Result<Value, IntakeError> {
         if !claim.is_object() {
             return Err(IntakeError::Refused("a claim must be an object".into()));
         }
@@ -142,7 +252,17 @@ impl Intake {
             let version = self.store.get(&claim_id, None).map_err(fail)?.map_or(1, |l| l["version"].as_i64().unwrap_or(0) + 1);
             let results = (self.engine)(claim).map_err(IntakeError::Failed)?;
             let receipt = triage::make_receipt(claim, &results, &cfg, &(self.rule_pack_hash)(), &self.engine_version, (self.clock)());
-            let doc = json!({"claim_id": claim_id, "version": version, "input_hash": ihash, "claim": claim, "results": results, "receipt": receipt, "advisory": self.advisory_for(claim)});
+            let mut doc = json!({"claim_id": claim_id, "version": version, "input_hash": ihash, "claim": claim, "results": results, "receipt": receipt, "advisory": self.advisory_for(claim)});
+            if let Some(from) = &corrected_from {
+                doc["corrected_from"] = from.clone();
+            }
+            if let Some(loc) = &localization {
+                doc["localization"] = loc.clone();
+            }
+            if let Some((b, sample)) = batch {
+                doc["batch_id"] = json!(b);
+                doc["audit_sample"] = json!(sample);
+            }
             if self.store.put_triaged(&doc).map_err(fail)? {
                 // shadow mode must never affect a claim
                 let _ = shadow::record(&*self.store, &claim_id, version, shadow::predict_clear(&receipt), receipt["created_at"].as_f64().unwrap_or(0.0));
@@ -296,11 +416,90 @@ pub fn reconcile(store: &dyn QueueStore, now: f64, actor: &str) -> Report {
 const PIPELINE_STATES: [&str; 3] = ["triaged", "explained", "explanation_skipped"];
 
 fn make_ready(store: &dyn QueueStore, claim_id: &str, version: i64, from: &str, now: f64, why: &str) -> &'static str {
-    match store.transition(claim_id, version, from, "ready", "system:pipeline", now, Some(json!({"why": why})), None, None) {
+    make_ready_with(store, claim_id, version, from, now, json!({"why": why}), None)
+}
+
+fn make_ready_with(store: &dyn QueueStore, claim_id: &str, version: i64, from: &str, now: f64, detail: Value, set: Option<Map<String, Value>>) -> &'static str {
+    match store.transition(claim_id, version, from, "ready", "system:pipeline", now, Some(detail), set, None) {
         Ok(Some(_)) => "ready",
         _ => "noop",
     }
 }
+
+/// The actor on a request for information the system recorded itself.
+pub const AUTO_REQUEST: &str = "system:auto-request";
+
+/// Findings that only say data is missing, and that the configured scope lets the system ask about: UNABLE_TO_ASSESS, medium severity or any severity.
+fn requestable<'a>(results: &'a Value, scope: &str) -> Vec<&'a Value> {
+    triage::flagged(results).into_iter().filter(|r| r["status"] == "UNABLE_TO_ASSESS" && (scope == "all" || r["severity"] == "medium")).collect()
+}
+
+/// One `request_information` decision per finding, written by the system. The reason is the rulebook's own corrective-action text (a generic
+/// instruction, never claim data), so it can sit in the audit trail like any reviewer's words.
+fn request_decisions(rows: &[&Value], now: f64) -> Vec<Value> {
+    rows.iter()
+        .map(|r| {
+            let step: String = r["corrective_action"].as_str().unwrap_or("").trim().chars().take(300).collect();
+            let reason = if step.is_empty() { "Requested automatically: the data needed to assess this rule is missing.".to_string() } else { format!("Requested automatically: the data needed to assess this rule is missing. {step}") };
+            json!({"rule_id": r["rule_id"], "action": "request_information", "actor": AUTO_REQUEST, "reason": reason, "at": now, "round": 1})
+        })
+        .collect()
+}
+
+/// A random number from 0 to 100 (two decimals) for the audit draw. Written on the claim, so every draw can be checked afterwards.
+pub(crate) fn audit_draw() -> f64 {
+    use rand::{rngs::OsRng, RngCore};
+    (OsRng.next_u64() % 10_000) as f64 / 100.0
+}
+
+/// Where a green claim goes. By default to a person (`ready`). With `auto_clear_green` on, the system decides it (`system:auto-clear`) unless the
+/// random audit sample (`audit_percent`) sends it to a person, which is how the miss rate is measured. A claim that is not both clean and intact
+/// is never cleared by the system, whatever the receipt says.
+fn green_path(store: &dyn QueueStore, doc: &Value, claim_id: &str, version: i64, now: f64) -> &'static str {
+    let cfg = routing_config(store);
+    if !cfg.auto_clear_green || triage::degraded(&doc["results"]) || !triage::flagged(&doc["results"]).is_empty() {
+        return make_ready(store, claim_id, version, "triaged", now, "green");
+    }
+    // a claim of a batch was sampled (or not) when the batch came in: an exact share of the batch (batch.rs). A claim on its own is drawn by chance.
+    let batch = doc["batch_id"].as_str();
+    let (sampled, draw) = match batch {
+        Some(_) => (doc["audit_sample"] == true, None),
+        None => {
+            let d = audit_draw();
+            (d < cfg.audit_percent as f64, Some(d))
+        }
+    };
+    let mut detail = json!({"why": "green_audit"});
+    if sampled {
+        if let Some(d) = draw {
+            detail["audit_draw"] = json!(d);
+        }
+        if let Some(b) = batch {
+            detail["batch_id"] = json!(b);
+        }
+        return match store.transition(claim_id, version, "triaged", "ready", "system:pipeline", now, Some(detail), None, None) {
+            Ok(Some(_)) => "ready",
+            _ => "noop",
+        };
+    }
+    let mut set = Map::new();
+    set.insert("decided_by".into(), json!(AUTO_CLEAR));
+    set.insert("auto_cleared".into(), json!(true));
+    detail = json!({"auto_cleared": true, "findings": 0});
+    if let Some(d) = draw {
+        detail["audit_draw"] = json!(d);
+    }
+    if let Some(b) = batch {
+        detail["batch_id"] = json!(b);
+    }
+    match store.transition(claim_id, version, "triaged", "decided", AUTO_CLEAR, now, Some(detail), Some(set), None) {
+        Ok(Some(_)) => "decided",
+        _ => "noop",
+    }
+}
+
+/// The actor on a claim the system cleared without a person.
+pub const AUTO_CLEAR: &str = "system:auto-clear";
 
 /// Runs the claim up to `ready`. Idempotent: safe to run twice, out of order or after a crash. Returns "ready" when this call moved it
 /// there, otherwise "noop". Dealing is not a step here: the dispatcher owns the `ready` pool.
@@ -311,9 +510,38 @@ pub fn advance(store: &dyn QueueStore, claim_id: &str, version: i64, explain: &E
         return "noop";
     }
     let mut state = state;
+    // what to attach when the claim reaches `ready`: set by the information-request step below
+    let mut ready_extra: Option<(Value, Option<Map<String, Value>>)> = None;
     if state == "triaged" {
         if doc["receipt"]["lane"] == "green" {
-            return make_ready(store, claim_id, version, "triaged", now, "green");
+            return green_path(store, &doc, claim_id, version, now);
+        }
+        let cfg = routing_config(store);
+        if cfg.auto_request_info != "off" && !triage::degraded(&doc["results"]) {
+            let ask = requestable(&doc["results"], &cfg.auto_request_info);
+            if !ask.is_empty() {
+                let draw = audit_draw();
+                if draw < cfg.audit_percent as f64 {
+                    // the audit sample: a person handles this claim in full, and what they do with the missing-data findings is the measurement
+                    ready_extra = Some((json!({"why": "explained", "info_audit": true, "audit_draw": draw}), None));
+                } else if ask.len() == triage::flagged(&doc["results"]).len() {
+                    // nothing but missing data: the system records the requests and the claim waits for a corrected submission
+                    let mut set = Map::new();
+                    set.insert("decided_by".into(), json!(AUTO_REQUEST));
+                    set.insert("auto_requested".into(), json!(true));
+                    set.insert("decisions".into(), Value::Array(request_decisions(&ask, now)));
+                    return match store.transition(claim_id, version, "triaged", "decided", AUTO_REQUEST, now, Some(json!({"auto_requested": true, "findings": ask.len(), "audit_draw": draw})), Some(set), None) {
+                        Ok(Some(_)) => "decided",
+                        _ => "noop",
+                    };
+                } else {
+                    // also real findings: the system asks for the missing data, a person decides the rest
+                    let mut set = Map::new();
+                    set.insert("auto_requested".into(), json!(true));
+                    set.insert("decisions".into(), Value::Array(request_decisions(&ask, now)));
+                    ready_extra = Some((json!({"why": "explained", "auto_requested": ask.len(), "audit_draw": draw}), Some(set)));
+                }
+            }
         }
         if explain.run(claim_id, version) == "noop" {
             return "noop"; // another worker is handling it
@@ -323,7 +551,14 @@ pub fn advance(store: &dyn QueueStore, claim_id: &str, version: i64, explain: &E
             _ => return "noop",
         }
     }
-    make_ready(store, claim_id, version, &state, now, if state == "explained" { "explained" } else { "skipped" })
+    let why = if state == "explained" { "explained" } else { "skipped" };
+    match ready_extra {
+        Some((mut detail, set)) => {
+            detail["why"] = json!(why);
+            make_ready_with(store, claim_id, version, &state, now, detail, set)
+        }
+        None => make_ready(store, claim_id, version, &state, now, why),
+    }
 }
 
 pub struct Runtime {

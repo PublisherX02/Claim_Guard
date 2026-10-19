@@ -163,6 +163,14 @@ pub fn boot(o: &Options) -> Result<Boot, String> {
     let review_log = Arc::new(AuditLog::open(data_dir.join("review_audit.jsonl")).map_err(|e| e.to_string())?);
     let engine = Arc::new(Engine::load(&root).map_err(|e| format!("rule engine: {e}"))?);
     let payer = Arc::new(cg_engine::payer::PayerRules::open(&root, &data_dir, engine.clone()).map_err(|e| format!("payer rules: {e}"))?);
+    if let Some((embedder, threshold)) = crate::embedder::HttpEmbedder::from_env(&env)? {
+        payer.set_embedder(Arc::new(embedder), threshold); // meaning-based "Ask the rulebook"; without it (or when it is down) the keyword search answers
+        // embed the passages now, in the background: on a CPU the first question otherwise waits for all of them (about a minute with bge-m3)
+        let warm = payer.clone();
+        std::thread::spawn(move || {
+            let _ = warm.ask("warm up", 1);
+        });
+    }
     {
         // an approved change of the payer rules is carried out here; other processes (the worker, the API) notice it within seconds
         let pr = payer.clone();
@@ -202,6 +210,7 @@ fn build_queue(store: Arc<dyn QueueStore>, env: &HashMap<String, String>, root: 
         advisory: Some(flow::advisory_fn(extensions, store.clone())),
     });
     service.set_intake(intake.clone());
+    service.set_rules({ let e = engine.clone(); Arc::new(move || e.cfg()) });
     let sc = store.clone();
     let breaker = Arc::new(CircuitBreaker::new(clock.clone()));
     let model: Arc<dyn cg_queue::explain::Model> = cg_queue::model::model_from_env(env, cg_queue::model::rulebook_rules(root)?)?.unwrap_or_else(|| Arc::new(NoModel));

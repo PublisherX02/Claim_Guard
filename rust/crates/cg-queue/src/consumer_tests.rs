@@ -391,3 +391,319 @@ fn setting_the_stop_flag_ends_every_thread() {
     std::thread::sleep(Duration::from_millis(60));
     stop_and_join(pool, &stop); // join returns only if every thread has ended
 }
+
+// ---- green claims: auto-clear and the audit sample ---------------------------------------------------------------------------
+
+/// A green claim with a complete, clean set of fifteen results (the shape the engine produces), unlike `put_green`.
+fn put_intact_green(store: &MemoryQueueStore, i: usize) -> String {
+    let id = format!("IG{i}");
+    let mut d = doc(&id);
+    d["results"] = Value::Array(triage::rule_ids().into_iter().map(|r| json!({"rule_id": r, "status": "PASS", "severity": "medium", "affected_line_ids": [], "evidence": []})).collect());
+    d["receipt"]["lane"] = json!("green");
+    assert!(store.put_triaged(&d).unwrap());
+    id
+}
+
+fn set_config(store: &MemoryQueueStore, auto: bool, audit: i64) {
+    let cfg = RoutingConfig { auto_clear_green: auto, audit_percent: audit, ..RoutingConfig::default() };
+    assert!(store.put_config(&crate::routing_config::to_doc(&cfg).unwrap(), 0).unwrap());
+}
+
+fn run_all(w: &World, ids: &[String]) {
+    for id in ids {
+        crate::flow::process(&w.rt, id, 1, &format!("h-{id}"));
+    }
+}
+
+#[test]
+fn a_green_claim_still_goes_to_a_person_unless_an_administrator_switched_auto_clear_on() {
+    let w = world(probe(1, false));
+    let ids: Vec<String> = (0..20).map(|i| put_intact_green(&w.store, i)).collect();
+    run_all(&w, &ids);
+    assert!(ids.iter().all(|id| state_of(&w.store, id) == "ready"), "default: every green claim is verified by a person");
+}
+
+#[test]
+fn with_auto_clear_on_the_system_decides_green_claims_and_only_the_audit_sample_goes_to_a_person() {
+    let w = world(probe(1, false));
+    set_config(&w.store, true, 1);
+    let ids: Vec<String> = (0..300).map(|i| put_intact_green(&w.store, i)).collect();
+    run_all(&w, &ids);
+    let (mut cleared, mut audited) = (0, 0);
+    for id in &ids {
+        let d = w.store.get(id, None).unwrap().unwrap();
+        match d["state"].as_str().unwrap() {
+            "decided" => {
+                cleared += 1;
+                assert_eq!((d["decided_by"].as_str(), d["auto_cleared"].as_bool()), (Some(crate::flow::AUTO_CLEAR), Some(true)));
+                let last = d["events"].as_array().unwrap().last().unwrap();
+                assert_eq!((last["to"].as_str(), last["actor"].as_str(), last["detail"]["auto_cleared"].as_bool()), (Some("decided"), Some(crate::flow::AUTO_CLEAR), Some(true)));
+                assert!(last["detail"]["audit_draw"].as_f64().unwrap() >= 1.0, "a claim is cleared only when its draw is outside the audit sample");
+            }
+            "ready" => {
+                audited += 1;
+                let last = d["events"].as_array().unwrap().last().unwrap();
+                assert_eq!(last["detail"]["why"], "green_audit");
+                assert!(last["detail"]["audit_draw"].as_f64().unwrap() < 1.0, "a claim is audited only when its draw is inside the sample");
+                assert!(d["auto_cleared"].is_null() && d["decided_by"].is_null());
+            }
+            other => panic!("unexpected state {other}"),
+        }
+    }
+    assert_eq!(cleared + audited, 300);
+    assert!(cleared >= 270, "about 99% are cleared at a 1% sample (got {cleared})");
+}
+
+#[test]
+fn an_audit_percent_of_100_sends_every_green_claim_to_a_person() {
+    let w = world(probe(1, false));
+    set_config(&w.store, true, 100);
+    let ids: Vec<String> = (0..60).map(|i| put_intact_green(&w.store, i)).collect();
+    run_all(&w, &ids);
+    assert!(ids.iter().all(|id| state_of(&w.store, id) == "ready"));
+}
+
+#[test]
+fn the_system_never_clears_a_claim_that_is_not_both_clean_and_intact() {
+    let w = world(probe(1, false));
+    set_config(&w.store, true, 1);
+    // lane says green but the result set is damaged: fails closed, to a person
+    let damaged: Vec<String> = (0..40).map(|i| put_green(&w.store, i)).collect();
+    // lane says green but a finding is flagged: never cleared
+    let mut mislabeled = vec![];
+    for i in 0..40 {
+        let id = format!("MG{i}");
+        let mut d = doc(&id);
+        d["results"] = Value::Array(triage::rule_ids().into_iter().map(|r| json!({"rule_id": r, "status": if r == "R003" { "FAIL" } else { "PASS" }, "severity": "medium", "affected_line_ids": [], "evidence": []})).collect());
+        d["receipt"]["lane"] = json!("green");
+        assert!(w.store.put_triaged(&d).unwrap());
+        mislabeled.push(id);
+    }
+    run_all(&w, &damaged);
+    run_all(&w, &mislabeled);
+    for id in damaged.iter().chain(&mislabeled) {
+        assert_eq!(state_of(&w.store, id), "ready", "{id}");
+    }
+}
+
+#[test]
+fn processing_a_message_twice_clears_the_claim_once() {
+    let w = world(probe(1, false));
+    set_config(&w.store, true, 1);
+    let id = put_intact_green(&w.store, 0);
+    let first = crate::flow::process(&w.rt, &id, 1, &format!("h-{id}"));
+    let second = crate::flow::process(&w.rt, &id, 1, &format!("h-{id}"));
+    assert_eq!(second, "noop", "the second delivery finds the claim already moved");
+    assert!(["decided", "ready"].contains(&first));
+    let d = w.store.get(&id, None).unwrap().unwrap();
+    assert_eq!(d["events"].as_array().unwrap().iter().filter(|e| e["from"] == "triaged").count(), 1);
+}
+
+#[test]
+fn claims_the_system_cleared_are_not_counted_as_verified_by_a_person() {
+    let w = world(probe(1, false));
+    set_config(&w.store, true, 1);
+    let ids: Vec<String> = (0..120).map(|i| put_intact_green(&w.store, i)).collect();
+    for id in &ids {
+        let _ = crate::shadow::record(&*w.store, id, 1, 1.0, 1.0);
+    }
+    run_all(&w, &ids);
+    let cleared = ids.iter().filter(|id| state_of(&w.store, id) == "decided").count();
+    assert!(cleared > 0);
+    let report = crate::service::feedback_report(&*w.store, 20, 0.5, 0.95);
+    assert_eq!((report["auto_cleared"].as_i64(), report["verified_clear"].as_i64()), (Some(cleared as i64), Some(0)));
+    assert_eq!(crate::shadow::agreement(&*w.store, 0.95)["n"], 0, "the prediction is not compared with the system's own decision");
+}
+
+// ---- missing-data findings: the system records the request for information itself ------------------------------------------------
+
+/// A claim whose flagged findings are exactly `flags` ((rule, status, severity)), the rest passing: the full, intact set of fifteen results.
+fn put_with(store: &MemoryQueueStore, id: &str, flags: &[(&str, &str, &str)]) -> String {
+    let mut d = doc(id);
+    d["results"] = Value::Array(
+        triage::rule_ids()
+            .into_iter()
+            .map(|r| match flags.iter().find(|f| f.0 == r) {
+                Some((_, status, sev)) => json!({"rule_id": r, "status": status, "severity": sev, "affected_line_ids": [], "evidence": [], "corrective_action": "Request the missing source information."}),
+                None => json!({"rule_id": r, "status": "PASS", "severity": "medium", "affected_line_ids": [], "evidence": []}),
+            })
+            .collect(),
+    );
+    d["receipt"]["lane"] = json!(if flags.is_empty() { "green" } else { "A" });
+    assert!(store.put_triaged(&d).unwrap());
+    id.to_string()
+}
+
+fn set_request(store: &MemoryQueueStore, scope: &str, audit: i64) {
+    let cfg = RoutingConfig { auto_request_info: scope.into(), audit_percent: audit, ..RoutingConfig::default() };
+    assert!(store.put_config(&crate::routing_config::to_doc(&cfg).unwrap(), 0).unwrap());
+}
+
+fn is_audited(d: &Value) -> bool {
+    d["events"].as_array().unwrap().iter().any(|e| e["detail"]["info_audit"] == true)
+}
+
+#[test]
+fn missing_data_findings_are_left_to_a_person_unless_an_administrator_switched_auto_request_on() {
+    let w = world(probe(1, false));
+    let ids: Vec<String> = (0..10).map(|i| put_with(&w.store, &format!("U{i}"), &[("R009", "UNABLE_TO_ASSESS", "medium")])).collect();
+    run_all(&w, &ids);
+    for id in &ids {
+        let d = w.store.get(id, None).unwrap().unwrap();
+        assert_eq!(d["state"], "ready");
+        assert!(d["auto_requested"].is_null() && d["decisions"].as_array().unwrap().is_empty());
+    }
+}
+
+#[test]
+fn a_claim_with_only_missing_data_is_decided_by_the_system_which_records_one_request_per_finding() {
+    let w = world(probe(1, false));
+    set_request(&w.store, "medium", 1);
+    let ids: Vec<String> = (0..200).map(|i| put_with(&w.store, &format!("U{i}"), &[("R009", "UNABLE_TO_ASSESS", "medium"), ("R010", "UNABLE_TO_ASSESS", "medium")])).collect();
+    run_all(&w, &ids);
+    let (mut asked, mut audited) = (0, 0);
+    for id in &ids {
+        let d = w.store.get(id, None).unwrap().unwrap();
+        if d["state"] == "decided" {
+            asked += 1;
+            assert_eq!((d["decided_by"].as_str(), d["auto_requested"].as_bool()), (Some(crate::flow::AUTO_REQUEST), Some(true)));
+            let decisions = d["decisions"].as_array().unwrap();
+            assert_eq!(decisions.len(), 2, "one request per missing-data finding");
+            for x in decisions {
+                assert_eq!((x["action"].as_str(), x["actor"].as_str(), x["round"].as_i64()), (Some("request_information"), Some(crate::flow::AUTO_REQUEST), Some(1)));
+                assert!(x["reason"].as_str().unwrap().starts_with("Requested automatically"));
+            }
+            assert!(d["events"].as_array().unwrap().last().unwrap()["detail"]["audit_draw"].as_f64().unwrap() >= 1.0);
+        } else {
+            audited += 1;
+            assert_eq!(d["state"], "ready");
+            assert!(is_audited(&d) && d["decisions"].as_array().unwrap().is_empty(), "the audit sample is handled by a person, with nothing recorded by the system");
+        }
+    }
+    assert_eq!(asked + audited, 200);
+    assert!(asked >= 170, "about 99% are handled by the system at a 1% sample (got {asked})");
+    // the reports do not take these for reviewer work
+    let report = crate::service::feedback_report(&*w.store, 20, 0.5, 0.95);
+    assert_eq!((report["auto_requested_claims"].as_i64(), report["verified_clear"].as_i64(), report["claims_decided"].as_i64()), (Some(asked), Some(0), Some(asked)));
+    assert_eq!(report["rules"]["R009"]["request_information"].as_i64().unwrap_or(0), 0, "a request the system wrote is not a reviewer's judgment");
+    assert_eq!(crate::shadow::agreement(&*w.store, 0.95)["n"], 0);
+    assert!(crate::reliability::counted_decisions(&w.store.by_state("decided", 1000).unwrap()).is_empty(), "and it is not evidence about a rule");
+}
+
+#[test]
+fn an_audit_percent_of_100_sends_every_missing_data_claim_to_a_person() {
+    let w = world(probe(1, false));
+    set_request(&w.store, "all", 100);
+    let ids: Vec<String> = (0..40).map(|i| put_with(&w.store, &format!("U{i}"), &[("R009", "UNABLE_TO_ASSESS", "high")])).collect();
+    run_all(&w, &ids);
+    for id in &ids {
+        let d = w.store.get(id, None).unwrap().unwrap();
+        assert!(d["state"] == "ready" && is_audited(&d) && d["decisions"].as_array().unwrap().is_empty());
+    }
+}
+
+#[test]
+fn the_medium_scope_leaves_high_severity_findings_to_a_person_and_the_all_scope_does_not() {
+    for (scope, expect_system) in [("medium", false), ("all", true)] {
+        let w = world(probe(1, false));
+        set_request(&w.store, scope, 1);
+        let ids: Vec<String> = (0..60).map(|i| put_with(&w.store, &format!("H{i}"), &[("R009", "UNABLE_TO_ASSESS", "high")])).collect();
+        run_all(&w, &ids);
+        let decided = ids.iter().filter(|id| state_of(&w.store, id) == "decided").count();
+        if expect_system {
+            assert!(decided >= 50, "scope all: {decided}");
+        } else {
+            assert_eq!(decided, 0, "scope medium never asks for a high-severity finding by itself");
+        }
+    }
+}
+
+#[test]
+fn a_claim_with_real_findings_too_keeps_them_for_a_person_and_only_the_missing_data_is_requested() {
+    let w = world(probe(1, false));
+    set_request(&w.store, "medium", 1);
+    let ids: Vec<String> = (0..100).map(|i| put_with(&w.store, &format!("M{i}"), &[("R003", "FAIL", "medium"), ("R009", "UNABLE_TO_ASSESS", "medium")])).collect();
+    run_all(&w, &ids);
+    let mut asked = 0;
+    for id in &ids {
+        let d = w.store.get(id, None).unwrap().unwrap();
+        assert_eq!(d["state"], "ready", "a person still decides the real finding");
+        let decisions = d["decisions"].as_array().unwrap();
+        if is_audited(&d) {
+            assert!(decisions.is_empty());
+        } else {
+            asked += 1;
+            assert_eq!(decisions.len(), 1, "only the missing-data finding is requested");
+            assert_eq!((decisions[0]["rule_id"].as_str(), decisions[0]["actor"].as_str()), (Some("R009"), Some(crate::flow::AUTO_REQUEST)));
+            assert_eq!(d["auto_requested"], true);
+        }
+    }
+    assert!(asked >= 85, "{asked}");
+}
+
+#[test]
+fn a_real_finding_alone_and_a_damaged_result_set_are_never_touched_by_auto_request() {
+    let w = world(probe(1, false));
+    set_request(&w.store, "all", 1);
+    let fails: Vec<String> = (0..40).map(|i| put_with(&w.store, &format!("F{i}"), &[("R003", "FAIL", "medium")])).collect();
+    // a damaged set: one row only, with a missing-data finding in it
+    let damaged: Vec<String> = (0..40)
+        .map(|i| {
+            let id = format!("D{i}");
+            let mut d = doc(&id);
+            d["results"] = json!([{"rule_id": "R009", "status": "UNABLE_TO_ASSESS", "severity": "medium"}]);
+            assert!(w.store.put_triaged(&d).unwrap());
+            id
+        })
+        .collect();
+    run_all(&w, &fails);
+    run_all(&w, &damaged);
+    for id in fails.iter().chain(&damaged) {
+        let d = w.store.get(id, None).unwrap().unwrap();
+        assert!(d["state"] == "ready" && d["decisions"].as_array().unwrap().is_empty() && d["auto_requested"].is_null(), "{id}");
+    }
+}
+
+// ---- the feedback report splits a rule's decisions by the service code and modifier of the line it pointed at --------------------------
+
+/// Put a claim whose R006 finding points at line L1 (SVC-DENTAL with `modifier`), and walk it to decided with one final `action`.
+fn decided_on_line(store: &MemoryQueueStore, id: &str, modifier: Value, action: &str) {
+    let mut d = doc(id);
+    d["claim"]["lines"] = json!([{"line_id": "L1", "service_code": "SVC-DENTAL", "modifier": modifier, "quantity": 1}]);
+    d["results"] = Value::Array(
+        triage::rule_ids()
+            .into_iter()
+            .map(|r| if r == "R006" { json!({"rule_id": r, "status": "FAIL", "severity": "medium", "affected_line_ids": ["L1"], "evidence": []}) } else { json!({"rule_id": r, "status": "PASS", "severity": "medium", "affected_line_ids": [], "evidence": []}) })
+            .collect(),
+    );
+    assert!(store.put_triaged(&d).unwrap());
+    assert!(store.transition(id, 1, "triaged", "ready", "system:t", 1000.0, None, None, None).unwrap().is_some());
+    assert!(store.lease(id, 1, "CG-2002", 1001.0, 5000.0).unwrap().is_some());
+    let decision = json!({"rule_id": "R006", "action": action, "actor": "CG-2002", "reason": "r", "at": 1002.0});
+    assert!(store.add_decision(id, 1, "CG-2002", 1002.0, &decision).unwrap().is_some());
+    let mut fields = serde_json::Map::new();
+    fields.insert("decided_by".into(), json!("CG-2002"));
+    assert!(store.transition(id, 1, "leased", "decided", "CG-2002", 1003.0, None, Some(fields), Some("CG-2002")).unwrap().is_some());
+}
+
+#[test]
+fn the_feedback_report_splits_decisions_by_service_code_and_modifier() {
+    let w = world(probe(1, false));
+    for i in 0..3 {
+        decided_on_line(&w.store, &format!("E{i}"), json!("EDU-SEPARATE"), "dismiss_with_reason");
+    }
+    decided_on_line(&w.store, "E9", json!("EDU-SEPARATE"), "confirm_issue");
+    decided_on_line(&w.store, "P0", Value::Null, "confirm_issue");
+    let report = crate::service::feedback_report(&*w.store, 20, 0.5, 0.95);
+    let rule = &report["rules"]["R006"];
+    let by = rule["by_service"].as_object().unwrap();
+    assert_eq!(by.keys().map(String::as_str).collect::<Vec<_>>(), vec!["SVC-DENTAL | EDU-SEPARATE", "SVC-DENTAL | no modifier"]);
+    let cell = &by["SVC-DENTAL | EDU-SEPARATE"];
+    assert_eq!((cell["confirmed"].as_i64(), cell["dismissed"].as_i64(), cell["decisions"].as_i64()), (Some(1), Some(3), Some(4)));
+    assert_eq!(cell["dismissal_rate"].as_f64(), Some(0.75));
+    assert_eq!(by["SVC-DENTAL | no modifier"]["dismissal_rate"].as_f64(), Some(0.0));
+    let total: i64 = by.values().map(|c| c["decisions"].as_i64().unwrap()).sum();
+    assert_eq!(Some(total), rule["decisions"].as_i64(), "the split adds up to the rule's total");
+    let text = report.to_string();
+    assert!(!text.contains("E9") && !text.contains("CG-2002"), "no claim id or badge id in the report");
+}

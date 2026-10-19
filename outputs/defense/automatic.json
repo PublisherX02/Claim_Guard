@@ -1,0 +1,151 @@
+{
+  "batches": 20,
+  "batch_size": 500.0,
+  "pool": 600,
+  "green_claims_per_batch": {
+    "mean": 166.95,
+    "min": 160.0,
+    "max": 179.0
+  },
+  "claims_with_a_flagged_finding_per_batch": {
+    "mean": 333.05,
+    "min": 321.0,
+    "max": 340.0
+  },
+  "claims_with_a_degraded_result_per_batch": {
+    "mean": 0.0,
+    "min": 0.0,
+    "max": 0.0
+  },
+  "findings_in_a_batch_reviewed_by_people_today": {
+    "mean": 645.35,
+    "min": 620.0,
+    "max": 671.0
+  },
+  "policies": [
+    {
+      "policy": "today",
+      "processed_automatically": 0,
+      "claims_for_a_person": 500.0,
+      "note": "every claim goes to a person; a claim with no finding is verified by one"
+    },
+    {
+      "policy": "green claims only",
+      "processed_automatically": {
+        "mean": 166.95,
+        "min": 160.0,
+        "max": 179.0
+      },
+      "claims_for_a_person": {
+        "mean": 333.05,
+        "min": 321.0,
+        "max": 340.0
+      },
+      "automatic_claims_that_were_wrong": 0,
+      "note": "a green claim has no flagged finding; the engine matches the answer key exactly on all labelled claims, so none is wrong on this data"
+    },
+    {
+      "policy": "green + light-review rules",
+      "skip_lower": 0.85,
+      "processed_automatically": {
+        "mean": 388.4,
+        "min": 378.0,
+        "max": 393.0
+      },
+      "percent_of_batch": {
+        "mean": 77.68,
+        "min": 75.6,
+        "max": 78.6
+      },
+      "of_which_flagged_claims": {
+        "mean": 221.45,
+        "min": 208.0,
+        "max": 230.0
+      },
+      "automatic_flagged_claims_that_were_wrong": {
+        "mean": 8.3,
+        "min": 4.0,
+        "max": 14.0
+      },
+      "claims_for_a_person": {
+        "mean": 111.6,
+        "min": 107.0,
+        "max": 122.0
+      },
+      "findings_a_person_still_reviews": {
+        "mean": 370.05,
+        "min": 348.0,
+        "max": 393.0
+      }
+    },
+    {
+      "policy": "green + light-review rules",
+      "skip_lower": 0.9,
+      "processed_automatically": {
+        "mean": 357.85,
+        "min": 302.0,
+        "max": 393.0
+      },
+      "percent_of_batch": {
+        "mean": 71.57000000000002,
+        "min": 60.4,
+        "max": 78.6
+      },
+      "of_which_flagged_claims": {
+        "mean": 190.9,
+        "min": 141.0,
+        "max": 230.0
+      },
+      "automatic_flagged_claims_that_were_wrong": {
+        "mean": 6.55,
+        "min": 3.0,
+        "max": 12.0
+      },
+      "claims_for_a_person": {
+        "mean": 142.15,
+        "min": 107.0,
+        "max": 198.0
+      },
+      "findings_a_person_still_reviews": {
+        "mean": 419.9,
+        "min": 354.0,
+        "max": 513.0
+      }
+    },
+    {
+      "policy": "green + light-review rules",
+      "skip_lower": 0.95,
+      "processed_automatically": {
+        "mean": 173.95,
+        "min": 160.0,
+        "max": 202.0
+      },
+      "percent_of_batch": {
+        "mean": 34.79,
+        "min": 32.0,
+        "max": 40.4
+      },
+      "of_which_flagged_claims": {
+        "mean": 7.0,
+        "min": 0.0,
+        "max": 32.0
+      },
+      "automatic_flagged_claims_that_were_wrong": {
+        "mean": 0.2,
+        "min": 0.0,
+        "max": 2.0
+      },
+      "claims_for_a_person": {
+        "mean": 326.05,
+        "min": 298.0,
+        "max": 340.0
+      },
+      "findings_a_person_still_reviews": {
+        "mean": 638.35,
+        "min": 588.0,
+        "max": 671.0
+      }
+    }
+  ],
+  "note": "the claims and the green/flagged split are real (labelled claims); which flagged rules reviewers almost always uphold, and whether an automatic flagged claim was wrong, come from simulated reviewers. No time is measured."
+}

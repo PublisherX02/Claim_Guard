@@ -1,0 +1,39 @@
+{
+  "claims": 600,
+  "flagged_findings": 777,
+  "suggestions_by_kind": {
+    "correct_value": 113,
+    "request_information": 442,
+    "verify": 222
+  },
+  "suggestions_with_text": 777,
+  "cited_paths_missing_on_claim": 0,
+  "approval_or_payment_words": 0,
+  "claims_with_a_proposed_correction": 103,
+  "claims_with_no_flagged_finding_after_applying_all_proposals": 68,
+  "claims_where_applying_all_proposals_flagged_a_new_rule": 0,
+  "proposed_corrections_by_rule": {
+    "R001": {
+      "proposed": 15,
+      "resolved_the_finding": 15,
+      "created_a_new_finding": 0
+    },
+    "R007": {
+      "proposed": 30,
+      "resolved_the_finding": 30,
+      "created_a_new_finding": 0
+    },
+    "R012": {
+      "proposed": 34,
+      "resolved_the_finding": 34,
+      "created_a_new_finding": 0
+    },
+    "R015": {
+      "proposed": 29,
+      "resolved_the_finding": 29,
+      "created_a_new_finding": 0
+    }
+  },
+  "identifier_edit_attempts_refused": 4200,
+  "note": "Public synthetic claims only. A proposed correction is computed from the claim itself (amounts, totals) or the policy currency; it is a suggestion to try in a what-if, and a person checks it against the source bill."
+}

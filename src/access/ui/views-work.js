@@ -11,6 +11,69 @@
   };
   var STAGES = { countersign: 'Waiting for a second senior (countersign)', tiebreak: 'Seniors disagreed: final decision by a third senior' };
 
+  // A button that asks for a second click (no browser dialog): the first click arms it for five seconds, the second runs it.
+  function twoStep(label, armedLabel, run) {
+    var armed = false, timer = null;
+    var b = h('button', { class: 'btn', type: 'button', text: label });
+    function reset() { armed = false; b.textContent = label; b.className = 'btn'; }
+    b.addEventListener('click', function () {
+      if (!armed) { armed = true; b.textContent = armedLabel; b.className = 'btn primary'; timer = setTimeout(reset, 5000); return; }
+      clearTimeout(timer); reset(); run(b);
+    });
+    return b;
+  }
+
+  function canConfirm(f) { return f.allowed_actions && f.allowed_actions.indexOf('confirm_issue') >= 0; }
+
+  var hotkeyOff = null;
+  function hotkey(key, fn) {
+    if (hotkeyOff) hotkeyOff();
+    function on(e) {
+      if (e.ctrlKey || e.metaKey || e.altKey || e.key !== key) return;
+      var tag = e.target && e.target.tagName;
+      if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return;
+      e.preventDefault(); fn();
+    }
+    function off() { document.removeEventListener('keydown', on); if (hotkeyOff === off) hotkeyOff = null; }
+    document.addEventListener('keydown', on);
+    hotkeyOff = off;
+    (CG.state.streams = CG.state.streams || []).push({ close: off });
+  }
+
+  // After the last finding of a claim, open the next claim at once instead of going back to the inbox: one click less per claim.
+  function goNext(back) {
+    CG.api('GET', '/work/inbox').then(function (d) {
+      if (d.claims && d.claims.length) { location.hash = '#/work/' + encodeURIComponent(d.claims[0].claim_id); return null; }
+      return CG.api('POST', '/work/next').then(function (n) { location.hash = n && n.claim ? '#/work/' + encodeURIComponent(n.claim.claim_id) : back; });
+    }).then(null, function () { location.hash = back; });
+  }
+
+  // Confirming agrees with the engine, so it needs no typed reason (the server records a fixed one). Only overriding the engine needs words.
+  function confirmNow(ctx, f) {
+    return CG.api('POST', ctx.decisionPath(f.rule_id), { action: 'confirm_issue' });
+  }
+
+  function confirmAll(list, ctx, refresh) {
+    var n = list.length, busy = false, armedAt = 0;
+    function run(b) {
+      if (busy) return;
+      busy = true; if (b) b.disabled = true;
+      list.reduce(function (p, f) { return p.then(function () { return confirmNow(ctx, f); }); }, Promise.resolve()).then(function () {
+        CG.toast('Confirmed ' + n + ' findings.', 'good'); refresh();
+      }, function (e) { busy = false; if (b) b.disabled = false; CG.fail(e); refresh(); });
+    }
+    var button = twoStep('Confirm all ' + n + ' findings', 'Click again to confirm all ' + n, run);
+    // keyboard: press c, then c again within five seconds (a single stray key does nothing)
+    hotkey('c', function () {
+      var now = Date.now();
+      if (now - armedAt < 5000) { armedAt = 0; run(button); return; }
+      armedAt = now;
+      CG.toast('Press c again within 5 seconds to confirm all ' + n + ' findings.', 'warn');
+    });
+    return h('div', { class: 'row' }, button,
+      h('span', { class: 'muted small', text: 'Use this only when every finding below is right. It records one confirm per finding. Keyboard: press c twice.' }));
+  }
+
   // ---- one claim ------------------------------------------------------------------------------------------------------
   function claimSummary(c) {
     var cov = c.coverage || {};
@@ -51,7 +114,7 @@
       boxes.push(box);
       return box;
     }));
-    function sync() { send.disabled = busy || !chosen || !reason.value.trim(); }
+    function sync() { send.disabled = busy || !chosen || (chosen !== 'confirm_issue' && !reason.value.trim()); }
     reason.addEventListener('input', sync);
     send.addEventListener('click', function () {
       busy = true; sync();
@@ -59,7 +122,16 @@
         CG.toast('Decision recorded for ' + finding.rule_id + '.', 'good'); refresh();
       }, function (e) { busy = false; sync(); CG.fail(e); });
     });
-    return h('div', { class: 'stack' }, h('h3', { text: 'Your decision' }), choices, h('div', { class: 'field' }, h('label', { text: 'Reason (kept in the audit log)' }), reason), send);
+    var quick = canConfirm(finding) ? h('div', { class: 'row' },
+      h('button', { class: 'btn primary', type: 'button', text: 'Confirm the issue', onclick: function () {
+        if (busy) return;
+        busy = true; sync();
+        confirmNow(ctx, finding).then(function () { CG.toast('Confirmed ' + finding.rule_id + '.', 'good'); refresh(); }, function (e) { busy = false; sync(); CG.fail(e); });
+      } }),
+      h('span', { class: 'muted small', text: 'One click when the finding is right. No reason needed.' })) : null;
+    return h('div', { class: 'stack' }, h('h3', { text: 'Your decision' }), quick,
+      h('p', { class: 'muted small', text: quick ? 'Or choose another action (a reason is needed to dismiss).' : 'Choose an action.' }), choices,
+      h('div', { class: 'field' }, h('label', { text: 'Reason (kept in the audit log; optional when you confirm)' }), reason), send);
   }
 
   function findingCard(f, ctx, refresh) {
@@ -85,18 +157,37 @@
     return card;
   }
 
+  var RULE_CHOICES = ['R001', 'R002', 'R003', 'R004', 'R005', 'R006', 'R007', 'R008', 'R009', 'R010', 'R011', 'R012', 'R013', 'R014', 'R015'];
+
   function greenActions(view, ctx, refresh) {
+    var category = null, note = null;
     function send(action) {
-      CG.api('POST', '/work/claims/' + encodeURIComponent(ctx.id) + '/verify', { action: action }).then(function () {
-        CG.toast(action === 'verify_clear' ? 'Marked clear.' : 'Sent to a senior reviewer.', 'good'); refresh();
+      var body = { action: action };
+      if (action === 'escalate' && view.in_batch) {
+        if (!category.value) { CG.toast('Choose the rule that should have flagged this claim, or Other.', 'warn'); return; }
+        body.category = category.value;
+        if (note.value.trim()) body.note = note.value.trim();
+      }
+      CG.api('POST', '/work/claims/' + encodeURIComponent(ctx.id) + '/verify', body).then(function () {
+        CG.toast(action === 'verify_clear' ? 'Marked pre-validation clear (not a payer approval).' : (view.in_batch ? 'Flagged. The whole batch is held until an administrator decides.' : 'Sent to a senior reviewer.'), 'good'); refresh();
       }, CG.fail);
+    }
+    var flagBox = null;
+    if (view.in_batch) {
+      category = h('select', { 'aria-label': 'Which rule should have flagged this claim' }, h('option', { value: '', text: 'Which rule should have flagged it?' }),
+        RULE_CHOICES.map(function (r) { return h('option', { value: r, text: r }); }), h('option', { value: 'other', text: 'Other / none of them' }));
+      note = h('input', { type: 'text', maxlength: '200', placeholder: 'Optional note (no patient identifiers)' });
+      flagBox = h('div', { class: 'stack' },
+        h('div', { class: 'notice warn', text: 'This claim was picked at random to check how the system cleared its batch. If you find something the engine missed, flag it: the whole batch is held at once and an administrator decides what happens to it.' }),
+        h('div', { class: 'row' }, category, note));
     }
     return h('div', { class: 'card flag-pass stack' },
       h('h2', { text: 'No rule flagged this claim' }),
-      h('p', { text: 'All findings passed. A person still looks at every claim: confirm it is clear, or send it up if something looks wrong to you.' }),
+      h('p', { text: 'All checks completed with no finding. This is a pre-validation clearance only: it is not payer approval and promises no payment. A person still looks at every claim: confirm it, or send it up if something looks wrong to you.' }),
+      flagBox,
       h('div', { class: 'row' },
-        h('button', { class: 'btn primary', type: 'button', text: 'Verify: this claim is clear', onclick: function () { send('verify_clear'); } }),
-        h('button', { class: 'btn', type: 'button', text: 'Escalate to a senior', onclick: function () { send('escalate'); } })));
+        h('button', { class: 'btn primary', type: 'button', text: 'Verify: pre-validation clear', onclick: function () { send('verify_clear'); } }),
+        h('button', { class: 'btn', type: 'button', text: view.in_batch ? 'Flag: the engine missed something' : 'Escalate to a senior', onclick: function () { send('escalate'); } })));
   }
 
   function unmaskBox(ctx, redraw) {
@@ -117,7 +208,11 @@
     var flagged = view.findings.filter(function (f) { return f.status === 'FAIL' || f.status === 'UNABLE_TO_ASSESS'; });
     function refresh() {
       ctx.reload().then(function (v) {
-        if (!v) { CG.toast('This claim is finished and has left your inbox.', 'good'); location.hash = back; return; }
+        if (!v) {
+          CG.toast(ctx.mode === 'work' ? 'Claim finished. Opening the next one.' : 'This claim is finished and has left your inbox.', 'good');
+          if (ctx.mode === 'work') goNext(back); else location.hash = back;
+          return;
+        }
         CG.renderClaim(root, v, ctx);
       }, function (e) { CG.fail(e); });
     }
@@ -139,10 +234,23 @@
       root.appendChild(unmaskBox(ctx, function (v) { CG.renderClaim(root, v, ctx); }));
     }
 
+    if (view.corrected_from) {
+      var cf = view.corrected_from;
+      root.appendChild(h('div', { class: 'notice info' }, h('b', { text: 'Corrected version. ' }), 'Version ' + cf.version + ' was corrected by ' + cf.by + ': ' +
+        (cf.changes || []).map(function (c) { return c.path + ' ' + CG.fmtValue(c.from) + ' to ' + CG.fmtValue(c.to); }).join('; ') + '. Reason: ' + cf.reason));
+    }
+    var fix = null;
+    if (ctx.mode === 'work' && view.can_correct && CG.fixPanel) fix = CG.fixPanel(view, ctx, refresh);
+    if (ctx.mode === 'work' && view.copilot && CG.copilotPanel) root.appendChild(CG.copilotPanel(view.copilot, fix ? fix.tryEdits : null));
+    if (ctx.mode === 'work' && view.info_request && CG.infoRequestCard) root.appendChild(CG.infoRequestCard(view, ctx, refresh));
     root.appendChild(claimSummary(view.claim));
+    if (fix) root.appendChild(fix);
     if (ctx.mode === 'work' && view.allowed_actions && view.allowed_actions.indexOf('verify_clear') >= 0) root.appendChild(greenActions(view, ctx, refresh));
 
     root.appendChild(h('h2', { text: flagged.length ? flagged.length + ' flagged finding' + (flagged.length > 1 ? 's' : '') : 'Findings', style: null }));
+    var confirmable = flagged.filter(canConfirm);
+    if (hotkeyOff) hotkeyOff();
+    if (ctx.mode === 'work' && confirmable.length > 1) root.appendChild(confirmAll(confirmable, ctx, refresh));
     flagged.forEach(function (f) { root.appendChild(findingCard(f, ctx, refresh)); });
     var passed = view.findings.filter(function (f) { return flagged.indexOf(f) < 0; });
     if (passed.length) {
@@ -165,12 +273,83 @@
     return { id: v.claim_id, lane: v.lane, score: v.score, flagged: flagged, open: open, left: v.leased_until, stage: v.signoff_stage, v: v };
   }
 
+  // The open findings of the inbox grouped by rule: same kind of finding side by side is faster to read than claim by claim.
+  function ruleGroups(items) {
+    var groups = {};
+    items.forEach(function (v) {
+      v.findings.forEach(function (f) {
+        if (canConfirm(f)) (groups[f.rule_id] = groups[f.rule_id] || []).push({ id: v.claim_id, f: f });
+      });
+    });
+    return groups;
+  }
+
+  function firstEvidence(f) {
+    var e = f.evidence && f.evidence[0];
+    return e ? e.path + ' = ' + CG.fmtValue(e.value) : '';
+  }
+
+  function ruleCard(rule, rows, light, reload) {
+    var ctxFor = function (id) { return { decisionPath: function (r) { return '/work/claims/' + encodeURIComponent(id) + '/findings/' + encodeURIComponent(r) + '/decision'; } }; };
+    var looked = false, bulk = null;
+    var table = CG.table([
+      { label: 'Claim', get: function (r) { return h('a', { href: '#/work/' + encodeURIComponent(r.id), class: 'mono', text: r.id }); } },
+      { label: 'Severity', get: function (r) { return CG.chip(r.f.severity); } },
+      { label: 'Status', get: function (r) { return CG.chip(r.f.status); } },
+      { label: 'Lines', get: function (r) { return (r.f.affected_line_ids || []).join(', '); } },
+      { label: 'What the engine saw', get: function (r) { return firstEvidence(r.f); } },
+      { label: '', get: function (r) { return h('button', { class: 'btn small', type: 'button', text: 'Confirm', onclick: function () {
+        confirmNow(ctxFor(r.id), r.f).then(function () { CG.toast('Confirmed ' + rule + ' on ' + r.id + '.', 'good'); reload(); }, CG.fail);
+      } }); } }
+    ], rows);
+    var body = h('div', { class: 'stack' }, table);
+    var head = h('div', { class: 'row between' },
+      h('div', { class: 'row' }, h('b', { class: 'mono', text: rule }), h('span', { class: 'muted', text: rows.length + ' open finding' + (rows.length > 1 ? 's' : '') }),
+        light ? CG.chip('Light review', 'green') : null));
+    if (light) {
+      bulk = twoStep('Confirm all ' + rows.length + ' after a light look', 'Click again to confirm all ' + rows.length, function (b) {
+        if (!looked) { CG.toast('Open the list and look at the findings first.', 'warn'); return; }
+        b.disabled = true;
+        var ids = rows.map(function (r) { return r.id; }), chunks = [];
+        while (ids.length) chunks.push(ids.splice(0, 25));
+        var done = { confirmed: 0, full: 0, refused: 0 };
+        chunks.reduce(function (p, c) {
+          return p.then(function () { return CG.api('POST', '/work/bulk-confirm', { rule_id: rule, claim_ids: c }).then(function (d) {
+            done.confirmed += d.confirmed; done.full += d.left_for_full_review; done.refused += d.refused;
+          }); });
+        }, Promise.resolve()).then(function () {
+          CG.toast('Confirmed ' + done.confirmed + '. ' + done.full + ' left for you to review fully (a random check). ' + done.refused + ' refused.', done.refused ? 'warn' : 'good'); reload();
+        }, function (e) { b.disabled = false; CG.fail(e); reload(); });
+      });
+      head.appendChild(bulk);
+    }
+    var details = h('details', null, h('summary', { text: light ? 'Look at these findings (needed before bulk confirm)' : 'Show the findings' }), body);
+    details.addEventListener('toggle', function () { if (details.open) looked = true; });
+    return h('div', { class: 'card' }, head,
+      light ? h('p', { class: 'muted small', text: 'Reviewers have upheld almost every finding of this rule. A random few are still sent to you for a full review, so the check never stops.' }) : null,
+      details);
+  }
+
   CG.views = CG.views || {};
   CG.views.inbox = function (root) {
     var list = h('div'), status = h('p', { class: 'muted' });
+    var mode = CG.state.inboxMode || 'claim', light = [], lastSig = '';
+    // The page refreshes itself every 20 seconds and on server pushes. In the by-rule view a redraw would close the list the person has open and
+    // forget that they looked at it, so it redraws only when something that matters changed.
+    function signature(d) {
+      return JSON.stringify([d.light_review || [], d.claims.map(function (v) {
+        return [v.claim_id, v.version, v.signoff_stage, v.findings.map(function (f) { return [f.rule_id, f.review_state, !!(f.allowed_actions && f.allowed_actions.length)]; })];
+      })]);
+    }
+    function drawByRule(items) {
+      var groups = ruleGroups(items), rules = Object.keys(groups).sort();
+      if (!rules.length) { list.appendChild(h('div', { class: 'card' }, h('p', { text: 'No open findings to confirm in your inbox.' }))); return; }
+      rules.forEach(function (rule) { list.appendChild(ruleCard(rule, groups[rule], light.indexOf(rule) >= 0, load)); });
+    }
     function draw(items) {
       CG.state.inbox = items;
       CG.clear(list);
+      if (mode === 'rule' && items.length) { drawByRule(items); return; }
       if (!items.length) {
         list.appendChild(h('div', { class: 'card' }, h('p', { text: 'Your inbox is empty.' }), h('p', { class: 'muted', text: 'The dispatcher keeps it topped up while you are on shift. Press "Take next claim" to ask for one now.' })));
         return;
@@ -186,7 +365,14 @@
       ], items.map(inboxRow), { onRow: function (r) { location.hash = '#/work/' + encodeURIComponent(r.id); } }));
     }
     function load() {
-      return CG.api('GET', '/work/inbox').then(function (d) { draw(d.claims); status.textContent = d.claims.length + ' claim' + (d.claims.length === 1 ? '' : 's') + ' waiting for you.'; }, CG.fail);
+      return CG.api('GET', '/work/inbox').then(function (d) {
+        light = d.light_review || [];
+        status.textContent = d.claims.length + ' claim' + (d.claims.length === 1 ? '' : 's') + ' waiting for you.';
+        var sig = signature(d);
+        if (mode === 'rule' && sig === lastSig && list.firstChild) { CG.state.inbox = d.claims; return; }
+        lastSig = sig;
+        draw(d.claims);
+      }, CG.fail);
     }
     var take = h('button', { class: 'btn primary', type: 'button', text: 'Take next claim', onclick: function () {
       CG.api('POST', '/work/next').then(function (d) {
@@ -194,7 +380,13 @@
         location.hash = '#/work/' + encodeURIComponent(d.claim.claim_id);
       }, CG.fail);
     } });
-    root.appendChild(h('div', { class: 'row between' }, h('h1', { text: 'My inbox' }), take));
+    var byClaim = h('button', { class: 'btn small', type: 'button', text: 'By claim' }), byRule = h('button', { class: 'btn small', type: 'button', text: 'By rule' });
+    function paint() { byClaim.className = 'btn small' + (mode === 'claim' ? ' primary' : ''); byRule.className = 'btn small' + (mode === 'rule' ? ' primary' : ''); }
+    function pick(m) { mode = m; CG.state.inboxMode = m; lastSig = signature({ claims: CG.state.inbox || [], light_review: light }); paint(); draw(CG.state.inbox || []); }
+    byClaim.addEventListener('click', function () { pick('claim'); });
+    byRule.addEventListener('click', function () { pick('rule'); });
+    paint();
+    root.appendChild(h('div', { class: 'row between' }, h('h1', { text: 'My inbox' }), h('div', { class: 'row' }, byClaim, byRule, take)));
     root.appendChild(status); root.appendChild(list);
     load();
     CG.every(20000, load);
@@ -206,6 +398,7 @@
     var ctx = {
       id: id, mode: 'work',
       decisionPath: function (rule) { return '/work/claims/' + encodeURIComponent(id) + '/findings/' + encodeURIComponent(rule) + '/decision'; },
+      fixPath: function (what) { return '/work/claims/' + encodeURIComponent(id) + '/' + what; },
       reload: function () { return CG.api('GET', '/work/inbox').then(function (d) { return d.claims.filter(function (c) { return c.claim_id === id; })[0] || null; }); }
     };
     root.appendChild(h('p', { class: 'muted', text: 'Loading claim...' }));

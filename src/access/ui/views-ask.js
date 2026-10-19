@@ -1,4 +1,5 @@
-/* ClaimGuard console: ask the rulebook. A question is matched against the text of the fifteen rules and the payer policies in force; the answer is the quoted
+/* ClaimGuard console: ask the rulebook. A question is matched against the text of the fifteen rules and the payer policies in force, by meaning when the
+ * search service is running and by keywords otherwise; the answer is the quoted
  * passage and where it comes from. Nothing is generated, so nothing is invented, and a question the documents cannot answer is refused. It never reads a claim.
  * Text from the server is untrusted and goes on the page as text only. */
 (function () {
@@ -15,6 +16,8 @@
       CG.clear(out);
       CG.api('GET', '/knowledge/search?q=' + encodeURIComponent(text)).then(function (r) {
         out.appendChild(h('div', { class: r.answered ? 'notice info' : 'notice warn', text: r.note + (r.answered ? ' Policy table version ' + r.table_version + '.' : '') }));
+        if (r.fallback) out.appendChild(h('div', { class: 'notice warn', text: r.fallback }));
+        if (r.answered && r.caveat) out.appendChild(h('div', { class: 'small', text: 'Search by meaning: ' + r.caveat + '.' }));
         r.results.forEach(function (x) {
           out.appendChild(h('div', { class: 'card stack' }, h('div', { class: 'row' }, h('b', { text: x.source }), h('span', { class: 'small', text: x.kind })), h('p', { text: x.text })));
         });

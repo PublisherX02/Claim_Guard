@@ -1,0 +1,624 @@
+{
+ "note": "Written by the assistant (not by real operators) BEFORE any dense or Laya retriever was run; frozen. English questions avoid the manual's wording on purpose. French/Arabic drafted by the assistant, not reviewed by a native speaker. A hit means a top-3 source is in `want`. Thresholds are chosen on split=dev only; the report quotes split=test.",
+ "answerable": [
+  {
+   "id": "P01",
+   "q": "the form came in with blank fields",
+   "want": [
+    "rule R001"
+   ],
+   "lang": "en",
+   "split": "dev"
+  },
+  {
+   "id": "P02",
+   "q": "patient details were left empty on the submission",
+   "want": [
+    "rule R001"
+   ],
+   "lang": "en",
+   "split": "test"
+  },
+  {
+   "id": "P03",
+   "q": "an essential piece of the bill is absent",
+   "want": [
+    "rule R001"
+   ],
+   "lang": "en",
+   "split": "dev"
+  },
+  {
+   "id": "P04",
+   "q": "treatment is dated later than the day the paperwork was sent",
+   "want": [
+    "rule R002"
+   ],
+   "lang": "en",
+   "split": "test"
+  },
+  {
+   "id": "P05",
+   "q": "the visit happened after we received the bill, how is that possible",
+   "want": [
+    "rule R002"
+   ],
+   "lang": "en",
+   "split": "dev"
+  },
+  {
+   "id": "P06",
+   "q": "was the patient insured on the day of the visit",
+   "want": [
+    "rule R003"
+   ],
+   "lang": "en",
+   "split": "test"
+  },
+  {
+   "id": "P07",
+   "q": "the insurance policy had expired by the time of treatment",
+   "want": [
+    "rule R003"
+   ],
+   "lang": "en",
+   "split": "dev"
+  },
+  {
+   "id": "P08",
+   "q": "member's plan was not in force when they were seen",
+   "want": [
+    "rule R003"
+   ],
+   "lang": "en",
+   "split": "test"
+  },
+  {
+   "id": "P09",
+   "q": "the person treated is not the person on the insurance card",
+   "want": [
+    "rule R004"
+   ],
+   "lang": "en",
+   "split": "dev"
+  },
+  {
+   "id": "P10",
+   "q": "the ID on the bill and the ID on the policy differ by one letter",
+   "want": [
+    "rule R004"
+   ],
+   "lang": "en",
+   "split": "test"
+  },
+  {
+   "id": "P11",
+   "q": "claim filed under a different member than the policyholder",
+   "want": [
+    "rule R004"
+   ],
+   "lang": "en",
+   "split": "dev"
+  },
+  {
+   "id": "P12",
+   "q": "the clinic is outside the insurer's list",
+   "want": [
+    "rule R005",
+    "policy EDU-BASIC (table version 0)",
+    "policy EDU-PLUS (table version 0)"
+   ],
+   "lang": "en",
+   "split": "test"
+  },
+  {
+   "id": "P13",
+   "q": "can we bill from a hospital the payer doesn't contract with",
+   "want": [
+    "rule R005",
+    "policy EDU-BASIC (table version 0)",
+    "policy EDU-PLUS (table version 0)"
+   ],
+   "lang": "en",
+   "split": "dev"
+  },
+  {
+   "id": "P14",
+   "q": "the same procedure appears twice for one visit",
+   "want": [
+    "rule R006"
+   ],
+   "lang": "en",
+   "split": "test"
+  },
+  {
+   "id": "P15",
+   "q": "someone entered the same service two times",
+   "want": [
+    "rule R006"
+   ],
+   "lang": "en",
+   "split": "dev"
+  },
+  {
+   "id": "P16",
+   "q": "is a repeated entry always a mistake",
+   "want": [
+    "rule R006"
+   ],
+   "lang": "en",
+   "split": "test"
+  },
+  {
+   "id": "P17",
+   "q": "the price per item times the count gives a different figure than the row total",
+   "want": [
+    "rule R007"
+   ],
+   "lang": "en",
+   "split": "dev"
+  },
+  {
+   "id": "P18",
+   "q": "the multiplication on one row is wrong",
+   "want": [
+    "rule R007"
+   ],
+   "lang": "en",
+   "split": "test"
+  },
+  {
+   "id": "P19",
+   "q": "is a one cent difference acceptable",
+   "want": [
+    "rule R007",
+    "rule R012"
+   ],
+   "lang": "en",
+   "split": "dev"
+  },
+  {
+   "id": "P20",
+   "q": "which treatments cannot be billed without pre-approval",
+   "want": [
+    "rule R008",
+    "policy EDU-BASIC (table version 0)",
+    "policy EDU-PLUS (table version 0)"
+   ],
+   "lang": "en",
+   "split": "test"
+  },
+  {
+   "id": "P21",
+   "q": "the pre-approval number is blank on an imaging bill",
+   "want": [
+    "rule R008"
+   ],
+   "lang": "en",
+   "split": "dev"
+  },
+  {
+   "id": "P22",
+   "q": "the pre-approval was granted to someone else",
+   "want": [
+    "rule R009"
+   ],
+   "lang": "en",
+   "split": "test"
+  },
+  {
+   "id": "P23",
+   "q": "the approval has lapsed",
+   "want": [
+    "rule R009"
+   ],
+   "lang": "en",
+   "split": "dev"
+  },
+  {
+   "id": "P24",
+   "q": "more sessions were billed than the approval allowed",
+   "want": [
+    "rule R009"
+   ],
+   "lang": "en",
+   "split": "test"
+  },
+  {
+   "id": "P25",
+   "q": "the scan report was not attached",
+   "want": [
+    "rule R010",
+    "policy EDU-BASIC (table version 0)",
+    "policy EDU-PLUS (table version 0)"
+   ],
+   "lang": "en",
+   "split": "dev"
+  },
+  {
+   "id": "P26",
+   "q": "which paperwork must accompany a dental procedure",
+   "want": [
+    "rule R010",
+    "policy EDU-BASIC (table version 0)",
+    "policy EDU-PLUS (table version 0)"
+   ],
+   "lang": "en",
+   "split": "test"
+  },
+  {
+   "id": "P27",
+   "q": "only a preliminary version of the note was uploaded",
+   "want": [
+    "rule R010"
+   ],
+   "lang": "en",
+   "split": "dev"
+  },
+  {
+   "id": "P28",
+   "q": "the treatment code isn't one we recognise",
+   "want": [
+    "rule R011"
+   ],
+   "lang": "en",
+   "split": "test"
+  },
+  {
+   "id": "P29",
+   "q": "typo in the procedure identifier",
+   "want": [
+    "rule R011"
+   ],
+   "lang": "en",
+   "split": "dev"
+  },
+  {
+   "id": "P30",
+   "q": "the grand total at the bottom doesn't add up",
+   "want": [
+    "rule R012"
+   ],
+   "lang": "en",
+   "split": "test"
+  },
+  {
+   "id": "P31",
+   "q": "the sum of all rows is not what the header says",
+   "want": [
+    "rule R012"
+   ],
+   "lang": "en",
+   "split": "dev"
+  },
+  {
+   "id": "P32",
+   "q": "they charged more than the permitted rate for a blood test",
+   "want": [
+    "rule R013",
+    "policy EDU-BASIC (table version 0)",
+    "policy EDU-PLUS (table version 0)"
+   ],
+   "lang": "en",
+   "split": "test"
+  },
+  {
+   "id": "P33",
+   "q": "maximum number of sessions per row for physiotherapy",
+   "want": [
+    "rule R013",
+    "policy EDU-BASIC (table version 0)",
+    "policy EDU-PLUS (table version 0)"
+   ],
+   "lang": "en",
+   "split": "dev"
+  },
+  {
+   "id": "P34",
+   "q": "a negative number of units was billed",
+   "want": [
+    "rule R013"
+   ],
+   "lang": "en",
+   "split": "test"
+  },
+  {
+   "id": "P35",
+   "q": "what is the cap on a consultation fee",
+   "want": [
+    "rule R013",
+    "policy EDU-BASIC (table version 0)",
+    "policy EDU-PLUS (table version 0)"
+   ],
+   "lang": "en",
+   "split": "dev"
+  },
+  {
+   "id": "P36",
+   "q": "the bill arrived too late",
+   "want": [
+    "rule R014"
+   ],
+   "lang": "en",
+   "split": "test"
+  },
+  {
+   "id": "P37",
+   "q": "how long do providers have to send in their invoice",
+   "want": [
+    "rule R014",
+    "policy EDU-BASIC (table version 0)",
+    "policy EDU-PLUS (table version 0)"
+   ],
+   "lang": "en",
+   "split": "dev"
+  },
+  {
+   "id": "P38",
+   "q": "the invoice was sent two months after the treatment",
+   "want": [
+    "rule R014",
+    "policy EDU-BASIC (table version 0)",
+    "policy EDU-PLUS (table version 0)"
+   ],
+   "lang": "en",
+   "split": "test"
+  },
+  {
+   "id": "P39",
+   "q": "the invoice is in dollars",
+   "want": [
+    "rule R015"
+   ],
+   "lang": "en",
+   "split": "dev"
+  },
+  {
+   "id": "P40",
+   "q": "which money unit is accepted",
+   "want": [
+    "rule R015",
+    "policy EDU-BASIC (table version 0)",
+    "policy EDU-PLUS (table version 0)"
+   ],
+   "lang": "en",
+   "split": "test"
+  },
+  {
+   "id": "P41",
+   "q": "which clinics can EDU-PLUS members use",
+   "want": [
+    "policy EDU-PLUS (table version 0)",
+    "rule R005"
+   ],
+   "lang": "en",
+   "split": "dev"
+  },
+  {
+   "id": "P42",
+   "q": "what is the most we pay for an x-ray under the basic plan",
+   "want": [
+    "policy EDU-BASIC (table version 0)",
+    "rule R013"
+   ],
+   "lang": "en",
+   "split": "test"
+  },
+  {
+   "id": "FR01",
+   "q": "la facture est en dollars",
+   "want": [
+    "rule R015"
+   ],
+   "lang": "fr",
+   "split": "dev"
+  },
+  {
+   "id": "FR02",
+   "q": "le patient n'était pas assuré le jour de la consultation",
+   "want": [
+    "rule R003"
+   ],
+   "lang": "fr",
+   "split": "test"
+  },
+  {
+   "id": "FR03",
+   "q": "la même prestation est saisie deux fois",
+   "want": [
+    "rule R006"
+   ],
+   "lang": "fr",
+   "split": "dev"
+  },
+  {
+   "id": "FR04",
+   "q": "le total général ne correspond pas à la somme des lignes",
+   "want": [
+    "rule R012"
+   ],
+   "lang": "fr",
+   "split": "test"
+  },
+  {
+   "id": "FR05",
+   "q": "l'accord préalable est expiré",
+   "want": [
+    "rule R009"
+   ],
+   "lang": "fr",
+   "split": "dev"
+  },
+  {
+   "id": "FR06",
+   "q": "quel est le délai pour envoyer la facture",
+   "want": [
+    "rule R014",
+    "policy EDU-BASIC (table version 0)",
+    "policy EDU-PLUS (table version 0)"
+   ],
+   "lang": "fr",
+   "split": "test"
+  },
+  {
+   "id": "AR01",
+   "q": "الفاتورة بالدولار",
+   "want": [
+    "rule R015"
+   ],
+   "lang": "ar",
+   "split": "dev"
+  },
+  {
+   "id": "AR02",
+   "q": "المريض لم يكن مؤمنا عليه يوم الزيارة",
+   "want": [
+    "rule R003"
+   ],
+   "lang": "ar",
+   "split": "test"
+  },
+  {
+   "id": "AR03",
+   "q": "تم إدخال نفس الخدمة مرتين",
+   "want": [
+    "rule R006"
+   ],
+   "lang": "ar",
+   "split": "dev"
+  },
+  {
+   "id": "AR04",
+   "q": "المجموع النهائي لا يطابق مجموع البنود",
+   "want": [
+    "rule R012"
+   ],
+   "lang": "ar",
+   "split": "test"
+  },
+  {
+   "id": "AR05",
+   "q": "الموافقة المسبقة منتهية",
+   "want": [
+    "rule R009"
+   ],
+   "lang": "ar",
+   "split": "dev"
+  },
+  {
+   "id": "AR06",
+   "q": "ما هي المدة المسموحة لإرسال الفاتورة",
+   "want": [
+    "rule R014",
+    "policy EDU-BASIC (table version 0)",
+    "policy EDU-PLUS (table version 0)"
+   ],
+   "lang": "ar",
+   "split": "test"
+  }
+ ],
+ "off_topic": [
+  {
+   "id": "O01",
+   "q": "what is the weather today",
+   "kind": "pure",
+   "split": "dev"
+  },
+  {
+   "id": "O02",
+   "q": "who won the football match",
+   "kind": "pure",
+   "split": "test"
+  },
+  {
+   "id": "O03",
+   "q": "recommend a treatment for diabetes",
+   "kind": "pure",
+   "split": "dev"
+  },
+  {
+   "id": "O04",
+   "q": "write me a poem",
+   "kind": "pure",
+   "split": "test"
+  },
+  {
+   "id": "O05",
+   "q": "",
+   "kind": "pure",
+   "split": "dev"
+  },
+  {
+   "id": "O06",
+   "q": "how tall is mount everest",
+   "kind": "pure",
+   "split": "test"
+  },
+  {
+   "id": "O07",
+   "q": "what is the capital of Tunisia",
+   "kind": "pure",
+   "split": "dev"
+  },
+  {
+   "id": "O08",
+   "q": "tell me a joke",
+   "kind": "pure",
+   "split": "test"
+  },
+  {
+   "id": "O09",
+   "q": "translate good morning into spanish",
+   "kind": "pure",
+   "split": "dev"
+  },
+  {
+   "id": "O10",
+   "q": "how do I appeal a rejected claim",
+   "kind": "near-domain",
+   "split": "test"
+  },
+  {
+   "id": "O11",
+   "q": "what is the phone number of the insurer",
+   "kind": "near-domain",
+   "split": "dev"
+  },
+  {
+   "id": "O12",
+   "q": "is this surgery medically necessary",
+   "kind": "near-domain",
+   "split": "test"
+  },
+  {
+   "id": "O13",
+   "q": "how much will the insurer reimburse for this visit",
+   "kind": "near-domain",
+   "split": "dev"
+  },
+  {
+   "id": "O14",
+   "q": "which diagnosis code should I use for a broken arm",
+   "kind": "near-domain",
+   "split": "test"
+  },
+  {
+   "id": "O15",
+   "q": "what is the fraud detection threshold",
+   "kind": "near-domain",
+   "split": "dev"
+  },
+  {
+   "id": "O16",
+   "q": "can the patient be charged the difference",
+   "kind": "near-domain",
+   "split": "test"
+  },
+  {
+   "id": "O17",
+   "q": "who is the medical director",
+   "kind": "near-domain",
+   "split": "dev"
+  }
+ ]
+}

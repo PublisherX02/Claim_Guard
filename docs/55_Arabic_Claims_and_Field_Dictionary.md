@@ -1,0 +1,104 @@
+# 55 | Claims in Arabic, a field dictionary, and the second look at "Ask the rulebook"
+
+Written 2026-10-18. Two jobs: (1) the system accepts a claim written in English **or** Arabic and knows what every field means; (2) rebuild the rulebook search after docs/52 admitted its regressions.
+
+**Read this first (updated 2026-10-19).** Section 5 supersedes the model choice of section 3: after the large models could be run, the shipped search is now bge-m3 with Arabic/French phrases and out-of-scope topics. All Arabic in this work (field names, enumerated values, month names, the Arabic test questions) was written by the assistant. **No native Arabic speaker has reviewed it.** A wrong entry can produce a refusal or a field mapped to the wrong English name; it cannot silently change a claim's amounts or identifiers (see the rules below). The question sets were also written by the assistant, not by adjusters. The bigger embedding models and rerankers named in the plan (multilingual-e5-base, bge-m3, bge-reranker-v2-m3) **were not evaluated**: see section 4 for what happened to the downloads. So "the best model" below means "the best of the two that could be run".
+
+## 1. Arabic claims (`cg_core::localize`, `data/field_glossary.json`)
+
+A claim is read into the one canonical claim (English keys and values, docs/03) before the transport contract and the rules see it.
+
+- **Converted, and every change recorded** (path, kind, written, became; the original claim is kept with the claim as `localization`): Arabic field names to canonical keys, per scope (claim, coverage, line, authorization, attachment); Arabic enumerated values (coverage and authorization status, document status, attachment type, currency, service names such as "فحص مختبري" to `SVC-LAB`); Arabic-Indic and Persian digits; `٫` as decimal mark and `٬` as thousands mark; year-first dates in any digit system; Gregorian month names (Levant and Gulf variants).
+- **Refused with the field and the reason, never guessed:** Hijri dates and years; day-first or ambiguous orders (`03/04/2026`); unknown Arabic field names or values; two entries for one field; the Arabic comma `،` in a number; any Arabic letter, non-ASCII digit or invisible/bidirectional character **inside an identifier** (identifiers are matched exactly by the rules, so `PAT-٠٠٧` is never turned into `PAT-007`).
+- **Untouched:** free text (`notes`, attachment `text`) may be Arabic and is neither changed nor read for meaning.
+- **English input is byte-identical.** A claim without Arabic or invisible characters returns the same value with no changes (tested).
+- Hooked in at: single and batch intake (`cg-queue/flow.rs`), file ingest (`cg-ingest`), the import-validate route (returns the converted claim and the changes), and CSV headers in Arabic.
+
+Tests: 16 unit tests in `localize.rs`; `cg-queue/tests/arabic_twin.rs` rewrites every valid public claim (development + validation) in Arabic (first Arabic label of each field, first Arabic word of each value, Arabic-Indic digits) and requires the same canonical claim and the same fifteen results. It passes. Limits of that test: it uses one Arabic spelling per field; it was generated from the same glossary it tests, so it proves the converter is consistent with the table, not that the table is right Arabic.
+
+Over real HTTP (`rust/tools/arabic_e2e.py`, 8 of 8 pass, `outputs/defense/arabic_e2e.json`): the Arabic form of a clean public claim is accepted; sending the English form of the same claim afterwards is recognised as the same claim (`already_stored`, same lane); import-validate returns the canonical claim with 20+ recorded changes; a Hijri date, an Arabic digit in an identifier, an unknown Arabic field name and an ambiguous `٠٣/٠٤/٢٠٢٦` are each refused with the reason.
+
+Not done: the OCR reader's Arabic language data was not checked; the console does not yet set `dir="auto"` on free text; Hijri conversion is deliberately not offered.
+
+## 2. The field dictionary in "Ask the rulebook"
+
+45 new passages (kind `field`), one per claim field, from the glossary: meaning (English, from docs/03), type, and which rules read it. Answers stay quoted passages with a citation.
+
+- **Keyword mode** reads a field passage only when the question asks what a field is or means (otherwise the many shared words let the dictionary push the answering rule out of first place; with the dictionary ungated BM25 hit@1 fell from 88% to 65%, gated it is back to the original 88% / 92% hit@3).
+- **Arabic dictionary lookup** (`fields_named`): a question that names a field by one of its whole Arabic labels *and* asks what it is ("ما هو رقم الفاتورة") returns that field first, before and regardless of the embedding. Measured, because the embedding is weak here.
+
+## 3. The model comparison (`experiments/rag_v2/`, results in `results.json`)
+
+Corpus 156 passages. Questions: 180 (the 54 + 17 of docs/52, the original 26 + 5, and 82 new frozen ones: field questions in English and Arabic, rule questions in Arabic and French, 26 near-domain refusals, 8 Arabic/French pure off-topic). Thresholds are chosen on dev rows only (objective: half hit@3, half mean refusal of near-domain and off-topic); the tables are test rows. Intervals are 95% Wilson; with n of 6 to 48 they are wide.
+
+| test rows | minilm (current) | + lookup | e5-small | mmarco reranker gate |
+|---|---|---|---|---|
+| ranking hit@3, threshold-free (n=48) | 69% | **79%** | 65% | 75% |
+| AUROC answerable vs off-topic | 0.78 | **0.81** | 0.62 | 0.64 |
+| near-domain refused (n=18) | 72% | 72% | 28% (at its dev threshold) | 83% |
+| Arabic field questions hit@3 (n=6) | 17% | **100%** | 17% | 17% |
+| original 26: hit@3 at dev threshold | 88% | 88% | 85% | 81% |
+
+Reading it: the multilingual MiniLM that is already shipped is the best of the two models that could be run, mainly on refusal; e5-small ranks the first hit slightly better but cannot tell a rulebook question from a near-domain one. The cross-encoder gate refused more near-domain questions but ranked and answered fewer real ones. **Arabic rule questions remain weak** (hit@3 about 20% before lookup; the lookup helps only field questions). Putting the Arabic field names into the embedded text gave no gain, so it is switched off (`EMBED_ALIASES`).
+
+**Change shipped:** the refusal threshold moves from 0.29 to **0.415** (dev-optimal here; the 0.29 of docs/52 is what produced the 25% near-domain refusal the notes complained about); on the original 26 questions hit@3 stays at 88% at the new threshold. The dev half is only about 40 rows, so the threshold is a good estimate, not a precise one; the setting `EMBEDDER_THRESHOLD` remains.
+
+### Graphs (`experiments/rag_v2/plot.py`, from `results.json` and `per_row.json`)
+
+![ranking and AUROC](img/rag_v2/1_ranking_and_auroc.png)
+![hit and refusal at the dev threshold](img/rag_v2/2_hit_and_refusal_at_threshold.png)
+![score distributions](img/rag_v2/3_score_distributions.png)
+![threshold trade-off](img/rag_v2/4_threshold_tradeoff.png)
+
+## 4. What is not settled
+
+- **The larger candidates were not run, and the reason is the network, not the code.** The models were to be stored on the flash disk (`D:\hf_cache`, 85 GB free; set `HF_HOME=D:/hf_cache`). The three small ones (MiniLM, e5-small, the mmarco reranker) were copied there and are the ones measured. The large ones (e5-base 1.1 GB, bge-reranker-v2-m3 2.2 GB, bge-m3 2.3 GB) could not be fetched on 2026-10-18: measured speed from the Hugging Face CDN was 50 to 250 KB/s with read timeouts (2 to 14 hours for the three), and the bge-m3 file had received 0 bytes after seven minutes. Run them later with `HF_HOME=D:/hf_cache python experiments/rag_v2/run.py --models minilm_multi,e5_small,e5_base,bge_m3 --rerankers mmarco,bge_reranker && python experiments/rag_v2/plot.py`; the harness, prefixes (e5 `query:`/`passage:`) and graphs are ready and unchanged.
+- `rust/tools/rag_parity.py` (product against experiment) was **not** re-run and still describes the old 111-passage, 0.29 setup; it needs updating before it is used as a gate again.
+- The sidecar was not rebuilt and no browser check of an Arabic claim or question was done.
+- Arabic rule questions, and any Arabic wording outside the glossary, are not reliably understood.
+
+
+## 5. Round two (2026-10-19): bge-m3, Arabic/French phrases, out-of-scope topics
+
+The weights of bge-m3 reached the flash disk (`D:\hf_cache`, revision `5617a9f6…`); e5-base and bge-reranker-v2-m3 were downloaded later the same day (by resumable curl) and measured: see section 6. Two features were added and measured on a **new test set frozen first** (`questions_v3_test.json`: 20 answerable, 24 off-topic; the same author wrote the questions and the features, so wording can overlap, and nothing was reviewed by a native speaker):
+
+- **Phrases** (`cg-engine/data/rule_phrases.json`): two or three Arabic and two French ways of asking about each of the 15 rules, added to the rule's title passage for the embedding only. Never quoted.
+- **Out-of-scope topics** (14 decoy passages in the same file: appeals, copayment, premiums, covered benefits, contacts, fraud reporting, medical advice, payment timing, two insurers, provider registration, records and accounts, tax, data the claim does not hold, insurer internals): a question whose closest passage is one of these is refused, and the answer names the topic ("This looks like a question about ...").
+
+Thresholds were chosen on dev rows only. Test results (n = 20 answerable, 20 near-domain, 4 pure off-topic; 95% intervals are wide, about plus or minus 20 points):
+
+| system | threshold | answerable hit@3 | Arabic hit@3 (14) | French hit@3 (6) | near-domain refused | pure refused | AUROC |
+|---|---|---|---|---|---|---|---|
+| MiniLM (shipped before) | 0.415 | 40% | 50% | 17% | 65% | 100% | 0.82 |
+| MiniLM + phrases + topics | 0.295 | 50% | 57% | 33% | 70% | 100% | 0.84 |
+| bge-m3 | 0.480 | 75% | 64% | 100% | 45% | 100% | 0.88 |
+| bge-m3 + topics | 0.450 | 75% | 64% | 100% | 85% | 100% | 0.94 |
+| bge-m3 + phrases | 0.515 | 90% | 86% | 100% | 70% | 100% | 0.96 |
+| **bge-m3 + phrases + topics (shipped)** | **0.485** | **95%** | **93%** | **100%** | **85%** | **100%** | **0.98** |
+
+![round two](img/rag_v2/5_round2_models_and_features.png)
+![arabic and french](img/rag_v2/6_round2_arabic_french.png)
+
+Each part carries weight: the model alone fixes ranking, the phrases fix Arabic, the topics fix refusal. Dev-set objective rose from 0.67 (MiniLM) to 0.88.
+
+**Through the product** (`rust/tools/rag_product_check.py`, `outputs/defense/rag_product_check.json`; sidecar on a CPU in fp32, Rust cosine, real HTTP route): hit@3 0.95, hit@1 0.85, near-domain refused 0.85, pure refused 1.00: identical to the experiment's GPU numbers. Median 0.24 s per question. Memory: the sidecar resident size is about 2.1 GB, so the compose limit is 4 GB (it was 1 GB for MiniLM). The first question after a cold start waited up to 107 s in the test while the 190 passages were embedded on a CPU; the server now embeds them in the background at start-up (batches of 16, `EMBEDDER_TIMEOUT` 60 s), but on a CPU-only host the first minute after a restart can still fall back to keyword search (labelled as such).
+
+Shipped changes: sidecar default model `BAAI/bge-m3` (max 256 tokens; image about 2.3 GB; Dockerfile pins the revision), threshold 0.485, compose memory 4 GB, `EMBED_ALIASES` stays off for field passages. **The sidecar image was not rebuilt** (about 2.3 GB of weights; the disk and network did not allow it); the product check ran the same `service.py` directly. `rust/tools/rag_parity.py` is superseded by `rag_product_check.py` and describes the old system.
+
+Not settled: the 95% / 85% figures rest on 20 questions each; the decoys and phrases were written by the same author as the test; the Arabic wording is unreviewed; a CPU-only host needs about 2 GB more memory and a minute of warm-up than before.
+
+## 6. e5-base and the bge-reranker-v2-m3 (measured 2026-10-19)
+
+Same frozen v3 test (20 answerable, 20 near-domain, 4 pure off-topic), thresholds chosen on dev only, GPU fp16. Reproduce: `HF_HOME=D:/hf_cache python experiments/rag_v2/run_v3.py --models minilm_multi,e5_base,bge_m3 --rerankers bge_reranker`.
+
+| system | answerable hit@3 | Arabic | French | near-domain refused | pure refused | AUROC |
+|---|---|---|---|---|---|---|
+| MiniLM + phrases + decoys | 50% | 57% | 33% | 70% | 100% | 0.84 |
+| e5-base + phrases + decoys | 95% | 93% | 100% | 75% | 75% | 0.86 |
+| **bge-m3 + phrases + decoys (shipped)** | **95%** | **93%** | **100%** | **85%** | **100%** | **0.98** |
+| bge-m3 + phrases + decoys, then bge-reranker-v2-m3 on the top five | 40% | 43% | 33% | 85% | 100% | 0.91 |
+
+- **e5-base** ranks as well as bge-m3 once phrases and decoys are added, but without them it is poor (50%, AUROC 0.53) and it refuses worse (75% near-domain, only 75% of pure off-topic). bge-m3 stays.
+- **The reranker made things worse** (hit@3 95% to 40%). Probable cause, not tested: it scores the question against the passage text only, without the Arabic/French "also asked as" phrases that carry the match, so the right rule is demoted. A reranker given the aliased text, or fine-tuned, might differ; as measured it is **not** added.
+- Caveat: 20 questions per slice, author-written test, unreviewed Arabic; differences of a few questions are within the confidence intervals.
+

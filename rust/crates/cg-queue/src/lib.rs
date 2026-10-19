@@ -3,14 +3,17 @@
 //! different seniors, and every move is one append-only event.
 
 pub mod breaker;
+pub mod batch;
 pub mod broker;
 pub mod consumer;
 pub mod contract;
+pub mod copilot;
 pub mod dispatcher;
 pub mod explain;
 pub mod flow;
 pub mod guard;
 pub mod model;
+pub mod reliability;
 pub mod replay;
 pub mod shadow;
 pub mod routing_config;
@@ -18,3 +21,4 @@ pub mod service;
 pub mod states;
 pub mod store;
 pub mod triage;
+pub mod workload;

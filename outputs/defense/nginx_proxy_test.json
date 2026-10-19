@@ -1,0 +1,127 @@
+{
+ "image": "nginx:1.27-alpine",
+ "batch_1000_seconds_through_nginx": 21.1,
+ "batch_1000_bytes": 1445812,
+ "checks": [
+  {
+   "check": "the configuration is valid (nginx -t)",
+   "ok": true
+  },
+  {
+   "check": "A: the request reaches the application through nginx",
+   "ok": true
+  },
+  {
+   "check": "A: what the client wrote in X-Forwarded-For is thrown away (one address, nginx's own view)",
+   "ok": true
+  },
+  {
+   "check": "A: X-Real-IP is nginx's view too, not the client's",
+   "ok": true
+  },
+  {
+   "check": "A: the protocol the application is told is https, whatever the client wrote",
+   "ok": true
+  },
+  {
+   "check": "A: the Host header is passed on",
+   "ok": true
+  },
+  {
+   "check": "B: sign-in through nginx over TLS",
+   "ok": true
+  },
+  {
+   "check": "B: HSTS is sent",
+   "ok": true
+  },
+  {
+   "check": "B: the nginx version number is not shown",
+   "ok": true
+  },
+  {
+   "check": "B: port 80 redirects to https",
+   "ok": true
+  },
+  {
+   "check": "B: the console files are compressed for a client that accepts it",
+   "ok": true
+  },
+  {
+   "check": "B: 120 KB to an ordinary path is refused at the proxy with a JSON 413",
+   "ok": true
+  },
+  {
+   "check": "B: 50 KB to the same path gets through to the application (the application itself refuses over 64 KB)",
+   "ok": true
+  },
+  {
+   "check": "B: 5 MB to the submit path is refused (413)",
+   "ok": true
+  },
+  {
+   "check": "B: 18 MB to an import path is refused (413)",
+   "ok": true
+  },
+  {
+   "check": "B: 1 MB to an import path reaches the application",
+   "ok": true
+  },
+  {
+   "check": "B: a batch of 1,000 claims (1.4 MB) goes through nginx in one request (21.1 s)",
+   "ok": true
+  },
+  {
+   "check": "B: it is one batch with an exact 5% sample",
+   "ok": true
+  },
+  {
+   "check": "B: a reviewer signs in through nginx",
+   "ok": true
+  },
+  {
+   "check": "B: the stream opens as text/event-stream",
+   "ok": true
+  },
+  {
+   "check": "B: \"hello\" arrives within 2 s (nothing holds it back)",
+   "ok": true
+  },
+  {
+   "check": "B: the stream is not compressed even when the client asks",
+   "ok": true
+  },
+  {
+   "check": "B: an ordinary request is answered while the stream is open",
+   "ok": true
+  },
+  {
+   "check": "B: a client that stalls in the middle of its header is cut off after about 10 s (9.6 s)",
+   "ok": true
+  },
+  {
+   "check": "B: 40 ordinary requests in a row are all answered",
+   "ok": true
+  },
+  {
+   "check": "B: a flood of 400 requests is slowed with 429 (327 refused, 73 answered)",
+   "ok": true
+  },
+  {
+   "check": "B: and normal service resumes a few seconds later",
+   "ok": true
+  },
+  {
+   "check": "B: repeated sign-in attempts hit the sign-in limit (429) after a short burst",
+   "ok": true
+  },
+  {
+   "check": "B: the 429 is JSON with Retry-After",
+   "ok": true
+  },
+  {
+   "check": "B: with the application down, the answer is a clean JSON 503",
+   "ok": true
+  }
+ ]
+}

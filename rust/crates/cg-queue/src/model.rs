@@ -10,7 +10,8 @@
 //! * Two-pass mode (off by default): pass 1 asks for plain text, pass 2 only puts that exact text into a JSON object, and is accepted only
 //!   if its text equals pass 1 apart from white space.
 //!
-//! The transport is plain HTTP to an OpenAI-compatible endpoint, which is what an on-premises Ollama serves (`http://host:11434/v1`).
+//! The transport is plain HTTP to an OpenAI-compatible endpoint. Production is vLLM (`http://host:8000/v1`, `QUEUE_AI_PROVIDER=vllm`); Ollama
+//! (`http://host:11434/v1`, `QUEUE_AI_PROVIDER=ollama`) speaks the same protocol and is kept for laptops, where vLLM does not run natively.
 
 use crate::breaker::ModelError;
 use crate::explain::{Model, MAX_TEMPLATE_CHARS, PLACEHOLDERS};
@@ -140,7 +141,7 @@ impl Model for TemplateModel {
     }
 }
 
-/// An OpenAI-compatible chat endpoint over plain HTTP (Ollama on the private network).
+/// An OpenAI-compatible chat endpoint over plain HTTP (vLLM or Ollama on the private network).
 pub fn openai_http(base_url: &str, model: &str, api_key: &str, max_tokens: u32) -> Complete {
     let url = format!("{}/chat/completions", base_url.trim_end_matches('/'));
     let (model, key) = (model.to_string(), api_key.to_string());
@@ -171,23 +172,29 @@ fn strip_fences(text: &str) -> String {
 }
 
 /// The model the queue should use, chosen by environment variables; None keeps the default (no model: every claim keeps the engine's own
-/// explanation). QUEUE_AI_PROVIDER=ollama turns it on; OLLAMA_BASE_URL and OLLAMA_MODEL choose the server and model;
-/// QUEUE_AI_TWO_PASS=1 enables two-pass mode.
+/// explanation). QUEUE_AI_PROVIDER turns it on:
+/// * `vllm` (production): VLLM_BASE_URL (default http://localhost:8000), VLLM_MODEL (the served model name; default google/gemma-3-4b-it) and
+///   VLLM_API_KEY (the key the server was started with; the server refuses a wrong one);
+/// * `ollama` (laptops): OLLAMA_BASE_URL (default http://localhost:11434), OLLAMA_MODEL (default gemma3:4b), OLLAMA_API_KEY.
+/// QUEUE_AI_TWO_PASS=1 enables two-pass mode. Both servers speak the same OpenAI-compatible protocol, so the rest of the system cannot tell them apart.
 pub fn model_from_env(env: &std::collections::HashMap<String, String>, rules: BTreeMap<String, Value>) -> Result<Option<Arc<dyn Model>>, String> {
     let which = env.get("QUEUE_AI_PROVIDER").map(|s| s.trim().to_lowercase()).unwrap_or_default();
     if which.is_empty() {
         return Ok(None);
     }
-    if which != "ollama" {
-        return Err(format!("QUEUE_AI_PROVIDER must be ollama (the Rust build serves an on-premises model only), not '{which}'"));
-    }
-    let base = env.get("OLLAMA_BASE_URL").map(|s| s.trim().trim_end_matches('/').to_string()).filter(|s| !s.is_empty()).unwrap_or_else(|| "http://localhost:11434".into());
+    let (prefix, port, default_model, default_key) = match which.as_str() {
+        "vllm" => ("VLLM", 8000, "google/gemma-3-4b-it", "vllm-local"),
+        "ollama" => ("OLLAMA", 11434, "gemma3:4b", "ollama-local"),
+        _ => return Err(format!("QUEUE_AI_PROVIDER must be vllm (or ollama on a laptop): the Rust build serves an on-premises model only, not '{which}'")),
+    };
+    let get = |name: &str| env.get(&format!("{prefix}_{name}")).map(|s| s.trim().to_string()).filter(|s| !s.is_empty());
+    let base = get("BASE_URL").map(|s| s.trim_end_matches('/').to_string()).unwrap_or_else(|| format!("http://localhost:{port}"));
     if !base.starts_with("http://") {
-        return Err("OLLAMA_BASE_URL must start with http:// (the model runs on the private network)".into());
+        return Err(format!("{prefix}_BASE_URL must start with http:// (the model runs on the private network)"));
     }
     let base = if base.ends_with("/v1") { base } else { format!("{base}/v1") };
-    let model = env.get("OLLAMA_MODEL").map(|s| s.trim().to_string()).filter(|s| !s.is_empty()).unwrap_or_else(|| "gemma3:4b".into());
-    let key = env.get("OLLAMA_API_KEY").cloned().filter(|s| !s.is_empty()).unwrap_or_else(|| "ollama-local".into());
+    let model = get("MODEL").unwrap_or_else(|| default_model.into());
+    let key = env.get(&format!("{prefix}_API_KEY")).cloned().filter(|s| !s.is_empty()).unwrap_or_else(|| default_key.into());
     let two = env.get("QUEUE_AI_TWO_PASS").map(String::as_str) == Some("1");
     Ok(Some(Arc::new(TemplateModel::new(openai_http(&base, &model, &key, 500), rules, &model, two))))
 }
@@ -263,13 +270,44 @@ mod tests {
     }
 
     #[test]
-    fn environment_selects_ollama_only_over_plain_http() {
+    fn environment_selects_vllm_or_ollama_only_over_plain_http() {
         let env = |pairs: &[(&str, &str)]| pairs.iter().map(|(k, v)| (k.to_string(), v.to_string())).collect::<std::collections::HashMap<_, _>>();
         assert!(model_from_env(&env(&[]), rules()).unwrap().is_none());
         assert!(model_from_env(&env(&[("QUEUE_AI_PROVIDER", "nvidia")]), rules()).is_err());
         assert!(model_from_env(&env(&[("QUEUE_AI_PROVIDER", "ollama"), ("OLLAMA_BASE_URL", "https://example.com")]), rules()).is_err());
+        assert!(model_from_env(&env(&[("QUEUE_AI_PROVIDER", "vllm"), ("VLLM_BASE_URL", "https://example.com")]), rules()).is_err());
         let m = model_from_env(&env(&[("QUEUE_AI_PROVIDER", "ollama"), ("OLLAMA_BASE_URL", "http://ollama:11434"), ("OLLAMA_MODEL", "gemma3:4b")]), rules()).unwrap().unwrap();
         assert_eq!(m.name(), "gemma3:4b");
+        let v = model_from_env(&env(&[("QUEUE_AI_PROVIDER", "vllm"), ("VLLM_BASE_URL", "http://vllm:8000"), ("VLLM_MODEL", "google/gemma-3-4b-it")]), rules()).unwrap().unwrap();
+        assert_eq!(v.name(), "google/gemma-3-4b-it");
+        let defaults = model_from_env(&env(&[("QUEUE_AI_PROVIDER", " VLLM ")]), rules()).unwrap().unwrap();
+        assert_eq!(defaults.name(), "google/gemma-3-4b-it", "the provider name is case- and space-insensitive and the model has a default");
+        let other = model_from_env(&env(&[("QUEUE_AI_PROVIDER", "vllm"), ("OLLAMA_MODEL", "x")]), rules()).unwrap().unwrap();
+        assert_eq!(other.name(), "google/gemma-3-4b-it", "the other provider's variables are not read");
+    }
+
+    #[test]
+    fn the_client_sends_the_servers_api_key_as_a_bearer_token_and_the_served_model_name() {
+        let (url, seen) = fake_server(200, r#"{"choices":[{"message":{"content":"Flagged: {value} on {line}. Please check."}}]}"#);
+        let m = TemplateModel::new(openai_http(&url, "google/gemma-3-4b-it", "secret-key-123", 100), rules(), "google/gemma-3-4b-it", false).with_clock(Arc::new(|| 0.0));
+        m.ask(&req(), 30.0).unwrap();
+        let sent = seen.lock().unwrap().to_lowercase();
+        assert!(sent.contains("authorization: bearer secret-key-123"), "vLLM started with --api-key refuses a request without it");
+        assert!(sent.contains("\"model\":\"google/gemma-3-4b-it\""));
+    }
+
+    #[test]
+    fn a_wrong_api_key_or_model_name_is_a_fatal_error_that_never_opens_the_breaker() {
+        // vLLM answers 401 for a wrong key and 404 for an unknown model name: both are configuration mistakes, not an outage
+        for status in [401u16, 404] {
+            let (url, _) = fake_server(status, "{}");
+            let m = TemplateModel::new(openai_http(&url, "m", "k", 10), rules(), "m", false).with_clock(Arc::new(|| 0.0));
+            assert!(matches!(m.ask(&req(), 30.0).unwrap_err(), ModelError::Fatal(_)), "HTTP {status}");
+        }
+        // 503 while the server loads the model is transient: retried, counted
+        let (url, _) = fake_server(503, "{}");
+        let m = TemplateModel::new(openai_http(&url, "m", "k", 10), rules(), "m", false).with_clock(Arc::new(|| 0.0));
+        assert!(matches!(m.ask(&req(), 30.0).unwrap_err(), ModelError::Transient(_)));
     }
 
     /// A throwaway server that answers every request with `status` and `body`, and remembers the first request it saw.

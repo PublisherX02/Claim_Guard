@@ -303,12 +303,13 @@ fn a_supporting_document_is_offered_as_an_attachment_not_as_a_claim() {
 }
 
 #[test]
-fn the_body_limit_is_larger_only_on_the_two_import_routes() {
+fn the_body_limit_is_larger_only_on_the_import_and_submit_routes() {
     let t = t(None);
     let admin = t.login("CG-4004");
     let big = vec![b'x'; 70_000];
     assert_eq!(t.upload("/api/v1/queue/import/file", big.clone(), "application/octet-stream", &admin).status, 200, "70 KB is fine on an import route (quarantined as not JSON)");
-    let other = t.upload("/api/v1/queue/submit", big, "application/json", &admin);
+    assert_ne!(t.upload("/api/v1/queue/submit", big.clone(), "application/json", &admin).status, 413, "70 KB is fine on the submit route (a batch of up to 1,000 claims)");
+    let other = t.upload("/api/v1/queue/config", big, "application/json", &admin);
     assert_eq!(other.status, 413, "but not on any other route");
     let huge = vec![b'x'; 17 * 1024 * 1024];
     assert_eq!(t.upload("/api/v1/queue/import/file", huge, "application/octet-stream", &admin).status, 413);

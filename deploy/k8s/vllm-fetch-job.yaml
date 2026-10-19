@@ -1,0 +1,58 @@
+# One-shot download of the model weights into the claimguard-models volume. This is the ONLY pod allowed to reach the internet (the policy below);
+# the model server runs offline. Run it once, before scaling deploy/vllm up:
+#   kubectl -n claimguard create secret generic claimguard-hf --from-literal=HF_TOKEN=hf_...      # a read token; Gemma is gated, accept its licence first
+#   kubectl apply -f deploy/k8s/vllm-fetch-job.yaml && kubectl -n claimguard logs -f job/vllm-fetch
+# Edit FETCH_MODELS to change the model (the same Hugging Face repository id as VLLM_MODEL in the ConfigMap). The weights and the pod are the
+# only things that change; nothing here sees claim data. Untested on a cluster, like the rest of this directory.
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: vllm-fetch
+  namespace: claimguard
+  labels: { app: vllm-fetch }
+spec:
+  backoffLimit: 2
+  ttlSecondsAfterFinished: 3600
+  template:
+    metadata:
+      labels: { app: vllm-fetch }
+    spec:
+      restartPolicy: Never
+      automountServiceAccountToken: false
+      securityContext: { runAsNonRoot: true, runAsUser: 1000, runAsGroup: 1000, fsGroup: 1000, seccompProfile: { type: RuntimeDefault } }
+      containers:
+        - name: fetch
+          image: vllm/vllm-openai:v0.31.0-cu129@sha256:ff29e51a9457f191deb332b96fa6440584fa941aa2a548449b604e2b1e5e1eeb     # the same image as the server, which carries huggingface_hub
+          command: ["python3", "-c"]
+          args:
+            - |
+              import os
+              from huggingface_hub import snapshot_download
+              for repo in os.environ["FETCH_MODELS"].split():
+                  p = snapshot_download(repo, token=os.environ.get("HF_TOKEN") or None, allow_patterns=["*.json", "*.safetensors", "*.model", "*.txt", "*.tiktoken", "*.jinja"])
+                  files = [os.path.join(d, f) for d, _, fs in os.walk(p) for f in fs if f.endswith(".safetensors")]
+                  assert files, repo + ": no .safetensors weights found"
+                  print(repo, len(files), "weight files,", round(sum(os.path.getsize(f) for f in files) / 1e9, 1), "GB")
+          env:
+            - { name: HOME, value: /tmp }
+            - { name: HF_HOME, value: /models/hf }
+            - { name: FETCH_MODELS, value: "google/gemma-3-4b-it" }
+            - name: HF_TOKEN
+              valueFrom: { secretKeyRef: { name: claimguard-hf, key: HF_TOKEN, optional: true } }
+          securityContext: { allowPrivilegeEscalation: false, capabilities: { drop: ["ALL"] } }
+          resources: { requests: { cpu: 100m, memory: 256Mi }, limits: { cpu: "2", memory: 2Gi } }
+          volumeMounts: [{ name: models, mountPath: /models }, { name: tmp, mountPath: /tmp }]
+      volumes:
+        - { name: models, persistentVolumeClaim: { claimName: claimguard-models } }
+        - { name: tmp, emptyDir: { sizeLimit: 256Mi } }
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: vllm-fetch-egress
+  namespace: claimguard
+spec:
+  podSelector: { matchLabels: { app: vllm-fetch } }
+  policyTypes: ["Egress"]
+  egress:
+    - ports: [{ protocol: TCP, port: 443 }]    # Hugging Face (and its CDN); DNS is allowed by allow-dns

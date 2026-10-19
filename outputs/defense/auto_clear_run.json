@@ -1,0 +1,48 @@
+{
+  "what": "the real engine, triage and pipeline run on the 600 labelled claims with auto_clear_green on, in random batches",
+  "batches": 20,
+  "batch_size": 500,
+  "audit_percent": 5,
+  "pool": 600,
+  "cleared_by_the_system": {
+    "mean": 159.1,
+    "min": 149.0,
+    "max": 172.0
+  },
+  "cleared_percent_of_batch": {
+    "mean": 31.819999999999993,
+    "min": 29.8,
+    "max": 34.4
+  },
+  "green_claims_sent_to_a_person_as_the_audit_sample": {
+    "mean": 7.7,
+    "min": 4.0,
+    "max": 15.0
+  },
+  "green_claims_in_the_batch": {
+    "mean": 166.8,
+    "min": 157.0,
+    "max": 178.0
+  },
+  "claims_with_findings_left_for_a_person": {
+    "mean": 333.2,
+    "min": 322.0,
+    "max": 343.0
+  },
+  "claims_for_a_person_in_all": {
+    "mean": 340.9,
+    "min": 328.0,
+    "max": 351.0
+  },
+  "cleared_but_the_answer_key_has_a_finding": {
+    "mean": 0.0,
+    "min": 0.0,
+    "max": 0.0
+  },
+  "green_by_the_key_but_neither_cleared_nor_audited": {
+    "mean": 0.0,
+    "min": 0.0,
+    "max": 0.0
+  },
+  "note": "the claims and the answer key are real labelled claims (the organizers' synthetic mix); the audit draw is random; the engine matches the key on every claim"
+}

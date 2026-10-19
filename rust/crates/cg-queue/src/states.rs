@@ -4,10 +4,11 @@
 //! received -> triaged -> explained | explanation_skipped -> ready -> leased -> decided -> rechecked -> triaged
 //! ```
 //!
-//! Green claims go triaged -> ready directly; leased -> ready is a lease expiring or being handed back; a claim with a high-severity
+//! Green claims go triaged -> ready directly (or, when an administrator has switched on `auto_clear_green`, triaged -> decided by `system:auto-clear`, except the random audit sample, which goes to a person); leased -> ready is a lease expiring or being handed back; a claim with a high-severity
 //! finding is signed by one senior (leased -> awaiting_countersign) and then leased again to a different senior, who countersigns
 //! (-> decided) or disagrees (-> ready, escalated, for a third senior); dead_lettered is the side state of a task that failed its
-//! retries (an administrator replays it back to triaged).
+//! retries (an administrator replays it back to triaged). decided -> ready happens only when an administrator orders a quarantined batch re-checked: a claim the
+//! system cleared goes back to the officers (docs/53).
 
 use serde_json::{json, Value};
 
@@ -19,13 +20,13 @@ pub const MAX_DETAIL_DEPTH: usize = 3;
 pub fn allowed_from(state: &str) -> &'static [&'static str] {
     match state {
         "received" => &["triaged", "dead_lettered"],
-        "triaged" => &["explained", "explanation_skipped", "ready", "dead_lettered"],
+        "triaged" => &["explained", "explanation_skipped", "ready", "decided", "dead_lettered"],
         "explained" => &["ready", "dead_lettered"],
         "explanation_skipped" => &["ready", "dead_lettered"],
         "ready" => &["leased", "dead_lettered"],
         "leased" => &["ready", "decided", "awaiting_countersign", "dead_lettered"],
         "awaiting_countersign" => &["leased", "dead_lettered"],
-        "decided" => &["rechecked"],
+        "decided" => &["rechecked", "ready"],
         "rechecked" => &["triaged"],
         "dead_lettered" => &["triaged"],
         _ => &[],
@@ -95,7 +96,7 @@ mod tests {
 
     #[test]
     fn the_happy_path_and_the_side_paths_are_legal() {
-        for (a, b) in [("received", "triaged"), ("triaged", "ready"), ("triaged", "explained"), ("explained", "ready"), ("ready", "leased"), ("leased", "decided"),
+        for (a, b) in [("received", "triaged"), ("triaged", "ready"), ("triaged", "decided"), ("triaged", "explained"), ("explained", "ready"), ("ready", "leased"), ("leased", "decided"),
                        ("leased", "awaiting_countersign"), ("awaiting_countersign", "leased"), ("leased", "ready"), ("decided", "rechecked"), ("rechecked", "triaged"),
                        ("dead_lettered", "triaged")] {
             assert!(check_transition(a, b).is_ok(), "{a} -> {b}");

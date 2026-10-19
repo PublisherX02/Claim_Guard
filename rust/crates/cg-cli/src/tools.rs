@@ -22,15 +22,15 @@ use std::path::PathBuf;
 
 const DEMO_USERS: [(i64, &str, &str); 4] = [(1, "CG-1001", "Demo Viewer"), (2, "CG-2002", "Demo Reviewer"), (3, "CG-3003", "Demo Senior Reviewer"), (4, "CG-4004", "Demo Administrator")];
 
-fn flag(args: &[String], name: &str) -> Option<String> {
+pub(crate) fn flag(args: &[String], name: &str) -> Option<String> {
     args.iter().position(|a| a == name).and_then(|i| args.get(i + 1)).cloned()
 }
 
-fn has(args: &[String], name: &str) -> bool {
+pub(crate) fn has(args: &[String], name: &str) -> bool {
     args.iter().any(|a| a == name)
 }
 
-fn secret_prompt(prompt: &str) -> String {
+pub(crate) fn secret_prompt(prompt: &str) -> String {
     rpassword::prompt_password(prompt).unwrap_or_default()
 }
 
@@ -43,7 +43,7 @@ fn demo_password(badge: &str) -> String {
     }
 }
 
-fn open(args: &[String], queue: bool) -> Result<Boot, String> {
+pub(crate) fn open(args: &[String], queue: bool) -> Result<Boot, String> {
     boot(&Options { dev: has(args, "--dev"), host: "127.0.0.1".into(), queue, demo: false, data_dir: flag(args, "--data-dir").map(PathBuf::from) })
 }
 
@@ -270,7 +270,7 @@ pub fn rotate_fernet_key(args: &[String]) -> i32 {
     }
 }
 
-pub const QUEUE_USAGE: &str = "usage: cg queue --badge CG-4004 [--dev] submit --claims FILE [--process] | reconcile | replay ID [--version N] | rerun --rule-pack HASH [--apply] | deadletters | deadletter-replay ID | verify-deal ID";
+pub const QUEUE_USAGE: &str = "usage: cg queue --badge CG-4004 [--dev] submit --claims FILE [--process] | reconcile | replay ID [--version N] | rerun --rule-pack HASH [--apply] | deadletters | deadletter-replay ID | verify-deal ID | workload [--skip-lower X] | audit";
 
 pub fn queue(args: &[String]) -> i32 {
     let say = |s: &str| println!("{s}");
@@ -278,7 +278,7 @@ pub fn queue(args: &[String]) -> i32 {
         say(QUEUE_USAGE);
         return 2;
     };
-    let Some(ci) = args.iter().position(|a| ["submit", "reconcile", "replay", "rerun", "deadletters", "deadletter-replay", "verify-deal"].contains(&a.as_str())) else {
+    let Some(ci) = args.iter().position(|a| ["submit", "reconcile", "replay", "rerun", "deadletters", "deadletter-replay", "verify-deal", "workload", "audit", "batches"].contains(&a.as_str())) else {
         say(QUEUE_USAGE);
         return 2;
     };
@@ -313,7 +313,7 @@ pub fn queue(args: &[String]) -> i32 {
         return 2;
     }
     let (store, now) = (&*q.store, b.clock.clone());
-    let positional = rest.iter().find(|a| !a.starts_with("--") && flag(rest, "--version").as_deref() != Some(a.as_str()) && flag(rest, "--claims").as_deref() != Some(a.as_str()) && flag(rest, "--rule-pack").as_deref() != Some(a.as_str()));
+    let positional = rest.iter().find(|a| !a.starts_with("--") && flag(rest, "--version").as_deref() != Some(a.as_str()) && flag(rest, "--claims").as_deref() != Some(a.as_str()) && flag(rest, "--rule-pack").as_deref() != Some(a.as_str()) && flag(rest, "--skip-lower").as_deref() != Some(a.as_str()));
     let out: Result<i32, QueueError> = (|| {
         match command {
             "replay" => {
@@ -348,6 +348,44 @@ pub fn queue(args: &[String]) -> i32 {
                 say(&format!("ok={} findings={}", if report.ok() { "True" } else { "False" }, report.findings.len()));
                 Ok(if report.ok() { 0 } else { 1 })
             }
+            "workload" => {
+                // read-only: which rules cost reviewers time for nothing, which are almost always upheld, and the measured time per finding
+                let cfg = cg_queue::flow::routing_config(store);
+                let skip = flag(rest, "--skip-lower").and_then(|v| v.parse::<f64>().ok()).filter(|v| (0.5..1.0).contains(v)).unwrap_or(cg_queue::workload::DEFAULT_SKIP_LOWER);
+                let decided = store.by_state("decided", 1_000_000).map_err(|e| QueueError::Invalid(e.to_string()))?;
+                say(&sorted(&cg_queue::workload::report(&decided, &cg_queue::reliability::Params::from_config(&cfg), skip, cfg.lease_seconds as f64)));
+                Ok(0)
+            }
+            "audit" => {
+                // read-only: how auto-clear is doing, from the random sample of green claims a person still looked at
+                let mut docs = vec![];
+                for state in ["decided", "ready", "leased", "awaiting_countersign"] {
+                    docs.extend(store.by_state(state, 1_000_000).map_err(|e| QueueError::Invalid(e.to_string()))?);
+                }
+                let cfg = cg_queue::flow::routing_config(store);
+                let mut report = cg_queue::workload::audit_report(&docs);
+                report["auto_clear_green"] = serde_json::json!(cfg.auto_clear_green);
+                report["audit_percent"] = serde_json::json!(cfg.audit_percent);
+                say(&sorted(&report));
+                Ok(0)
+            }
+            "batches" => {
+                // read-only: every batch with its audit sample, flags and status (the administrator's view, without claim ids)
+                let events = store.batch_events(None, 100_000).map_err(|e| QueueError::Invalid(e.to_string()))?;
+                let mut ids: Vec<String> = vec![];
+                for e in &events {
+                    if let Some(b) = e["batch_id"].as_str().filter(|b| !ids.iter().any(|i| i == b)) {
+                        ids.push(b.to_string());
+                    }
+                }
+                for id in &ids {
+                    let mine: Vec<Value> = events.iter().filter(|e| e["batch_id"] == id.as_str()).cloned().collect();
+                    if let Some(v) = cg_queue::batch::fold(&mine) {
+                        say(&sorted(&v.to_json(None)));
+                    }
+                }
+                Ok(0)
+            }
             "verify-deal" => {
                 let id = positional.ok_or_else(|| QueueError::Invalid("verify-deal needs a deal id".into()))?;
                 let same = q.dispatcher.verify(id).map_err(QueueError::Invalid)?;
@@ -358,22 +396,35 @@ pub fn queue(args: &[String]) -> i32 {
                 let path = flag(rest, "--claims").ok_or_else(|| QueueError::Invalid("submit needs --claims".into()))?;
                 let text = std::fs::read_to_string(&path).map_err(|e| QueueError::Invalid(e.to_string()))?;
                 let (mut submitted, mut refused, mut ready) = (0, 0, 0);
+                let mut claims: Vec<Value> = vec![];
                 for line in text.lines().filter(|l| !l.trim().is_empty()) {
-                    let Ok(claim) = serde_json::from_str::<Value>(line) else {
-                        refused += 1;
+                    match serde_json::from_str::<Value>(line) {
+                        Ok(claim) => claims.push(claim),
+                        Err(_) => refused += 1,
+                    }
+                }
+                // a file is submitted as batches of at most MAX_BATCH claims; each batch draws its own audit sample (docs/53)
+                for chunk in claims.chunks(cg_queue::batch::MAX_BATCH) {
+                    let Ok((batch_id, rows)) = q.intake.submit_batch(chunk, operator.badge()) else {
+                        refused += chunk.len();
                         continue;
                     };
-                    if q.intake.submit(&claim).is_err() {
-                        refused += 1;
-                        continue;
+                    if let Some(id) = &batch_id {
+                        say(&format!("batch {id}: {} claims", chunk.len()));
                     }
-                    submitted += 1;
-                    if has(rest, "--process") {
-                        if let Some(doc) = store.get(claim["claim_id"].as_str().unwrap_or(""), None).map_err(|e| QueueError::Invalid(e.to_string()))? {
-                            let (id, v) = (doc["claim_id"].as_str().unwrap_or(""), doc["version"].as_i64().unwrap_or(0));
-                            if process(&q.runtime, id, v, doc["input_hash"].as_str().unwrap_or("")) == "ready" {
-                                let _ = store.clear_outbox(id, v);
-                                ready += 1;
+                    for (claim, row) in chunk.iter().zip(rows.iter()) {
+                        if row["accepted"] != true {
+                            refused += 1;
+                            continue;
+                        }
+                        submitted += 1;
+                        if has(rest, "--process") {
+                            if let Some(doc) = store.get(claim["claim_id"].as_str().unwrap_or(""), None).map_err(|e| QueueError::Invalid(e.to_string()))? {
+                                let (id, v) = (doc["claim_id"].as_str().unwrap_or(""), doc["version"].as_i64().unwrap_or(0));
+                                if process(&q.runtime, id, v, doc["input_hash"].as_str().unwrap_or("")) == "ready" {
+                                    let _ = store.clear_outbox(id, v);
+                                    ready += 1;
+                                }
                             }
                         }
                     }

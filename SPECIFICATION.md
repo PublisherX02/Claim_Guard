@@ -124,9 +124,13 @@ Priority follows MoSCoW (M must, S should, C could, W will not). Status: **Done*
 | FR-19 | Record in shadow mode what an automatic clearer would have done, without acting | C | Done | `src/workqueue/shadow.py` |
 | FR-20 | Provide a web screen for reviewers | S | Built (2026-10-08) | Reviewer console served by the API and shown in a desktop window; see docs/35. Checked with an automated browser, not a manual accessibility audit |
 | FR-21 | Accept claim submission over HTTP | C | Not built | Command-line tool only |
-| FR-22 | Route by model confidence | W | Not built | Choice: the engine is deterministic and the AI only explains |
+| FR-22 | Route by confidence | W | Not wired (built, archived 2026-10-15) | No model confidence exists (the engine is deterministic). Routing by measured per-rule reliability was built, raised senior load in simulation, and is at git tag archive/hitl-routing-2026-10-15 awaiting the mentor (docs/48). Read-only workload report instead: docs/49 |
 | FR-23 | Show administrators what is broken (system health panel: databases, broker, scheduled jobs, audit chains, disk, AI helper, request traffic) | S | Built (2026-10-09) | docs/37; `GET /api/v1/ops/health`; per-process traffic numbers, no alerts are sent |
 | FR-24 | Let administrators search and chart the audit log (filters by event, badge, claim and period; per-hour counts; CSV; on-demand chain verification) | S | Built (2026-10-09) | docs/37 |
+| FR-26 | Let the system decide a green claim except for a random audit sample, and report what the audit finds | C | Built (2026-10-15), default off | docs/50; `auto_clear_green`, `audit_percent`, `cg queue audit`; waits for the mentor |
+| FR-27 | Confirm a finding without typing a reason, in one click, and confirm all findings of a claim | S | Built (2026-10-15) | docs/50; dismissing still needs a reason |
+| FR-28 | Confirm many findings of a rule reviewers almost always uphold after a light look | C | Built (2026-10-15), default off | docs/50; `bulk_confirm_skip_lower`; waits for the mentor |
+| FR-29 | Let the system record a request for missing information itself, with a random audit that checks a person would have asked too | C | Built (2026-10-15), default off | docs/50; `auto_request_info`; waits for the mentor |
 | FR-25 | Trace one claim from intake to decision (versions, state history, decisions, hashes, security-log entries, no claim values) | S | Built (2026-10-09) | docs/37; `GET /api/v1/ops/trace/{claim_id}` |
 
 ### 4.2 Non-functional requirements
@@ -233,6 +237,10 @@ Status codes used by the reviewer API: `401` not signed in or invalid credential
 | UC23 | Replay, verify and rerun | Administrator | `queue_admin replay`, `rerun`, `verify-deal` | Done |
 | UC24 | Replay a failed task | Administrator | `queue_admin deadletters`, `deadletter-replay` | Done |
 | UC25 | Manage users | Administrator | `/api/v1/users` routes; `scripts/access_admin.py` | Done |
+| UC27 | Review the workload report | Administrator | `queue_admin workload` (`cg queue workload`) | Done (read-only) |
+| UC28 | Clear green claims with an audit | Administrator | `PATCH /api/v1/queue/config`, `cg queue audit` | Done (off by default) |
+| UC29 | Bulk confirm a rule | Reviewer | `POST /api/v1/work/bulk-confirm`, console "By rule" | Done (off by default) |
+| UC30 | Request missing information automatically | Administrator | `PATCH /api/v1/queue/config`, `cg queue audit` | Done (off by default) |
 | UC26 | Verify the audit trail | Administrator | `GET /api/v1/audit/events`, `/audit/verify` | Done |
 
 ### 6.2 Automatic checking
@@ -700,6 +708,27 @@ All use cases in this section need a signed-in level 4 user. Level 4 holds `queu
 **Failure scenarios.** No right: 403. Log file unreadable: reported in the verification result.
 
 **Guarantees and limits.** The log is **tamper-evident, not immutable**: someone who can rewrite the chain, the anchor and the key together can rewrite history. There is no write-once storage and no external timestamp (part 9).
+
+
+#### UC27. Review the workload report
+
+*Goal.* See which rules cost reviewers time for nothing and which are almost always upheld, to decide where to look, retrain or lighten review. *Actor.* Administrator (`queue.view`). *Related.* FR-22, UC13, docs/49.
+
+**Main scenario**
+1. Reviewers decide findings as usual (UC13); the last confirm or dismiss of each flagged rule on each claim is one counted decision.
+2. The administrator runs `cg queue workload [--skip-lower X]`.
+3. The report lists each rule with its counts, exact 95% interval and a role: retune (95% sure fewer than 60% are upheld), light review (95% sure at least `skip_lower` are upheld) or full review.
+4. For light review it states the expected number of wrong findings among the covered ones and an upper bound that holds with 95% confidence. When the queue timestamps allow it, it adds the measured median seconds per finding and the hours involved.
+
+**Secondary scenarios.** `--skip-lower` between 0.5 and 1.0 changes how strict the light-review list is (default 0.95).
+
+**Extensions**
+- 3a. A rule with fewer than 20 decisions or fewer than 3 reviewers is always full review.
+- 4a. No dossier has a usable lease-to-decision time (or all were held longer than the lease): the time block says so and only counts are given.
+
+**Failure scenarios.** A caller without `queue.view`: refused, and nothing is written. The command writes only a `queue_admin` entry in the security log.
+
+**Guarantees and limits.** Read-only: it changes no routing, clears no claim and asks no one to approve anything. Evidence so far is on simulated reviewers; no real review time has been measured.
 
 ---
 

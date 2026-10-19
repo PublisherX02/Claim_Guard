@@ -30,6 +30,15 @@
 		}
 		reverse_proxy api:8443
 	}
+	# submitting claims: one submission is one batch of up to 1,000 claims (about 1.5 KB each, docs/53), so this path (and only this) may carry up to 4 MB;
+	# the application counts the claims and refuses more than 1,000
+	@submit path /api/v1/queue/submit
+	handle @submit {
+		request_body {
+			max_size 4MB
+		}
+		reverse_proxy api:8443
+	}
 	handle {
 		encode zstd gzip
 		# no request the application accepts is larger than this; refuse anything bigger here, with a clean 413, before it is forwarded

@@ -37,6 +37,12 @@
             : h('p', { class: 'muted', text: 'Nobody is on shift. Add badges in Routing settings.' })));
         // HITL feedback (counts only)
         var rules = Object.keys(f.rules || {});
+        var hotspots = [];
+        rules.forEach(function (r) {
+          var by = f.rules[r].by_service || {};
+          Object.keys(by).forEach(function (label) { if (by[label].dismissed > 0) hotspots.push({ rule: r, label: label, decisions: by[label].decisions, dismissed: by[label].dismissed, dismissal_rate: by[label].dismissal_rate }); });
+        });
+        hotspots.sort(function (a, b) { return (b.dismissal_rate - a.dismissal_rate) || (b.decisions - a.decisions); });
         out.appendChild(h('div', { class: 'card' }, h('h2', { text: 'What reviewers decided' }),
           h('p', { class: 'muted', text: f.note }),
           h('div', { class: 'tiles' }, tile(f.claims_decided, 'claims decided'), tile(f.verified_clear, 'verified clear'), tile(f.escalated, 'escalated'), tile(pct(f.signoff.disagreement_rate), 'senior disagreement')),
@@ -47,7 +53,15 @@
             { label: 'Dismissed', num: true, get: function (r) { return f.rules[r].dismissed; } },
             { label: 'Dismissal rate', num: true, get: function (r) { return pct(f.rules[r].dismissal_rate); } },
             { label: '95% interval', num: true, get: function (r) { var s = f.rules[r]; return s.dismissal_rate_lower === null ? '-' : pct(s.dismissal_rate_lower) + ' to ' + pct(s.dismissal_rate_upper); } },
-            { label: 'Look at rule?', get: function (r) { return f.rules[r].review_candidate ? CG.chip('review candidate', 'B') : null; } }], rules) : h('p', { class: 'muted', text: 'No decisions yet.' })));
+            { label: 'Look at rule?', get: function (r) { return f.rules[r].review_candidate ? CG.chip('review candidate', 'B') : null; } }], rules) : h('p', { class: 'muted', text: 'No decisions yet.' }),
+          hotspots.length ? h('div', null, h('h3', { text: 'Where dismissals concentrate' }),
+            h('p', { class: 'muted', text: 'The same decisions split by the service code and modifier of the line a finding pointed at. Counts only; a pointer to look at, not a verdict.' }),
+            CG.table([
+              { label: 'Rule', get: function (x) { return h('b', { class: 'mono', text: x.rule }); } },
+              { label: 'Service | modifier', get: function (x) { return h('span', { class: 'mono', text: x.label }); } },
+              { label: 'Decisions', num: true, get: function (x) { return x.decisions; } },
+              { label: 'Dismissed', num: true, get: function (x) { return x.dismissed; } },
+              { label: 'Dismissal rate', num: true, get: function (x) { return pct(x.dismissal_rate); } }], hotspots.slice(0, 12))) : null));
       }, CG.fail);
     }
     load();
@@ -84,8 +98,12 @@
       });
       var shift = h('textarea', { placeholder: 'One badge per line, e.g. CG-2002' }); shift.value = (cfg.on_shift || []).join('\n'); shift.rows = Math.max(3, (cfg.on_shift || []).length + 1);
       var excl = h('textarea', { placeholder: 'One pair per line: reviewer badge, patient id (that reviewer never gets that patient)' }); excl.value = (cfg.exclusions || []).map(function (p) { return p.join(', '); }).join('\n');
+      var autoClear = h('input', { type: 'checkbox', id: 'auto-clear-green', 'aria-label': 'Clear clean claims automatically' }); autoClear.checked = !!cfg.auto_clear_green;
+      var auditPct = h('input', { type: 'number', min: '1', max: '100', step: '1', value: cfg.audit_percent, 'aria-label': 'Percent of each batch that officers check' });
       var save = h('button', { class: 'btn primary', type: 'button', text: 'Save settings', onclick: function () {
         var changes = {}, k;
+        if (autoClear.checked !== !!cfg.auto_clear_green) changes.auto_clear_green = autoClear.checked;
+        if (auditPct.value !== '' && Number(auditPct.value) !== cfg.audit_percent) changes.audit_percent = Number(auditPct.value);
         NUMBERS.forEach(function (n) {
           var v = Number(inputs[n[0]].value);
           if (inputs[n[0]].value === '' || isNaN(v)) return;
@@ -105,6 +123,9 @@
       } });
       body.appendChild(h('p', { class: 'muted', text: 'Version ' + d.stored_version + '. Every change is a new version in the audit trail. You set capacity and the formula here; you never assign a claim to a person.' }));
       body.appendChild(h('div', { class: 'card' }, h('h2', { text: 'Who is on shift' }), h('div', { class: 'field' }, h('label', { text: 'Badges on shift' }), shift), h('div', { class: 'field' }, h('label', { text: 'Conflict-of-interest exclusions' }), excl)));
+      body.appendChild(h('div', { class: 'card' }, h('h2', { text: 'Clean claims and the audit sample' }),
+        h('div', { class: 'field' }, h('label', { class: 'row' }, autoClear, h('span', { text: 'Clear clean claims automatically' })), h('div', { class: 'muted small', text: 'When on, the system clears the clean claims of a batch itself and officers check only a sample. When off, every claim goes to an officer.' })),
+        h('div', { class: 'field' }, h('label', { text: 'Percent of each batch that officers check' }), auditPct, h('div', { class: 'muted small', text: 'At least one claim per batch. One wrong claim found in the sample holds the whole batch for the administrator.' }))));
       body.appendChild(h('div', { class: 'card' }, h('h2', { text: 'Capacity and timing' }), h('div', { class: 'row' }, numberFields.map(function (f) { return h('div', { style: null, class: 'grow' }, f); }))));
       body.appendChild(h('div', { class: 'card' }, h('h2', { text: 'Points per flagged finding' }), h('div', { class: 'row' }, pointFields.map(function (f) { return h('div', { class: 'grow' }, f); }))));
       body.appendChild(h('div', { class: 'row savebar', style: null }, save));
@@ -121,6 +142,7 @@
     });
   }
 
+  var MAX_BATCH = 1000;
   CG.views.submit = function (root) {
     var area = h('textarea', { placeholder: 'Paste claims here: one JSON object per line (JSONL), or a JSON list.', rows: '8' });
     var file = h('input', { type: 'file', accept: '.jsonl,.json,.txt,application/json', 'aria-label': 'Claims file' });
@@ -134,9 +156,11 @@
       try { claims = parseClaims(area.value); } catch (e) { CG.toast(e.message, 'bad'); return; }
       if (!claims.length) { CG.toast('There are no claims to submit.', 'warn'); return; }
       go.disabled = true; CG.clear(out);
-      var rows = [], i = 0, progress = h('p', { class: 'muted' }); out.appendChild(progress);
+      if (claims.length > MAX_BATCH) { CG.toast('A batch holds at most ' + MAX_BATCH + ' claims; this file has ' + claims.length + '. Split it, or use the command line.', 'bad'); return; }
+      var rows = [], progress = h('p', { class: 'muted', text: 'Sending ' + claims.length + ' claims as one batch...' }); out.appendChild(progress);
+      go.disabled = true;
       (function next() {
-        if (i >= claims.length) {
+        if (rows.length) {
           go.disabled = false;
           var ok = rows.filter(function (r) { return r.accepted; }).length;
           CG.clear(out);
@@ -147,13 +171,22 @@
           out.appendChild(h('p', { class: 'muted', text: 'Triage lanes: ' + Object.keys(lanes).sort().map(function (l) { return l + ' ' + lanes[l]; }).join(', ') }));
           return;
         }
-        var batch = claims.slice(i, i + 20); i += 20;
-        progress.textContent = 'Sending ' + Math.min(i, claims.length) + ' of ' + claims.length + '...';
-        CG.api('POST', '/queue/submit', { claims: batch }).then(function (r) { rows = rows.concat(r.results); next(); }, function (e) { go.disabled = false; CG.fail(e); });
+        var stop = function (e) { go.disabled = false; CG.clear(out); CG.fail(e); };
+        // the server takes the batch in in the background: one quick answer with a job id, then the progress is read until it is done
+        function poll(id) {
+          CG.api('GET', '/queue/submit/' + encodeURIComponent(id)).then(function (j) {
+            if (j.state === 'running') {
+              progress.textContent = (j.phase === 'storing' ? 'Storing ' : 'Checking ') + Math.min(j.done, j.total) + ' of ' + j.total + ' claims (' + Math.round(j.seconds) + ' s)...';
+              setTimeout(function () { poll(id); }, 700);
+            } else if (j.state === 'done') { rows = j.results; next(); }
+            else { go.disabled = false; CG.clear(out); out.appendChild(h('div', { class: 'notice bad', text: 'The batch stopped: ' + (j.error || 'unknown error') + ' Sending it again is safe: claims already stored are not stored twice.' })); }
+          }, stop);
+        }
+        CG.api('POST', '/queue/submit', { claims: claims, async: true }).then(function (r) { poll(r.job_id); }, stop);
       })();
     });
     root.appendChild(h('h1', { text: 'Submit claims' }));
-    root.appendChild(h('div', { class: 'card stack' }, h('p', { class: 'muted', text: 'Each claim goes through the same intake as the command-line tool: it is checked, run through the 15 rules and given a triage receipt. Sending the same claim twice stores it once.' }),
+    root.appendChild(h('div', { class: 'card stack' }, h('p', { class: 'muted', text: 'Each claim goes through the same intake as the command-line tool: it is checked, run through the 15 rules and given a triage receipt. Sending the same claim twice stores it once. Everything you send at once is one batch (up to ' + MAX_BATCH + ' claims).' }),
       h('div', { class: 'field' }, h('label', { text: 'File (optional)' }), file), h('div', { class: 'field' }, h('label', { text: 'Claims' }), area), go));
     root.appendChild(out);
   };
@@ -243,6 +276,59 @@
       h('p', { class: 'muted small', text: 'Replacing an authenticator, and creating, promoting, demoting or deactivating an administrator, need a different administrator to approve with a fresh authenticator code.' }), approvals));
     root.appendChild(h('div', { class: 'card' }, h('h2', { text: 'Everyone' }), list));
     load(); loadApprovals();
+  };
+
+  // ---- batches: the audit sample of each batch, and what to do with a batch that was held -------------------------------------
+  // The administrator sees the batch number, how many sampled claims were flagged and why (the rule categories). No claim, no identifier, no officer's words.
+  CG.views.batches = function (root) {
+    var out = h('div', { class: 'stack' }), detail = h('div', { class: 'stack' });
+    root.appendChild(h('div', { class: 'row between' }, h('h1', { text: 'Batches' }), h('button', { class: 'btn', type: 'button', text: 'Refresh', onclick: load })));
+    root.appendChild(h('p', { class: 'muted', text: 'Each submission is a batch. The system clears its clean claims except a small random sample that officers check. If an officer finds one of the sampled claims wrong, the whole batch is held here until you decide.' }));
+    root.appendChild(out); root.appendChild(detail);
+    var STATUS = { open: 'nothing wrong found', quarantined: 'held: needs your decision', in_review: 'sent back to officers', review_done: 'review finished: needs your decision', released: 'released' };
+    function reasons(b) { var k = Object.keys(b.categories || {}); return k.length ? k.sort().map(function (c) { return c + (b.categories[c] > 1 ? ' x' + b.categories[c] : ''); }).join(', ') : '-'; }
+    function needsDecision(b) { return b.status === 'quarantined' || b.status === 'review_done'; }
+    function load() {
+      CG.api('GET', '/queue/batches').then(function (d) {
+        CG.clear(out);
+        out.appendChild(h('div', { class: 'tiles' }, tile(d.held, 'held batches'), tile(d.batches.length, 'batches')));
+        out.appendChild(d.batches.length ? CG.table([
+          { label: 'Batch', get: function (b) { return h('b', { class: 'mono', text: b.batch_id }); } },
+          { label: 'Received', get: function (b) { return CG.fmtTime(b.created_at); } },
+          { label: 'Claims', num: true, get: function (b) { return b.claims; } },
+          { label: 'Clean', num: true, get: function (b) { return b.green; } },
+          { label: 'Checked by officers', num: true, get: function (b) { return b.sample_flagged + b.sample_verified + ' of ' + b.sampled; } },
+          { label: 'Flagged', num: true, get: function (b) { return b.sample_flagged; } },
+          { label: 'Why', get: reasons },
+          { label: 'Status', get: function (b) { return CG.chip(STATUS[b.status] || b.status, needsDecision(b) ? 'bad' : (b.status === 'released' ? 'good' : null)); } },
+          { label: '', get: function (b) { return needsDecision(b) ? h('button', { class: 'btn small primary', type: 'button', text: 'Decide', onclick: function () { decide(b); } }) : null; } }], d.batches)
+          : h('p', { class: 'muted', text: 'No batches yet. Claims submitted from "Submit claims" or by the command line form a batch.' }));
+      }, CG.fail);
+    }
+    function decide(b) {
+      CG.clear(detail);
+      var n = h('input', { type: 'number', min: '1', value: '10', 'aria-label': 'How many claims to send back' });
+      var note = h('input', { type: 'text', maxlength: '200', placeholder: 'Why (kept with the decision)' });
+      function go(action) {
+        var body = { action: action, note: note.value.trim() };
+        if (action === 'review_n') body.n = parseInt(n.value, 10);
+        CG.api('POST', '/queue/batches/' + encodeURIComponent(b.batch_id) + '/decision', body).then(function (r) {
+          CG.toast(action === 'release' ? 'Batch released.' : (r.review.sent_back + ' claims sent back to officers so far.'), 'good'); CG.clear(detail); load();
+        }, CG.fail);
+      }
+      detail.appendChild(h('div', { class: 'card stack' },
+        h('h2', { text: 'Batch ' + b.batch_id }),
+        h('p', { text: b.sample_flagged + ' of the ' + b.sampled + ' claims picked for checking were flagged (' + reasons(b) + '); ' + b.sample_verified + ' were confirmed; ' + b.sample_waiting + ' are still with officers. The system cleared ' + Math.max(0, b.green - b.sampled) + ' clean claims of this batch; they stay held until you decide.' }),
+        b.review && b.review.sent_back ? h('p', { class: 'muted', text: 'Already sent back: ' + b.review.sent_back + ' (flagged again: ' + b.review.flagged + ').' }) : null,
+        b.notes && b.notes.length ? h('div', null, h('h3', { text: 'What the officers wrote' }), h('ul', { class: 'plain' }, b.notes.map(function (n) { return h('li', { text: n }); }))) : null,
+        h('div', { class: 'field' }, h('label', { text: 'Reason' }), note),
+        h('div', { class: 'row' }, h('button', { class: 'btn primary', type: 'button', text: 'Release the batch', onclick: function () { go('release'); } }),
+          h('span', { class: 'muted', text: 'or send' }), n, h('button', { class: 'btn', type: 'button', text: 'claims back to officers', onclick: function () { go('review_n'); } }),
+          h('span', { class: 'muted', text: 'or' }), h('button', { class: 'btn', type: 'button', text: 'Send all back', onclick: function () { go('review_all'); } })),
+        h('button', { class: 'btn small', type: 'button', text: 'Close', onclick: function () { CG.clear(detail); } })));
+    }
+    load();
+    CG.every(20000, load);
   };
 
   // ---- audit ------------------------------------------------------------------------------------------------------------------

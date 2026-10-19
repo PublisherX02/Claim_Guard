@@ -16,7 +16,7 @@ ClaimGuard reads a health-insurance claim, checks it against the fifteen rules o
 | 5 | Task queue: Celery or ARQ | **Partly** | the Python build ran Celery on Redis. The Rust build has the same safe design (an outbox in the database, a relay, idempotent tasks, retries, dead letters, leases) **on a Redis Stream with a consumer group** (`docs/38` section 9): a pool of consumers, a hard cap on how many claims are processed (and so asked of the model) at once, takeover of a dead consumer's work, repair of lost messages. It is not Celery or ARQ, which are Python libraries (section 7, question 2) |
 | 6 | Respect Middle East data-protection law (PDPL) | **Mapped, two gaps** | `docs/41`: each obligation against what the system does. Not built: subject access/erasure and retention |
 | 7 | Near-production, not a proof of concept (K8s, Redis) | **Compose tested; Kubernetes written, not run** | `deploy/rust/` (50-check attack test, encrypted backup/restore tested end to end, runbook `docs/40`); `deploy/k8s/` (manifests with network policies and the restricted pod profile, structural test, **no cluster to apply them to**) |
-| 8 | Fully on premises | **Done by design** | local model (Ollama), no outside call in the deployed system, data network with no route out (`deploy_attack.py`), the Rust build refuses a cloud model provider |
+| 8 | Fully on premises | **Done by design** | local model (vLLM), no outside call in the deployed system, data network with no route out (`deploy_attack.py`), the Rust build refuses a cloud model provider |
 | 9 | NoSQL, not SQL | **Done** | MongoDB for users, claims, queue, approvals; the same contract suite runs against the in-memory twin and the real database |
 
 ## 3. The judging weights, and what proves each one
@@ -52,7 +52,7 @@ Have ready, in case of questions: `docs/39` (security results), `docs/40` (opera
 - The **host firewall** is written and tested in throwaway containers (`docs/40` section 10) but has not been run on the real server; a **distributed denial-of-service** and a public certificate authority are untested; the system has not been attacked by anyone outside the team.
 - **Dual control** cannot know two administrator accounts belong to two people, and a lone administrator is not protected (logged).
 - **One API pod and one MongoDB member** in the Kubernetes files (the audit logs are files with locks).
-- The recheck route (`POST /claims/{id}/recheck`) is 501 in both builds; corrections are new versions through resubmission.
+- The older file-store route `POST /claims/{id}/recheck` is 501 on purpose (no versions there). Correct-and-recheck now exists on the queue: `POST /work/claims/{id}/whatif` and `/recheck`, a correction is a new version, see `docs/51`.
 - Cloud model providers are not in the Rust build (on-premises only).
 
 ## 6. Hard questions, with the honest answer
@@ -67,6 +67,7 @@ Have ready, in case of questions: `docs/39` (security results), `docs/40` (opera
 - **"Is it PDPL-compliant?"** No software is; the law binds the organisation. `docs/41` lists each obligation, what the system does about it, and the two things still to build.
 
 ## 7. Questions to ask the mentor
+0. **R006 and R013:** three public claims split one service into a plain line and an `EDU-SEPARATE` line, with a total quantity above the per-line limit: `CG-B10B19D8A56A` (development), `CG-00348A9B1AAD` and `CG-EC233ACB399D` (stress). The documented rules pass them (different modifiers are different lines; R013 is per line) and the answer key agrees. Our reading: consistent with the rulebook as written; the question is whether an aggregate-quantity check was intended. **Label:** is "pre-validation clear" the right wording for a claim a person confirmed or the system cleared on its own?
 1. **"Claims accepted as JSONL with a confidence score" (his point 4):** is the output a batch of accepted claims for the payer, each with a score? Or the input format?
 2. **Task queue:** he named Celery or ARQ (Python). The system is now Rust, and the queue is built on Redis Streams with consumer groups, acknowledgement after work, retries, dead letters and an outbox in the database. Is that acceptable in place of Celery or ARQ?
 3. **May a trained model influence routing** (who reviews what, in what order), never the verdict?

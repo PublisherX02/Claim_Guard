@@ -1,0 +1,226 @@
+{
+  "seeds": 20,
+  "first_seed": 1,
+  "truth": {
+    "R001": 0.97,
+    "R002": 0.97,
+    "R003": 0.97,
+    "R004": 0.97,
+    "R005": 0.97,
+    "R006": 0.35,
+    "R007": 0.97,
+    "R008": 0.97,
+    "R009": 0.97,
+    "R010": 0.97,
+    "R011": 0.97,
+    "R012": 0.97,
+    "R013": 0.5,
+    "R014": 0.97,
+    "R015": 0.97
+  },
+  "bad_rules": [
+    "R006",
+    "R013"
+  ],
+  "retune_detection": [
+    {
+      "decisions": 300,
+      "share_of_bad_rules_found": 0.0,
+      "good_rules_wrongly_listed_per_run": 0.0,
+      "reviews_on_listed_rules_that_were_overridden_share_of_all_findings": 0.0
+    },
+    {
+      "decisions": 600,
+      "share_of_bad_rules_found": 0.55,
+      "good_rules_wrongly_listed_per_run": 0.0,
+      "reviews_on_listed_rules_that_were_overridden_share_of_all_findings": 0.05346239472163085
+    },
+    {
+      "decisions": 1200,
+      "share_of_bad_rules_found": 0.725,
+      "good_rules_wrongly_listed_per_run": 0.0,
+      "reviews_on_listed_rules_that_were_overridden_share_of_all_findings": 0.06615879460630822
+    },
+    {
+      "decisions": 2500,
+      "share_of_bad_rules_found": 0.9,
+      "good_rules_wrongly_listed_per_run": 0.0,
+      "reviews_on_listed_rules_that_were_overridden_share_of_all_findings": 0.08683244870075493
+    },
+    {
+      "decisions": 5000,
+      "share_of_bad_rules_found": 1.0,
+      "good_rules_wrongly_listed_per_run": 0.0,
+      "reviews_on_listed_rules_that_were_overridden_share_of_all_findings": 0.09635571400277283
+    }
+  ],
+  "light_review": [
+    {
+      "skip_lower": 0.85,
+      "decisions": 300,
+      "runs_with_any_candidate": 0.85,
+      "mean_candidate_rules": 1.2,
+      "mean_share_of_findings_covered": 0.10605455717911579,
+      "mean_truly_wrong_findings_among_them": 1.1188235294117657,
+      "mean_stated_bound_on_wrong": 4.855642074148661,
+      "bound_held_in_share_of_runs_with_candidates": 1.0,
+      "candidate_rules_whose_true_rate_is_below_0_9": 0.0
+    },
+    {
+      "skip_lower": 0.85,
+      "decisions": 600,
+      "runs_with_any_candidate": 1.0,
+      "mean_candidate_rules": 5.6,
+      "mean_share_of_findings_covered": 0.4060014885695374,
+      "mean_truly_wrong_findings_among_them": 7.348500000000007,
+      "mean_stated_bound_on_wrong": 28.747974048017277,
+      "bound_held_in_share_of_runs_with_candidates": 1.0,
+      "candidate_rules_whose_true_rate_is_below_0_9": 0.0
+    },
+    {
+      "skip_lower": 0.85,
+      "decisions": 1200,
+      "runs_with_any_candidate": 1.0,
+      "mean_candidate_rules": 11.0,
+      "mean_share_of_findings_covered": 0.7396500767291851,
+      "mean_truly_wrong_findings_among_them": 26.811000000000025,
+      "mean_stated_bound_on_wrong": 92.93846218351767,
+      "bound_held_in_share_of_runs_with_candidates": 1.0,
+      "candidate_rules_whose_true_rate_is_below_0_9": 0.0
+    },
+    {
+      "skip_lower": 0.85,
+      "decisions": 2500,
+      "runs_with_any_candidate": 1.0,
+      "mean_candidate_rules": 12.75,
+      "mean_share_of_findings_covered": 0.816358658695529,
+      "mean_truly_wrong_findings_among_them": 61.740000000000045,
+      "mean_stated_bound_on_wrong": 170.35223718887872,
+      "bound_held_in_share_of_runs_with_candidates": 1.0,
+      "candidate_rules_whose_true_rate_is_below_0_9": 0.0
+    },
+    {
+      "skip_lower": 0.85,
+      "decisions": 5000,
+      "runs_with_any_candidate": 1.0,
+      "mean_candidate_rules": 12.95,
+      "mean_share_of_findings_covered": 0.8225292137056845,
+      "mean_truly_wrong_findings_among_them": 124.5885000000001,
+      "mean_stated_bound_on_wrong": 278.7452541708433,
+      "bound_held_in_share_of_runs_with_candidates": 1.0,
+      "candidate_rules_whose_true_rate_is_below_0_9": 0.0
+    },
+    {
+      "skip_lower": 0.9,
+      "decisions": 300,
+      "runs_with_any_candidate": 0.0,
+      "mean_candidate_rules": 0.0,
+      "mean_share_of_findings_covered": 0.0,
+      "mean_truly_wrong_findings_among_them": 0.0,
+      "mean_stated_bound_on_wrong": 0.0,
+      "bound_held_in_share_of_runs_with_candidates": null,
+      "candidate_rules_whose_true_rate_is_below_0_9": 0.0
+    },
+    {
+      "skip_lower": 0.9,
+      "decisions": 600,
+      "runs_with_any_candidate": 0.7,
+      "mean_candidate_rules": 1.15,
+      "mean_share_of_findings_covered": 0.09116765626369895,
+      "mean_truly_wrong_findings_among_them": 2.3550000000000018,
+      "mean_stated_bound_on_wrong": 6.589513654789917,
+      "bound_held_in_share_of_runs_with_candidates": 1.0,
+      "candidate_rules_whose_true_rate_is_below_0_9": 0.0
+    },
+    {
+      "skip_lower": 0.9,
+      "decisions": 1200,
+      "runs_with_any_candidate": 1.0,
+      "mean_candidate_rules": 4.8,
+      "mean_share_of_findings_covered": 0.3390090668128889,
+      "mean_truly_wrong_findings_among_them": 12.288000000000011,
+      "mean_stated_bound_on_wrong": 34.24478160499142,
+      "bound_held_in_share_of_runs_with_candidates": 1.0,
+      "candidate_rules_whose_true_rate_is_below_0_9": 0.0
+    },
+    {
+      "skip_lower": 0.9,
+      "decisions": 2500,
+      "runs_with_any_candidate": 1.0,
+      "mean_candidate_rules": 9.65,
+      "mean_share_of_findings_covered": 0.663164741567657,
+      "mean_truly_wrong_findings_among_them": 50.15400000000004,
+      "mean_stated_bound_on_wrong": 125.84570393716459,
+      "bound_held_in_share_of_runs_with_candidates": 1.0,
+      "candidate_rules_whose_true_rate_is_below_0_9": 0.0
+    },
+    {
+      "skip_lower": 0.9,
+      "decisions": 5000,
+      "runs_with_any_candidate": 1.0,
+      "mean_candidate_rules": 12.65,
+      "mean_share_of_findings_covered": 0.8147653000594179,
+      "mean_truly_wrong_findings_among_them": 123.4125000000001,
+      "mean_stated_bound_on_wrong": 274.5027618528851,
+      "bound_held_in_share_of_runs_with_candidates": 1.0,
+      "candidate_rules_whose_true_rate_is_below_0_9": 0.0
+    },
+    {
+      "skip_lower": 0.95,
+      "decisions": 300,
+      "runs_with_any_candidate": 0.0,
+      "mean_candidate_rules": 0.0,
+      "mean_share_of_findings_covered": 0.0,
+      "mean_truly_wrong_findings_among_them": 0.0,
+      "mean_stated_bound_on_wrong": 0.0,
+      "bound_held_in_share_of_runs_with_candidates": null,
+      "candidate_rules_whose_true_rate_is_below_0_9": 0.0
+    },
+    {
+      "skip_lower": 0.95,
+      "decisions": 600,
+      "runs_with_any_candidate": 0.0,
+      "mean_candidate_rules": 0.0,
+      "mean_share_of_findings_covered": 0.0,
+      "mean_truly_wrong_findings_among_them": 0.0,
+      "mean_stated_bound_on_wrong": 0.0,
+      "bound_held_in_share_of_runs_with_candidates": null,
+      "candidate_rules_whose_true_rate_is_below_0_9": 0.0
+    },
+    {
+      "skip_lower": 0.95,
+      "decisions": 1200,
+      "runs_with_any_candidate": 0.1,
+      "mean_candidate_rules": 0.1,
+      "mean_share_of_findings_covered": 0.00641025641025641,
+      "mean_truly_wrong_findings_among_them": 2.325000000000002,
+      "mean_stated_bound_on_wrong": 3.6020398283176243,
+      "bound_held_in_share_of_runs_with_candidates": 1.0,
+      "candidate_rules_whose_true_rate_is_below_0_9": 0.0
+    },
+    {
+      "skip_lower": 0.95,
+      "decisions": 2500,
+      "runs_with_any_candidate": 0.5,
+      "mean_candidate_rules": 0.65,
+      "mean_share_of_findings_covered": 0.04061880206267355,
+      "mean_truly_wrong_findings_among_them": 6.1440000000000055,
+      "mean_stated_bound_on_wrong": 8.921284725744716,
+      "bound_held_in_share_of_runs_with_candidates": 1.0,
+      "candidate_rules_whose_true_rate_is_below_0_9": 0.0
+    },
+    {
+      "skip_lower": 0.95,
+      "decisions": 5000,
+      "runs_with_any_candidate": 0.75,
+      "mean_candidate_rules": 1.15,
+      "mean_share_of_findings_covered": 0.07959001782531197,
+      "mean_truly_wrong_findings_among_them": 16.074000000000012,
+      "mean_stated_bound_on_wrong": 23.796031913856876,
+      "bound_held_in_share_of_runs_with_candidates": 1.0,
+      "candidate_rules_whose_true_rate_is_below_0_9": 0.0
+    }
+  ],
+  "time": "not simulated: the timestamps in simulated histories are invented, so no minutes or hours are reported; the production report measures them from lease-to-decision times",
+  "note": "simulated reviewers; shows the mechanism, not real-world accuracy"
+}

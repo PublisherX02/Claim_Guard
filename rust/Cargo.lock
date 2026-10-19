@@ -530,11 +530,13 @@ dependencies = [
  "cg-mongo",
  "cg-queue",
  "cg-redis",
+ "cg-sim",
  "cg-timestamp",
  "rpassword",
  "serde",
  "serde_json",
  "tokio",
+ "ureq",
 ]
 
 [[package]]
@@ -609,6 +611,7 @@ dependencies = [
 name = "cg-queue"
 version = "0.1.0"
 dependencies = [
+ "bigdecimal",
  "cg-access",
  "cg-audit",
  "cg-core",
@@ -634,6 +637,18 @@ version = "0.1.0"
 dependencies = [
  "cg-queue",
  "redis",
+]
+
+[[package]]
+name = "cg-sim"
+version = "0.1.0"
+dependencies = [
+ "cg-queue",
+ "rand 0.8.8",
+ "rand_chacha 0.3.1",
+ "serde",
+ "serde_json",
+ "tempfile",
 ]
 
 [[package]]

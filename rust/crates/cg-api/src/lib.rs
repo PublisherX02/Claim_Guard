@@ -40,9 +40,12 @@ pub const MAX_BODY_BYTES: usize = 65_536;
 pub const MAX_UPLOAD_BYTES: usize = 16 * 1024 * 1024;
 pub const IMPORT_FILE_PATH: &str = "/api/v1/queue/import/file";
 pub const IMPORT_CSV_PATH: &str = "/api/v1/queue/import/csv";
+/// One submission is one batch of up to 1,000 claims (docs/53), so this route takes a larger body than the others (about 1.5 KB a claim).
+pub const SUBMIT_PATH: &str = "/api/v1/queue/submit";
+pub const MAX_SUBMIT_BYTES: usize = 4 * 1024 * 1024;
 
 pub fn body_limit(path: &str) -> usize {
-    if path == IMPORT_FILE_PATH || path == IMPORT_CSV_PATH { MAX_UPLOAD_BYTES } else { MAX_BODY_BYTES }
+    if path == IMPORT_FILE_PATH || path == IMPORT_CSV_PATH { MAX_UPLOAD_BYTES } else if path == SUBMIT_PATH { MAX_SUBMIT_BYTES } else { MAX_BODY_BYTES }
 }
 /// Failed sign-ins one client address may make, over all badges, in one window. (Per badge the service allows far fewer: PAIR_LIMIT.)
 pub const LOGIN_FAILURE_LIMIT: i64 = 100;
@@ -164,9 +167,32 @@ struct ChangePasswordBody {
 
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
+struct WhatIfBody {
+    changes: Value,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct WorkRecheckBody {
+    changes: Value,
+    reason: String,
+    #[serde(default)]
+    rule_ids: Option<Vec<String>>,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
 struct DecisionBody {
     action: String,
+    #[serde(default)]
     reason: String,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct BulkBody {
+    rule_id: String,
+    claim_ids: Vec<String>,
 }
 
 #[derive(Deserialize)]
@@ -198,12 +224,38 @@ struct CreateUserBody {
 #[serde(deny_unknown_fields)]
 struct VerifyBody {
     action: String,
+    /// For a claim of a batch, `escalate` names the rule that should have flagged it (R001 to R015 or "other"). Ignored for a claim on its own.
+    #[serde(default)]
+    category: Option<String>,
+    #[serde(default)]
+    note: Option<String>,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct InfoRequestBody {
+    request_id: String,
+    /// "send" (the officer confirms) or "decline".
+    action: String,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct BatchDecisionBody {
+    action: String,
+    #[serde(default)]
+    n: Option<i64>,
+    #[serde(default)]
+    note: Option<String>,
 }
 
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct SubmitBody {
     claims: Vec<Value>,
+    /// true: answer at once with a job id (202) and take the claims in in the background; poll GET /api/v1/queue/submit/{job}
+    #[serde(default, rename = "async")]
+    run_async: bool,
 }
 
 fn too_long(s: &str, max: usize) -> bool {
@@ -508,12 +560,21 @@ impl Api {
             ["work", "heartbeat"] if self.queue.is_some() => if m == "POST" { self.work_heartbeat(req) } else { Err(wrong()) },
             ["work", "claims", id, "findings", rule, "decision"] if self.queue.is_some() => if m == "POST" { self.work_decide(req, id, rule) } else { Err(wrong()) },
             ["work", "claims", id, "verify"] if self.queue.is_some() => if m == "POST" { self.work_verify(req, id) } else { Err(wrong()) },
+            ["work", "claims", id, "info-request"] if self.queue.is_some() => if m == "POST" { self.work_info_request(req, id) } else { Err(wrong()) },
+            ["work", "claims", id, "whatif"] if self.queue.is_some() => if m == "POST" { self.work_whatif(req, id) } else { Err(wrong()) },
+            ["work", "claims", id, "recheck"] if self.queue.is_some() => if m == "POST" { self.work_recheck(req, id) } else { Err(wrong()) },
+            ["work", "bulk-confirm"] if self.queue.is_some() => if m == "POST" { self.work_bulk_confirm(req) } else { Err(wrong()) },
+            ["work", "bulk-confirm"] if self.queue.is_some() => if m == "POST" { self.work_bulk_confirm(req) } else { Err(wrong()) },
             ["queue", "dashboard"] if self.queue.is_some() => if m == "GET" { self.q_dashboard(req) } else { Err(wrong()) },
             ["queue", "feedback"] if self.queue.is_some() => if m == "GET" { self.q_feedback(req) } else { Err(wrong()) },
             ["queue", "import", "file"] => if m == "POST" { self.import_file(req) } else { Err(wrong()) },
             ["queue", "import", "csv"] => if m == "POST" { self.import_csv(req) } else { Err(wrong()) },
             ["queue", "import", "validate"] => if m == "POST" { self.import_validate(req) } else { Err(wrong()) },
+            ["queue", "batches"] if self.queue.is_some() => if m == "GET" { self.q_batches(req) } else { Err(wrong()) },
+            ["queue", "batches", id] if self.queue.is_some() => if m == "GET" { self.q_batch(req, id) } else { Err(wrong()) },
+            ["queue", "batches", id, "decision"] if self.queue.is_some() => if m == "POST" { self.q_batch_decision(req, id) } else { Err(wrong()) },
             ["queue", "submit"] if self.queue.is_some() => if m == "POST" { self.q_submit(req) } else { Err(wrong()) },
+            ["queue", "submit", id] if self.queue.is_some() => if m == "GET" { self.q_submit_job(req, id) } else { Err(wrong()) },
             ["queue", "config"] if self.queue.is_some() => match m { "GET" => self.q_get_config(req), "PATCH" => self.q_patch_config(req), _ => Err(wrong()) },
             _ => Err(ApiError::new(404, "not_found")),
         }
@@ -950,8 +1011,9 @@ impl Api {
     // ---- the queue --------------------------------------------------------------------------------------------------------
     fn work_inbox(&self, req: &ApiRequest) -> R {
         let p = self.need(req, "claims.decide")?;
-        let claims = self.queue()?.inbox(&p).map_err(|e| self.qerr(e, req, &p))?;
-        Ok(ApiResponse::json(200, &json!({"claims": claims})))
+        let q = self.queue()?;
+        let claims = q.inbox(&p).map_err(|e| self.qerr(e, req, &p))?;
+        Ok(ApiResponse::json(200, &json!({"claims": claims, "light_review": q.light_review_rules()})))
     }
 
     /// A fingerprint of what the caller's open page shows, for the live-update stream (server.rs): it changes when the caller's own inbox
@@ -1001,14 +1063,66 @@ impl Api {
 
     fn work_decide(&self, req: &ApiRequest, id: &str, rule: &str) -> R {
         let p = self.need(req, "claims.decide")?;
-        let b: DecisionBody = body_of(req).ok().filter(|b: &DecisionBody| ACTIONS.contains(&b.action.as_str()) && !b.reason.is_empty() && !too_long(&b.reason, 1000)).ok_or_else(invalid)?;
+        let b: DecisionBody = body_of(req).ok().filter(|b: &DecisionBody| ACTIONS.contains(&b.action.as_str()) && (!b.reason.is_empty() || b.action == "confirm_issue") && !too_long(&b.reason, 1000)).ok_or_else(invalid)?;
         self.queue()?.decide_finding(&p, id, rule, &b.action, &b.reason).map(|v| ApiResponse::json(200, &v)).map_err(|e| self.qerr(e, req, &p))
+    }
+
+    fn work_bulk_confirm(&self, req: &ApiRequest) -> R {
+        let p = self.need(req, "claims.decide")?;
+        let b: BulkBody = body_of(req)
+            .ok()
+            .filter(|b: &BulkBody| b.rule_id.len() <= 10 && (1..=25).contains(&b.claim_ids.len()) && b.claim_ids.iter().all(|c| !c.is_empty() && c.len() <= 64))
+            .ok_or_else(invalid)?;
+        self.queue()?.bulk_confirm(&p, &b.rule_id, &b.claim_ids).map(|v| ApiResponse::json(200, &v)).map_err(|e| self.qerr(e, req, &p))
+    }
+
+    fn work_whatif(&self, req: &ApiRequest, id: &str) -> R {
+        let p = self.need(req, "claims.recheck")?;
+        let b: WhatIfBody = body_of(req).map_err(|_| invalid())?;
+        self.queue()?.what_if(&p, id, &b.changes).map(|v| ApiResponse::json(200, &v)).map_err(|e| self.qerr(e, req, &p))
+    }
+
+    fn work_recheck(&self, req: &ApiRequest, id: &str) -> R {
+        let p = self.need(req, "claims.recheck")?;
+        let b: WorkRecheckBody = body_of(req).ok().filter(|b: &WorkRecheckBody| !b.reason.is_empty() && !too_long(&b.reason, 1000) && b.rule_ids.as_ref().map_or(true, |r| r.len() <= 15 && r.iter().all(|x| x.len() <= 10))).ok_or_else(invalid)?;
+        self.queue()?.recheck(&p, id, &b.changes, &b.reason, b.rule_ids.as_deref()).map(|v| ApiResponse::json(200, &v)).map_err(|e| self.qerr(e, req, &p))
     }
 
     fn work_verify(&self, req: &ApiRequest, id: &str) -> R {
         let p = self.need(req, "claims.decide")?;
-        let b: VerifyBody = body_of(req).ok().filter(|b: &VerifyBody| b.action == "verify_clear" || b.action == "escalate").ok_or_else(invalid)?;
-        self.queue()?.decide_green(&p, id, &b.action).map(|v| ApiResponse::json(200, &v)).map_err(|e| self.qerr(e, req, &p))
+        let b: VerifyBody = body_of(req)
+            .ok()
+            .filter(|b: &VerifyBody| (b.action == "verify_clear" || b.action == "escalate") && b.category.as_deref().map_or(true, |c| !too_long(c, 10)) && b.note.as_deref().map_or(true, |n| !too_long(n, 1000)))
+            .ok_or_else(invalid)?;
+        self.queue()?.decide_green_in(&p, id, &b.action, b.category.as_deref(), b.note.as_deref()).map(|v| ApiResponse::json(200, &v)).map_err(|e| self.qerr(e, req, &p))
+    }
+
+    fn work_info_request(&self, req: &ApiRequest, id: &str) -> R {
+        let p = self.need(req, "claims.decide")?;
+        let b: InfoRequestBody = body_of(req).ok().filter(|b: &InfoRequestBody| (1..=40).contains(&b.request_id.len()) && (b.action == "send" || b.action == "decline")).ok_or_else(invalid)?;
+        self.queue()?.decide_info_request(&p, id, &b.request_id, b.action == "send").map(|v| ApiResponse::json(200, &v)).map_err(|e| self.qerr(e, req, &p))
+    }
+
+    fn q_batches(&self, req: &ApiRequest) -> R {
+        let p = self.need(req, "routing.manage")?;
+        self.queue()?.batches(&p).map(|v| ApiResponse::json(200, &v)).map_err(|e| self.qerr(e, req, &p))
+    }
+
+    fn q_batch(&self, req: &ApiRequest, id: &str) -> R {
+        let p = self.need(req, "routing.manage")?;
+        if too_long(id, 40) {
+            return Err(ApiError::new(404, "not_found"));
+        }
+        self.queue()?.batch(&p, id).map(|v| ApiResponse::json(200, &v)).map_err(|e| self.qerr(e, req, &p))
+    }
+
+    fn q_batch_decision(&self, req: &ApiRequest, id: &str) -> R {
+        let p = self.need(req, "routing.manage")?;
+        if too_long(id, 40) {
+            return Err(ApiError::new(404, "not_found"));
+        }
+        let b: BatchDecisionBody = body_of(req).ok().filter(|b: &BatchDecisionBody| b.note.as_deref().map_or(true, |n| !too_long(n, 1000))).ok_or_else(invalid)?;
+        self.queue()?.decide_batch(&p, id, &b.action, b.n, b.note.as_deref().unwrap_or("")).map(|v| ApiResponse::json(200, &v)).map_err(|e| self.qerr(e, req, &p))
     }
 
     fn q_dashboard(&self, req: &ApiRequest) -> R {
@@ -1023,9 +1137,21 @@ impl Api {
 
     fn q_submit(&self, req: &ApiRequest) -> R {
         let p = self.need(req, "routing.manage")?;
-        let b: SubmitBody = body_of(req).ok().filter(|b: &SubmitBody| (1..=25).contains(&b.claims.len()) && b.claims.iter().all(Value::is_object)).ok_or_else(invalid)?;
+        let b: SubmitBody = body_of(req).ok().filter(|b: &SubmitBody| (1..=cg_queue::service::MAX_SUBMIT_CLAIMS).contains(&b.claims.len()) && b.claims.iter().all(Value::is_object)).ok_or_else(invalid)?;
+        if b.run_async {
+            let job = self.queue()?.submit_claims_async(&p, b.claims).map_err(|e| self.qerr(e, req, &p))?;
+            return Ok(ApiResponse::json(202, &job));
+        }
         let rows = self.queue()?.submit_claims(&p, &b.claims).map_err(|e| self.qerr(e, req, &p))?;
         Ok(ApiResponse::json(200, &json!({"results": rows})))
+    }
+
+    fn q_submit_job(&self, req: &ApiRequest, id: &str) -> R {
+        let p = self.need(req, "routing.manage")?;
+        if id.len() > 40 || !id.bytes().all(|c| c.is_ascii_alphanumeric()) {
+            return Err(ApiError::new(404, "not_found"));
+        }
+        self.queue()?.submit_job(&p, id).map(|v| ApiResponse::json(200, &v)).map_err(|e| self.qerr(e, req, &p))
     }
 
     fn q_get_config(&self, req: &ApiRequest) -> R {
@@ -1037,7 +1163,7 @@ impl Api {
         let p = self.need(req, "routing.manage")?;
         let mut m = object_body(req)?;
         let expected = m.remove("expected_version").filter(Value::is_i64).and_then(|v| v.as_i64()).filter(|v| *v >= 0).ok_or_else(invalid)?;
-        const ALLOWED: [&str; 11] = ["points", "lane_b_flagged", "lane_b_score", "slice_size", "low_water", "lease_seconds", "aging_per_hour", "ai_per_minute", "ai_daily_budget", "on_shift", "exclusions"];
+        const ALLOWED: [&str; 15] = ["points", "lane_b_flagged", "lane_b_score", "slice_size", "low_water", "lease_seconds", "aging_per_hour", "ai_per_minute", "ai_daily_budget", "on_shift", "exclusions", "auto_clear_green", "audit_percent", "bulk_confirm_skip_lower", "auto_request_info"];
         if m.keys().any(|k| !ALLOWED.contains(&k.as_str())) || m.values().any(Value::is_null) {
             return Err(invalid());
         }

@@ -1,0 +1,1521 @@
+{
+ "system": "dense_minilm_multi through the product (CPU sidecar + Rust cosine), threshold 0.29",
+ "slices": {
+  "en test (all)": {
+   "product": {
+    "hit@1": 0.42857142857142855,
+    "hit@3": 0.8095238095238095,
+    "false_refusal": 0.047619047619047616,
+    "n_ans": 21,
+    "off_refused": 0.625,
+    "n_off": 8
+   },
+   "experiment": {
+    "hit@1": 0.42857142857142855,
+    "hit@3": 0.8095238095238095,
+    "false_refusal": 0.047619047619047616,
+    "n_ans": 21,
+    "off_refused": 0.625,
+    "n_off": 8
+   }
+  },
+  "fr+ar test": {
+   "product": {
+    "hit@1": 0.6666666666666666,
+    "hit@3": 1.0,
+    "false_refusal": 0.0,
+    "n_ans": 6
+   },
+   "experiment": {
+    "hit@1": 0.6666666666666666,
+    "hit@3": 1.0,
+    "false_refusal": 0.0,
+    "n_ans": 6
+   }
+  },
+  "original 26 + 5 off-topic": {
+   "product": {
+    "hit@1": 0.8076923076923077,
+    "hit@3": 0.9615384615384616,
+    "false_refusal": 0.0,
+    "n_ans": 26,
+    "off_refused": 1.0,
+    "n_off": 5
+   },
+   "experiment": {
+    "hit@1": 0.8076923076923077,
+    "hit@3": 0.9615384615384616,
+    "false_refusal": 0.0,
+    "n_ans": 26,
+    "off_refused": 1.0,
+    "n_off": 5
+   }
+  },
+  "off-topic test (pure)": {
+   "product": {
+    "off_refused": 1.0,
+    "n_off": 4
+   },
+   "experiment": {
+    "off_refused": 1.0,
+    "n_off": 4
+   }
+  },
+  "off-topic test (near-domain)": {
+   "product": {
+    "off_refused": 0.25,
+    "n_off": 4
+   },
+   "experiment": {
+    "off_refused": 0.25,
+    "n_off": 4
+   }
+  }
+ },
+ "seconds_for_all_questions": 19.1,
+ "questions": 102,
+ "keyword_fallback_original_26": {
+  "product": {
+   "hit@1": 0.8846153846153846,
+   "hit@3": 0.9615384615384616,
+   "false_refusal": 0.038461538461538464,
+   "n_ans": 26,
+   "off_refused": 1.0,
+   "n_off": 5
+  },
+  "experiment_bm25": {
+   "hit@1": 0.8846153846153846,
+   "hit@3": 0.9615384615384616,
+   "false_refusal": 0.038461538461538464,
+   "n_ans": 26,
+   "off_refused": 1.0,
+   "n_off": 5
+  }
+ },
+ "per_question": {
+  "P01": {
+   "q": "the form came in with blank fields",
+   "answered": true,
+   "sources": [
+    "rule R006",
+    "rule R011",
+    "rule R014",
+    "rule R012"
+   ],
+   "mode": "semantic",
+   "status": 200,
+   "fallback": null,
+   "caveat": "closest passage by meaning; it may not answer your question",
+   "top_score": 0.37
+  },
+  "P02": {
+   "q": "patient details were left empty on the submission",
+   "answered": true,
+   "sources": [
+    "rule R004",
+    "rule R014",
+    "rule R001",
+    "rule R010"
+   ],
+   "mode": "semantic",
+   "status": 200,
+   "fallback": null,
+   "caveat": "closest passage by meaning; it may not answer your question",
+   "top_score": 0.42
+  },
+  "P03": {
+   "q": "an essential piece of the bill is absent",
+   "answered": true,
+   "sources": [
+    "rule R015",
+    "rule R015",
+    "rule R010",
+    "rule R001"
+   ],
+   "mode": "semantic",
+   "status": 200,
+   "fallback": null,
+   "caveat": "closest passage by meaning; it may not answer your question",
+   "top_score": 0.37
+  },
+  "P04": {
+   "q": "treatment is dated later than the day the paperwork was sent",
+   "answered": true,
+   "sources": [
+    "rule R002",
+    "policy EDU-PLUS (table version 0)",
+    "policy EDU-BASIC (table version 0)",
+    "rule R003"
+   ],
+   "mode": "semantic",
+   "status": 200,
+   "fallback": null,
+   "caveat": "closest passage by meaning; it may not answer your question",
+   "top_score": 0.48
+  },
+  "P05": {
+   "q": "the visit happened after we received the bill, how is that possible",
+   "answered": false,
+   "sources": [],
+   "mode": "semantic",
+   "status": 200,
+   "fallback": null,
+   "caveat": "closest passage by meaning; it may not answer your question",
+   "top_score": null
+  },
+  "P06": {
+   "q": "was the patient insured on the day of the visit",
+   "answered": true,
+   "sources": [
+    "rule R004",
+    "rule R004",
+    "policy EDU-PLUS (table version 0)",
+    "rule R003"
+   ],
+   "mode": "semantic",
+   "status": 200,
+   "fallback": null,
+   "caveat": "closest passage by meaning; it may not answer your question",
+   "top_score": 0.38
+  },
+  "P07": {
+   "q": "the insurance policy had expired by the time of treatment",
+   "answered": true,
+   "sources": [
+    "policy EDU-PLUS (table version 0)",
+    "policy EDU-BASIC (table version 0)",
+    "rule R003",
+    "rule R003"
+   ],
+   "mode": "semantic",
+   "status": 200,
+   "fallback": null,
+   "caveat": "closest passage by meaning; it may not answer your question",
+   "top_score": 0.48
+  },
+  "P08": {
+   "q": "member's plan was not in force when they were seen",
+   "answered": true,
+   "sources": [
+    "rule R014",
+    "policy EDU-PLUS (table version 0)",
+    "rule R003",
+    "rule R002"
+   ],
+   "mode": "semantic",
+   "status": 200,
+   "fallback": null,
+   "caveat": "closest passage by meaning; it may not answer your question",
+   "top_score": 0.32
+  },
+  "P09": {
+   "q": "the person treated is not the person on the insurance card",
+   "answered": true,
+   "sources": [
+    "rule R004",
+    "rule R004",
+    "rule R005",
+    "rule R001"
+   ],
+   "mode": "semantic",
+   "status": 200,
+   "fallback": null,
+   "caveat": "closest passage by meaning; it may not answer your question",
+   "top_score": 0.34
+  },
+  "P10": {
+   "q": "the ID on the bill and the ID on the policy differ by one letter",
+   "answered": true,
+   "sources": [
+    "policy EDU-PLUS (table version 0)",
+    "policy EDU-BASIC (table version 0)",
+    "rule R015",
+    "rule R015"
+   ],
+   "mode": "semantic",
+   "status": 200,
+   "fallback": null,
+   "caveat": "closest passage by meaning; it may not answer your question",
+   "top_score": 0.44
+  },
+  "P11": {
+   "q": "claim filed under a different member than the policyholder",
+   "answered": true,
+   "sources": [
+    "policy EDU-PLUS (table version 0)",
+    "policy EDU-BASIC (table version 0)",
+    "rule R001",
+    "rule R012"
+   ],
+   "mode": "semantic",
+   "status": 200,
+   "fallback": null,
+   "caveat": "closest passage by meaning; it may not answer your question",
+   "top_score": 0.47
+  },
+  "P12": {
+   "q": "the clinic is outside the insurer's list",
+   "answered": false,
+   "sources": [],
+   "mode": "semantic",
+   "status": 200,
+   "fallback": null,
+   "caveat": "closest passage by meaning; it may not answer your question",
+   "top_score": null
+  },
+  "P13": {
+   "q": "can we bill from a hospital the payer doesn't contract with",
+   "answered": true,
+   "sources": [
+    "rule R004",
+    "rule R004",
+    "policy EDU-BASIC (table version 0)",
+    "policy EDU-PLUS (table version 0)"
+   ],
+   "mode": "semantic",
+   "status": 200,
+   "fallback": null,
+   "caveat": "closest passage by meaning; it may not answer your question",
+   "top_score": 0.35
+  },
+  "P14": {
+   "q": "the same procedure appears twice for one visit",
+   "answered": true,
+   "sources": [
+    "rule R006",
+    "rule R004",
+    "rule R006",
+    "rule R004"
+   ],
+   "mode": "semantic",
+   "status": 200,
+   "fallback": null,
+   "caveat": "closest passage by meaning; it may not answer your question",
+   "top_score": 0.33
+  },
+  "P15": {
+   "q": "someone entered the same service two times",
+   "answered": true,
+   "sources": [
+    "rule R006",
+    "rule R002",
+    "rule R002",
+    "rule R006"
+   ],
+   "mode": "semantic",
+   "status": 200,
+   "fallback": null,
+   "caveat": "closest passage by meaning; it may not answer your question",
+   "top_score": 0.46
+  },
+  "P16": {
+   "q": "is a repeated entry always a mistake",
+   "answered": true,
+   "sources": [
+    "rule R004",
+    "rule R006",
+    "rule R006",
+    "rule R002"
+   ],
+   "mode": "semantic",
+   "status": 200,
+   "fallback": null,
+   "caveat": "closest passage by meaning; it may not answer your question",
+   "top_score": 0.43
+  },
+  "P17": {
+   "q": "the price per item times the count gives a different figure than the row total",
+   "answered": true,
+   "sources": [
+    "rule R012",
+    "rule R013",
+    "rule R012",
+    "rule R013"
+   ],
+   "mode": "semantic",
+   "status": 200,
+   "fallback": null,
+   "caveat": "closest passage by meaning; it may not answer your question",
+   "top_score": 0.44
+  },
+  "P18": {
+   "q": "the multiplication on one row is wrong",
+   "answered": true,
+   "sources": [
+    "rule R007",
+    "rule R012",
+    "rule R007",
+    "rule R014"
+   ],
+   "mode": "semantic",
+   "status": 200,
+   "fallback": null,
+   "caveat": "closest passage by meaning; it may not answer your question",
+   "top_score": 0.49
+  },
+  "P19": {
+   "q": "is a one cent difference acceptable",
+   "answered": true,
+   "sources": [
+    "rule R013",
+    "policy EDU-PLUS (table version 0)",
+    "policy EDU-BASIC (table version 0)",
+    "rule R004"
+   ],
+   "mode": "semantic",
+   "status": 200,
+   "fallback": null,
+   "caveat": "closest passage by meaning; it may not answer your question",
+   "top_score": 0.41
+  },
+  "P20": {
+   "q": "which treatments cannot be billed without pre-approval",
+   "answered": true,
+   "sources": [
+    "rule R004",
+    "rule R004",
+    "policy EDU-PLUS (table version 0)",
+    "rule R009"
+   ],
+   "mode": "semantic",
+   "status": 200,
+   "fallback": null,
+   "caveat": "closest passage by meaning; it may not answer your question",
+   "top_score": 0.35
+  },
+  "P21": {
+   "q": "the pre-approval number is blank on an imaging bill",
+   "answered": true,
+   "sources": [
+    "policy EDU-BASIC (table version 0)",
+    "policy EDU-PLUS (table version 0)",
+    "rule R009",
+    "rule R010"
+   ],
+   "mode": "semantic",
+   "status": 200,
+   "fallback": null,
+   "caveat": "closest passage by meaning; it may not answer your question",
+   "top_score": 0.44
+  },
+  "P22": {
+   "q": "the pre-approval was granted to someone else",
+   "answered": true,
+   "sources": [
+    "rule R009",
+    "rule R014",
+    "rule R008",
+    "rule R009"
+   ],
+   "mode": "semantic",
+   "status": 200,
+   "fallback": null,
+   "caveat": "closest passage by meaning; it may not answer your question",
+   "top_score": 0.33
+  },
+  "P23": {
+   "q": "the approval has lapsed",
+   "answered": true,
+   "sources": [
+    "rule R014",
+    "rule R014",
+    "rule R002",
+    "rule R009"
+   ],
+   "mode": "semantic",
+   "status": 200,
+   "fallback": null,
+   "caveat": "closest passage by meaning; it may not answer your question",
+   "top_score": 0.34
+  },
+  "P24": {
+   "q": "more sessions were billed than the approval allowed",
+   "answered": true,
+   "sources": [
+    "policy EDU-PLUS (table version 0)",
+    "rule R009",
+    "rule R002",
+    "rule R014"
+   ],
+   "mode": "semantic",
+   "status": 200,
+   "fallback": null,
+   "caveat": "closest passage by meaning; it may not answer your question",
+   "top_score": 0.39
+  },
+  "P25": {
+   "q": "the scan report was not attached",
+   "answered": true,
+   "sources": [
+    "policy EDU-PLUS (table version 0)",
+    "rule R010",
+    "policy EDU-BASIC (table version 0)",
+    "rule R008"
+   ],
+   "mode": "semantic",
+   "status": 200,
+   "fallback": null,
+   "caveat": "closest passage by meaning; it may not answer your question",
+   "top_score": 0.35
+  },
+  "P26": {
+   "q": "which paperwork must accompany a dental procedure",
+   "answered": true,
+   "sources": [
+    "rule R010",
+    "rule R010",
+    "rule R014",
+    "rule R009"
+   ],
+   "mode": "semantic",
+   "status": 200,
+   "fallback": null,
+   "caveat": "closest passage by meaning; it may not answer your question",
+   "top_score": 0.35
+  },
+  "P27": {
+   "q": "only a preliminary version of the note was uploaded",
+   "answered": true,
+   "sources": [
+    "rule R014",
+    "rule R014",
+    "rule R010",
+    "rule R010"
+   ],
+   "mode": "semantic",
+   "status": 200,
+   "fallback": null,
+   "caveat": "closest passage by meaning; it may not answer your question",
+   "top_score": 0.36
+  },
+  "P28": {
+   "q": "the treatment code isn't one we recognise",
+   "answered": true,
+   "sources": [
+    "rule R011",
+    "rule R011",
+    "rule R011",
+    "rule R010"
+   ],
+   "mode": "semantic",
+   "status": 200,
+   "fallback": null,
+   "caveat": "closest passage by meaning; it may not answer your question",
+   "top_score": 0.5
+  },
+  "P29": {
+   "q": "typo in the procedure identifier",
+   "answered": true,
+   "sources": [
+    "rule R009",
+    "rule R004",
+    "rule R004",
+    "rule R008"
+   ],
+   "mode": "semantic",
+   "status": 200,
+   "fallback": null,
+   "caveat": "closest passage by meaning; it may not answer your question",
+   "top_score": 0.34
+  },
+  "P30": {
+   "q": "the grand total at the bottom doesn't add up",
+   "answered": true,
+   "sources": [
+    "rule R012",
+    "policy EDU-PLUS (table version 0)",
+    "rule R013",
+    "rule R007"
+   ],
+   "mode": "semantic",
+   "status": 200,
+   "fallback": null,
+   "caveat": "closest passage by meaning; it may not answer your question",
+   "top_score": 0.34
+  },
+  "P31": {
+   "q": "the sum of all rows is not what the header says",
+   "answered": true,
+   "sources": [
+    "rule R012",
+    "rule R012",
+    "rule R012",
+    "rule R007"
+   ],
+   "mode": "semantic",
+   "status": 200,
+   "fallback": null,
+   "caveat": "closest passage by meaning; it may not answer your question",
+   "top_score": 0.41
+  },
+  "P32": {
+   "q": "they charged more than the permitted rate for a blood test",
+   "answered": true,
+   "sources": [
+    "rule R012",
+    "rule R013",
+    "rule R013",
+    "policy EDU-PLUS (table version 0)"
+   ],
+   "mode": "semantic",
+   "status": 200,
+   "fallback": null,
+   "caveat": "closest passage by meaning; it may not answer your question",
+   "top_score": 0.41
+  },
+  "P33": {
+   "q": "maximum number of sessions per row for physiotherapy",
+   "answered": true,
+   "sources": [
+    "policy EDU-PLUS (table version 0)",
+    "policy EDU-BASIC (table version 0)",
+    "rule R004",
+    "rule R009"
+   ],
+   "mode": "semantic",
+   "status": 200,
+   "fallback": null,
+   "caveat": "closest passage by meaning; it may not answer your question",
+   "top_score": 0.31
+  },
+  "P34": {
+   "q": "a negative number of units was billed",
+   "answered": true,
+   "sources": [
+    "rule R013",
+    "policy EDU-PLUS (table version 0)",
+    "policy EDU-BASIC (table version 0)",
+    "rule R013"
+   ],
+   "mode": "semantic",
+   "status": 200,
+   "fallback": null,
+   "caveat": "closest passage by meaning; it may not answer your question",
+   "top_score": 0.53
+  },
+  "P35": {
+   "q": "what is the cap on a consultation fee",
+   "answered": true,
+   "sources": [
+    "rule R010",
+    "rule R014",
+    "rule R008",
+    "policy EDU-BASIC (table version 0)"
+   ],
+   "mode": "semantic",
+   "status": 200,
+   "fallback": null,
+   "caveat": "closest passage by meaning; it may not answer your question",
+   "top_score": 0.34
+  },
+  "P36": {
+   "q": "the bill arrived too late",
+   "answered": true,
+   "sources": [
+    "policy EDU-BASIC (table version 0)",
+    "policy EDU-PLUS (table version 0)",
+    "rule R015",
+    "rule R015"
+   ],
+   "mode": "semantic",
+   "status": 200,
+   "fallback": null,
+   "caveat": "closest passage by meaning; it may not answer your question",
+   "top_score": 0.3
+  },
+  "P37": {
+   "q": "how long do providers have to send in their invoice",
+   "answered": true,
+   "sources": [
+    "policy EDU-PLUS (table version 0)",
+    "policy EDU-BASIC (table version 0)",
+    "rule R014",
+    "rule R003"
+   ],
+   "mode": "semantic",
+   "status": 200,
+   "fallback": null,
+   "caveat": "closest passage by meaning; it may not answer your question",
+   "top_score": 0.42
+  },
+  "P38": {
+   "q": "the invoice was sent two months after the treatment",
+   "answered": true,
+   "sources": [
+    "rule R002",
+    "policy EDU-PLUS (table version 0)",
+    "rule R002",
+    "policy EDU-BASIC (table version 0)"
+   ],
+   "mode": "semantic",
+   "status": 200,
+   "fallback": null,
+   "caveat": "closest passage by meaning; it may not answer your question",
+   "top_score": 0.37
+  },
+  "P39": {
+   "q": "the invoice is in dollars",
+   "answered": true,
+   "sources": [
+    "rule R015",
+    "rule R015",
+    "rule R015",
+    "rule R007"
+   ],
+   "mode": "semantic",
+   "status": 200,
+   "fallback": null,
+   "caveat": "closest passage by meaning; it may not answer your question",
+   "top_score": 0.45
+  },
+  "P40": {
+   "q": "which money unit is accepted",
+   "answered": true,
+   "sources": [
+    "rule R015",
+    "rule R015",
+    "policy EDU-PLUS (table version 0)",
+    "policy EDU-BASIC (table version 0)"
+   ],
+   "mode": "semantic",
+   "status": 200,
+   "fallback": null,
+   "caveat": "closest passage by meaning; it may not answer your question",
+   "top_score": 0.45
+  },
+  "P41": {
+   "q": "which clinics can EDU-PLUS members use",
+   "answered": true,
+   "sources": [
+    "policy EDU-PLUS (table version 0)",
+    "policy EDU-BASIC (table version 0)",
+    "rule R010",
+    "rule R004"
+   ],
+   "mode": "semantic",
+   "status": 200,
+   "fallback": null,
+   "caveat": "closest passage by meaning; it may not answer your question",
+   "top_score": 0.42
+  },
+  "P42": {
+   "q": "what is the most we pay for an x-ray under the basic plan",
+   "answered": true,
+   "sources": [
+    "policy EDU-PLUS (table version 0)",
+    "policy EDU-BASIC (table version 0)",
+    "rule R013",
+    "rule R013"
+   ],
+   "mode": "semantic",
+   "status": 200,
+   "fallback": null,
+   "caveat": "closest passage by meaning; it may not answer your question",
+   "top_score": 0.44
+  },
+  "FR01": {
+   "q": "la facture est en dollars",
+   "answered": true,
+   "sources": [
+    "rule R015",
+    "rule R015",
+    "rule R015",
+    "rule R013"
+   ],
+   "mode": "semantic",
+   "status": 200,
+   "fallback": null,
+   "caveat": "closest passage by meaning; it may not answer your question",
+   "top_score": 0.53
+  },
+  "FR02": {
+   "q": "le patient n'était pas assuré le jour de la consultation",
+   "answered": true,
+   "sources": [
+    "rule R003",
+    "rule R002",
+    "rule R014",
+    "rule R004"
+   ],
+   "mode": "semantic",
+   "status": 200,
+   "fallback": null,
+   "caveat": "closest passage by meaning; it may not answer your question",
+   "top_score": 0.35
+  },
+  "FR03": {
+   "q": "la même prestation est saisie deux fois",
+   "answered": true,
+   "sources": [
+    "rule R002",
+    "rule R006",
+    "rule R002",
+    "rule R006"
+   ],
+   "mode": "semantic",
+   "status": 200,
+   "fallback": null,
+   "caveat": "closest passage by meaning; it may not answer your question",
+   "top_score": 0.35
+  },
+  "FR04": {
+   "q": "le total général ne correspond pas à la somme des lignes",
+   "answered": true,
+   "sources": [
+    "policy EDU-BASIC (table version 0)",
+    "policy EDU-PLUS (table version 0)",
+    "rule R012",
+    "rule R013"
+   ],
+   "mode": "semantic",
+   "status": 200,
+   "fallback": null,
+   "caveat": "closest passage by meaning; it may not answer your question",
+   "top_score": 0.45
+  },
+  "FR05": {
+   "q": "l'accord préalable est expiré",
+   "answered": true,
+   "sources": [
+    "policy EDU-PLUS (table version 0)",
+    "policy EDU-BASIC (table version 0)",
+    "rule R014",
+    "rule R002"
+   ],
+   "mode": "semantic",
+   "status": 200,
+   "fallback": null,
+   "caveat": "closest passage by meaning; it may not answer your question",
+   "top_score": 0.38
+  },
+  "FR06": {
+   "q": "quel est le délai pour envoyer la facture",
+   "answered": true,
+   "sources": [
+    "policy EDU-BASIC (table version 0)",
+    "policy EDU-PLUS (table version 0)",
+    "rule R002",
+    "rule R002"
+   ],
+   "mode": "semantic",
+   "status": 200,
+   "fallback": null,
+   "caveat": "closest passage by meaning; it may not answer your question",
+   "top_score": 0.47
+  },
+  "AR01": {
+   "q": "الفاتورة بالدولار",
+   "answered": true,
+   "sources": [
+    "rule R015",
+    "rule R015",
+    "rule R015",
+    "rule R013"
+   ],
+   "mode": "semantic",
+   "status": 200,
+   "fallback": null,
+   "caveat": "closest passage by meaning; it may not answer your question",
+   "top_score": 0.51
+  },
+  "AR02": {
+   "q": "المريض لم يكن مؤمنا عليه يوم الزيارة",
+   "answered": true,
+   "sources": [
+    "rule R004",
+    "rule R004",
+    "rule R003",
+    "rule R006"
+   ],
+   "mode": "semantic",
+   "status": 200,
+   "fallback": null,
+   "caveat": "closest passage by meaning; it may not answer your question",
+   "top_score": 0.31
+  },
+  "AR03": {
+   "q": "تم إدخال نفس الخدمة مرتين",
+   "answered": true,
+   "sources": [
+    "rule R006",
+    "rule R002",
+    "rule R006",
+    "rule R002"
+   ],
+   "mode": "semantic",
+   "status": 200,
+   "fallback": null,
+   "caveat": "closest passage by meaning; it may not answer your question",
+   "top_score": 0.44
+  },
+  "AR04": {
+   "q": "المجموع النهائي لا يطابق مجموع البنود",
+   "answered": true,
+   "sources": [
+    "rule R012",
+    "rule R013",
+    "rule R013",
+    "rule R004"
+   ],
+   "mode": "semantic",
+   "status": 200,
+   "fallback": null,
+   "caveat": "closest passage by meaning; it may not answer your question",
+   "top_score": 0.39
+  },
+  "AR05": {
+   "q": "الموافقة المسبقة منتهية",
+   "answered": true,
+   "sources": [
+    "rule R008",
+    "rule R009",
+    "rule R009",
+    "rule R008"
+   ],
+   "mode": "semantic",
+   "status": 200,
+   "fallback": null,
+   "caveat": "closest passage by meaning; it may not answer your question",
+   "top_score": 0.46
+  },
+  "AR06": {
+   "q": "ما هي المدة المسموحة لإرسال الفاتورة",
+   "answered": true,
+   "sources": [
+    "policy EDU-BASIC (table version 0)",
+    "policy EDU-PLUS (table version 0)",
+    "rule R002",
+    "rule R002"
+   ],
+   "mode": "semantic",
+   "status": 200,
+   "fallback": null,
+   "caveat": "closest passage by meaning; it may not answer your question",
+   "top_score": 0.53
+  },
+  "O01": {
+   "q": "what is the weather today",
+   "answered": false,
+   "sources": [],
+   "mode": "semantic",
+   "status": 200,
+   "fallback": null,
+   "caveat": "closest passage by meaning; it may not answer your question",
+   "top_score": null
+  },
+  "O02": {
+   "q": "who won the football match",
+   "answered": false,
+   "sources": [],
+   "mode": "semantic",
+   "status": 200,
+   "fallback": null,
+   "caveat": "closest passage by meaning; it may not answer your question",
+   "top_score": null
+  },
+  "O03": {
+   "q": "recommend a treatment for diabetes",
+   "answered": false,
+   "sources": [],
+   "mode": "semantic",
+   "status": 200,
+   "fallback": null,
+   "caveat": "closest passage by meaning; it may not answer your question",
+   "top_score": null
+  },
+  "O04": {
+   "q": "write me a poem",
+   "answered": false,
+   "sources": [],
+   "mode": "semantic",
+   "status": 200,
+   "fallback": null,
+   "caveat": "closest passage by meaning; it may not answer your question",
+   "top_score": null
+  },
+  "O05": {
+   "q": "",
+   "answered": false,
+   "sources": [],
+   "mode": "refused-by-api",
+   "status": 422
+  },
+  "O06": {
+   "q": "how tall is mount everest",
+   "answered": false,
+   "sources": [],
+   "mode": "semantic",
+   "status": 200,
+   "fallback": null,
+   "caveat": "closest passage by meaning; it may not answer your question",
+   "top_score": null
+  },
+  "O07": {
+   "q": "what is the capital of Tunisia",
+   "answered": false,
+   "sources": [],
+   "mode": "semantic",
+   "status": 200,
+   "fallback": null,
+   "caveat": "closest passage by meaning; it may not answer your question",
+   "top_score": null
+  },
+  "O08": {
+   "q": "tell me a joke",
+   "answered": false,
+   "sources": [],
+   "mode": "semantic",
+   "status": 200,
+   "fallback": null,
+   "caveat": "closest passage by meaning; it may not answer your question",
+   "top_score": null
+  },
+  "O09": {
+   "q": "translate good morning into spanish",
+   "answered": false,
+   "sources": [],
+   "mode": "semantic",
+   "status": 200,
+   "fallback": null,
+   "caveat": "closest passage by meaning; it may not answer your question",
+   "top_score": null
+  },
+  "O10": {
+   "q": "how do I appeal a rejected claim",
+   "answered": true,
+   "sources": [
+    "rule R014",
+    "rule R012",
+    "rule R001",
+    "rule R001"
+   ],
+   "mode": "semantic",
+   "status": 200,
+   "fallback": null,
+   "caveat": "closest passage by meaning; it may not answer your question",
+   "top_score": 0.36
+  },
+  "O11": {
+   "q": "what is the phone number of the insurer",
+   "answered": false,
+   "sources": [],
+   "mode": "semantic",
+   "status": 200,
+   "fallback": null,
+   "caveat": "closest passage by meaning; it may not answer your question",
+   "top_score": null
+  },
+  "O12": {
+   "q": "is this surgery medically necessary",
+   "answered": false,
+   "sources": [],
+   "mode": "semantic",
+   "status": 200,
+   "fallback": null,
+   "caveat": "closest passage by meaning; it may not answer your question",
+   "top_score": null
+  },
+  "O13": {
+   "q": "how much will the insurer reimburse for this visit",
+   "answered": false,
+   "sources": [],
+   "mode": "semantic",
+   "status": 200,
+   "fallback": null,
+   "caveat": "closest passage by meaning; it may not answer your question",
+   "top_score": null
+  },
+  "O14": {
+   "q": "which diagnosis code should I use for a broken arm",
+   "answered": true,
+   "sources": [
+    "rule R010",
+    "policy EDU-PLUS (table version 0)",
+    "rule R009",
+    "policy EDU-BASIC (table version 0)"
+   ],
+   "mode": "semantic",
+   "status": 200,
+   "fallback": null,
+   "caveat": "closest passage by meaning; it may not answer your question",
+   "top_score": 0.32
+  },
+  "O15": {
+   "q": "what is the fraud detection threshold",
+   "answered": true,
+   "sources": [
+    "rule R006",
+    "rule R013",
+    "rule R013",
+    "rule R012"
+   ],
+   "mode": "semantic",
+   "status": 200,
+   "fallback": null,
+   "caveat": "closest passage by meaning; it may not answer your question",
+   "top_score": 0.41
+  },
+  "O16": {
+   "q": "can the patient be charged the difference",
+   "answered": true,
+   "sources": [
+    "rule R012",
+    "rule R004",
+    "rule R004",
+    "rule R012"
+   ],
+   "mode": "semantic",
+   "status": 200,
+   "fallback": null,
+   "caveat": "closest passage by meaning; it may not answer your question",
+   "top_score": 0.38
+  },
+  "O17": {
+   "q": "who is the medical director",
+   "answered": false,
+   "sources": [],
+   "mode": "semantic",
+   "status": 200,
+   "fallback": null,
+   "caveat": "closest passage by meaning; it may not answer your question",
+   "top_score": null
+  },
+  "R01": {
+   "q": "what happens if the invoice number is missing",
+   "answered": true,
+   "sources": [
+    "rule R001",
+    "rule R014",
+    "rule R002",
+    "rule R009"
+   ],
+   "mode": "semantic",
+   "status": 200,
+   "fallback": null,
+   "caveat": "closest passage by meaning; it may not answer your question",
+   "top_score": 0.45
+  },
+  "R02": {
+   "q": "a missing diagnosis code",
+   "answered": true,
+   "sources": [
+    "rule R011",
+    "rule R001",
+    "rule R009",
+    "rule R002"
+   ],
+   "mode": "semantic",
+   "status": 200,
+   "fallback": null,
+   "caveat": "closest passage by meaning; it may not answer your question",
+   "top_score": 0.52
+  },
+  "R03": {
+   "q": "claim line without a service date",
+   "answered": true,
+   "sources": [
+    "rule R014",
+    "rule R002",
+    "policy EDU-PLUS (table version 0)",
+    "rule R002"
+   ],
+   "mode": "semantic",
+   "status": 200,
+   "fallback": null,
+   "caveat": "closest passage by meaning; it may not answer your question",
+   "top_score": 0.56
+  },
+  "R04": {
+   "q": "service date after the submission date",
+   "answered": true,
+   "sources": [
+    "rule R002",
+    "rule R002",
+    "rule R014",
+    "policy EDU-BASIC (table version 0)"
+   ],
+   "mode": "semantic",
+   "status": 200,
+   "fallback": null,
+   "caveat": "closest passage by meaning; it may not answer your question",
+   "top_score": 0.66
+  },
+  "R05": {
+   "q": "is the coverage active on the date of service",
+   "answered": true,
+   "sources": [
+    "rule R003",
+    "rule R003",
+    "rule R003",
+    "policy EDU-PLUS (table version 0)"
+   ],
+   "mode": "semantic",
+   "status": 200,
+   "fallback": null,
+   "caveat": "closest passage by meaning; it may not answer your question",
+   "top_score": 0.67
+  },
+  "R06": {
+   "q": "the coverage ended before the service",
+   "answered": true,
+   "sources": [
+    "policy EDU-PLUS (table version 0)",
+    "policy EDU-BASIC (table version 0)",
+    "rule R003",
+    "rule R003"
+   ],
+   "mode": "semantic",
+   "status": 200,
+   "fallback": null,
+   "caveat": "closest passage by meaning; it may not answer your question",
+   "top_score": 0.44
+  },
+  "R07": {
+   "q": "patient id does not match the beneficiary on the coverage",
+   "answered": true,
+   "sources": [
+    "rule R004",
+    "rule R004",
+    "rule R009",
+    "rule R010"
+   ],
+   "mode": "semantic",
+   "status": 200,
+   "fallback": null,
+   "caveat": "closest passage by meaning; it may not answer your question",
+   "top_score": 0.57
+  },
+  "R08": {
+   "q": "member id must match exactly, case sensitive",
+   "answered": true,
+   "sources": [
+    "rule R004",
+    "rule R009",
+    "rule R001",
+    "rule R004"
+   ],
+   "mode": "semantic",
+   "status": 200,
+   "fallback": null,
+   "caveat": "closest passage by meaning; it may not answer your question",
+   "top_score": 0.6
+  },
+  "R09": {
+   "q": "provider is not in the network",
+   "answered": true,
+   "sources": [
+    "rule R005",
+    "rule R005",
+    "rule R005",
+    "policy EDU-PLUS (table version 0)"
+   ],
+   "mode": "semantic",
+   "status": 200,
+   "fallback": null,
+   "caveat": "closest passage by meaning; it may not answer your question",
+   "top_score": 0.53
+  },
+  "R10": {
+   "q": "which providers are allowed for EDU-BASIC",
+   "answered": true,
+   "sources": [
+    "policy EDU-BASIC (table version 0)",
+    "policy EDU-PLUS (table version 0)",
+    "rule R005",
+    "rule R008"
+   ],
+   "mode": "semantic",
+   "status": 200,
+   "fallback": null,
+   "caveat": "closest passage by meaning; it may not answer your question",
+   "top_score": 0.73
+  },
+  "R11": {
+   "q": "two identical lines on the same day",
+   "answered": true,
+   "sources": [
+    "rule R006",
+    "rule R006",
+    "rule R006",
+    "rule R012"
+   ],
+   "mode": "semantic",
+   "status": 200,
+   "fallback": null,
+   "caveat": "closest passage by meaning; it may not answer your question",
+   "top_score": 0.39
+  },
+  "R12": {
+   "q": "what should I do about a possible duplicate",
+   "answered": true,
+   "sources": [
+    "rule R006",
+    "rule R006",
+    "rule R006",
+    "rule R012"
+   ],
+   "mode": "semantic",
+   "status": 200,
+   "fallback": null,
+   "caveat": "closest passage by meaning; it may not answer your question",
+   "top_score": 0.46
+  },
+  "R13": {
+   "q": "quantity times unit price does not equal the net amount",
+   "answered": true,
+   "sources": [
+    "rule R013",
+    "rule R007",
+    "rule R013",
+    "rule R012"
+   ],
+   "mode": "semantic",
+   "status": 200,
+   "fallback": null,
+   "caveat": "closest passage by meaning; it may not answer your question",
+   "top_score": 0.64
+  },
+  "R14": {
+   "q": "how is the amount rounded",
+   "answered": true,
+   "sources": [
+    "rule R007",
+    "rule R012",
+    "rule R007",
+    "rule R012"
+   ],
+   "mode": "semantic",
+   "status": 200,
+   "fallback": null,
+   "caveat": "closest passage by meaning; it may not answer your question",
+   "top_score": 0.55
+  },
+  "R15": {
+   "q": "which services need an authorization reference",
+   "answered": true,
+   "sources": [
+    "rule R008",
+    "rule R008",
+    "policy EDU-PLUS (table version 0)",
+    "rule R009"
+   ],
+   "mode": "semantic",
+   "status": 200,
+   "fallback": null,
+   "caveat": "closest passage by meaning; it may not answer your question",
+   "top_score": 0.67
+  },
+  "R16": {
+   "q": "authorization is for another patient",
+   "answered": true,
+   "sources": [
+    "rule R008",
+    "rule R009",
+    "rule R008",
+    "rule R004"
+   ],
+   "mode": "semantic",
+   "status": 200,
+   "fallback": null,
+   "caveat": "closest passage by meaning; it may not answer your question",
+   "top_score": 0.49
+  },
+  "R17": {
+   "q": "authorization status approved and its valid dates",
+   "answered": true,
+   "sources": [
+    "rule R009",
+    "rule R009",
+    "rule R008",
+    "rule R002"
+   ],
+   "mode": "semantic",
+   "status": 200,
+   "fallback": null,
+   "caveat": "closest passage by meaning; it may not answer your question",
+   "top_score": 0.6
+  },
+  "R18": {
+   "q": "what supporting document is required for imaging",
+   "answered": true,
+   "sources": [
+    "policy EDU-PLUS (table version 0)",
+    "policy EDU-BASIC (table version 0)",
+    "rule R010",
+    "rule R010"
+   ],
+   "mode": "semantic",
+   "status": 200,
+   "fallback": null,
+   "caveat": "closest passage by meaning; it may not answer your question",
+   "top_score": 0.62
+  },
+  "R19": {
+   "q": "the attached document is only a draft",
+   "answered": true,
+   "sources": [
+    "rule R010",
+    "rule R010",
+    "rule R010",
+    "policy EDU-BASIC (table version 0)"
+   ],
+   "mode": "semantic",
+   "status": 200,
+   "fallback": null,
+   "caveat": "closest passage by meaning; it may not answer your question",
+   "top_score": 0.47
+  },
+  "R20": {
+   "q": "unknown service code",
+   "answered": true,
+   "sources": [
+    "rule R011",
+    "rule R008",
+    "policy EDU-BASIC (table version 0)",
+    "rule R009"
+   ],
+   "mode": "semantic",
+   "status": 200,
+   "fallback": null,
+   "caveat": "closest passage by meaning; it may not answer your question",
+   "top_score": 0.57
+  },
+  "R21": {
+   "q": "total amount does not equal the sum of the lines",
+   "answered": true,
+   "sources": [
+    "rule R012",
+    "rule R012",
+    "rule R012",
+    "rule R007"
+   ],
+   "mode": "semantic",
+   "status": 200,
+   "fallback": null,
+   "caveat": "closest passage by meaning; it may not answer your question",
+   "top_score": 0.58
+  },
+  "R22": {
+   "q": "highest unit price for SVC-LAB",
+   "answered": true,
+   "sources": [
+    "policy EDU-PLUS (table version 0)",
+    "policy EDU-BASIC (table version 0)",
+    "rule R013",
+    "rule R013"
+   ],
+   "mode": "semantic",
+   "status": 200,
+   "fallback": null,
+   "caveat": "closest passage by meaning; it may not answer your question",
+   "top_score": 0.74
+  },
+  "R23": {
+   "q": "quantity must be a positive integer",
+   "answered": true,
+   "sources": [
+    "rule R013",
+    "rule R007",
+    "rule R012",
+    "rule R013"
+   ],
+   "mode": "semantic",
+   "status": 200,
+   "fallback": null,
+   "caveat": "closest passage by meaning; it may not answer your question",
+   "top_score": 0.62
+  },
+  "R24": {
+   "q": "how many days after the service can a claim be submitted",
+   "answered": true,
+   "sources": [
+    "policy EDU-PLUS (table version 0)",
+    "policy EDU-BASIC (table version 0)",
+    "rule R014",
+    "rule R002"
+   ],
+   "mode": "semantic",
+   "status": 200,
+   "fallback": null,
+   "caveat": "closest passage by meaning; it may not answer your question",
+   "top_score": 0.64
+  },
+  "R25": {
+   "q": "submission window for EDU-PLUS",
+   "answered": true,
+   "sources": [
+    "policy EDU-PLUS (table version 0)",
+    "policy EDU-BASIC (table version 0)",
+    "rule R014",
+    "rule R014"
+   ],
+   "mode": "semantic",
+   "status": 200,
+   "fallback": null,
+   "caveat": "closest passage by meaning; it may not answer your question",
+   "top_score": 0.53
+  },
+  "R26": {
+   "q": "claim currency is different from SAR",
+   "answered": true,
+   "sources": [
+    "rule R015",
+    "policy EDU-PLUS (table version 0)",
+    "policy EDU-BASIC (table version 0)",
+    "rule R015"
+   ],
+   "mode": "semantic",
+   "status": 200,
+   "fallback": null,
+   "caveat": "closest passage by meaning; it may not answer your question",
+   "top_score": 0.67
+  },
+  "RO01": {
+   "q": "what is the weather today",
+   "answered": false,
+   "sources": [],
+   "mode": "semantic",
+   "status": 200,
+   "fallback": null,
+   "caveat": "closest passage by meaning; it may not answer your question",
+   "top_score": null
+  },
+  "RO02": {
+   "q": "who won the football match",
+   "answered": false,
+   "sources": [],
+   "mode": "semantic",
+   "status": 200,
+   "fallback": null,
+   "caveat": "closest passage by meaning; it may not answer your question",
+   "top_score": null
+  },
+  "RO03": {
+   "q": "recommend a treatment for diabetes",
+   "answered": false,
+   "sources": [],
+   "mode": "semantic",
+   "status": 200,
+   "fallback": null,
+   "caveat": "closest passage by meaning; it may not answer your question",
+   "top_score": null
+  },
+  "RO04": {
+   "q": "write me a poem",
+   "answered": false,
+   "sources": [],
+   "mode": "semantic",
+   "status": 200,
+   "fallback": null,
+   "caveat": "closest passage by meaning; it may not answer your question",
+   "top_score": null
+  },
+  "RO05": {
+   "q": "",
+   "answered": false,
+   "sources": [],
+   "mode": "refused-by-api",
+   "status": 422
+  }
+ }
+}

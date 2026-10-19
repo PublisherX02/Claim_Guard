@@ -17,7 +17,7 @@ use std::sync::Mutex;
 pub type Doc = Value;
 pub type Result<T> = std::result::Result<T, StoreError>;
 
-pub const SETTABLE: [&str; 7] = ["lease", "decided_by", "shadow", "explanation", "enqueue_pending", "escalated", "signoff"];
+pub const SETTABLE: [&str; 10] = ["lease", "decided_by", "shadow", "explanation", "enqueue_pending", "escalated", "signoff", "auto_cleared", "auto_requested", "decisions"];
 pub const DEALABLE: [&str; 2] = ["ready", "awaiting_countersign"];
 const HISTORY_FIELDS: [&str; 9] = ["claim_id", "patient_id", "provider_id", "submission_date", "lines", "authorizations", "notes", "diagnosis_code", "attachments"];
 
@@ -44,9 +44,9 @@ pub fn check_set_fields(f: &Option<Map<String, Value>>) -> Result<Map<String, Va
 /// Validates a document handed to `put_triaged` and returns the full stored form (state triaged, outbox marker set).
 pub fn prepare_new_doc(doc: &Value) -> Result<Value> {
     let obj = doc.as_object().filter(|o| {
-        ["claim_id", "version", "input_hash", "claim", "results", "receipt"].iter().all(|k| o.contains_key(*k)) && o.keys().all(|k| ["claim_id", "version", "input_hash", "claim", "results", "receipt", "advisory"].contains(&k.as_str()))
+        ["claim_id", "version", "input_hash", "claim", "results", "receipt"].iter().all(|k| o.contains_key(*k)) && o.keys().all(|k| ["claim_id", "version", "input_hash", "claim", "results", "receipt", "advisory", "corrected_from", "batch_id", "audit_sample", "localization"].contains(&k.as_str()))
     });
-    let Some(obj) = obj else { return invalid("a new claim document must have: claim, claim_id, input_hash, receipt, results, version (and may have advisory)") };
+    let Some(obj) = obj else { return invalid("a new claim document must have: claim, claim_id, input_hash, receipt, results, version (and may have advisory and corrected_from)") };
     if obj.get("advisory").is_some_and(|a| !a.is_array()) {
         return invalid("advisory must be a list");
     }
@@ -94,8 +94,55 @@ pub fn check_config_doc(doc: &Value, expected_version: i64) -> Result<()> {
     Ok(())
 }
 
+pub const RELIABILITY_MOVES: [(&str, &str); 3] = [("proposed", "approved"), ("proposed", "rejected"), ("approved", "superseded")];
+
+pub fn check_reliability_doc(doc: &Value, expected_version: i64) -> Result<()> {
+    check_config_doc(doc, expected_version)?;
+    if doc.get("status").and_then(Value::as_str) != Some("proposed") {
+        return invalid("a new reliability snapshot must have the status proposed");
+    }
+    Ok(())
+}
+
+pub fn check_reliability_move(from: &str, to: &str, actor: &str, now: f64) -> Result<()> {
+    check_number(now, "now")?;
+    if actor.is_empty() || !RELIABILITY_MOVES.contains(&(from, to)) {
+        return invalid("that reliability status change is not allowed");
+    }
+    Ok(())
+}
+
+pub fn reliability_event(from: &str, to: &str, actor: &str, now: f64, detail: Option<Value>) -> Value {
+    json!({"from": from, "to": to, "actor": actor, "at": now, "detail": detail.unwrap_or(Value::Null)})
+}
+
 pub fn check_id_doc(doc: &Value, key: &str) -> Result<()> {
     if doc.get(key).and_then(Value::as_str).is_some_and(|s| !s.is_empty()) { Ok(()) } else { invalid(format!("the document needs a text {key}")) }
+}
+
+/// A batch event: `{batch_id, kind, at, ...}`. Small plain data (no claim values; claim ids only inside `members`).
+pub fn check_batch_event(e: &Value) -> Result<()> {
+    check_id_doc(e, "batch_id")?;
+    check_id_doc(e, "kind")?;
+    match e.get("at").and_then(Value::as_f64) {
+        Some(at) => check_number(at, "at")?,
+        None => return invalid("a batch event needs a time"),
+    }
+    Ok(())
+}
+
+/// A request event: `{request_id, claim_id, kind: "sent" | "declined", at, ...}`.
+pub fn check_request_event(e: &Value) -> Result<()> {
+    check_id_doc(e, "request_id")?;
+    check_id_doc(e, "claim_id")?;
+    if !matches!(e.get("kind").and_then(Value::as_str), Some("sent" | "declined")) {
+        return invalid("a request event is sent or declined");
+    }
+    match e.get("at").and_then(Value::as_f64) {
+        Some(at) => check_number(at, "at")?,
+        None => return invalid("a request event needs a time"),
+    }
+    Ok(())
 }
 
 pub fn project_history(claim: &Value) -> Value {
@@ -150,10 +197,22 @@ pub trait QueueStore: Send + Sync {
     fn put_config(&self, doc: &Value, expected_version: i64) -> Result<bool>;
     fn latest_config(&self) -> Result<Option<Value>>;
     fn config_history(&self) -> Result<Vec<Value>>;
+    // reliability snapshots (learned from reviewer decisions; see reliability.rs)
+    fn put_reliability(&self, doc: &Value, expected_version: i64) -> Result<bool>;
+    fn reliability_history(&self) -> Result<Vec<Value>>;
+    fn set_reliability_status(&self, version: i64, from: &str, to: &str, actor: &str, now: f64, detail: Option<Value>) -> Result<Option<Value>>;
     // deals, dead letters, cache, counters, jobs
     fn append_deal(&self, doc: &Value) -> Result<()>;
     fn get_deal(&self, deal_id: &str) -> Result<Option<Value>>;
     fn deals(&self, limit: usize) -> Result<Vec<Value>>;
+    // requests for information that leave the system: an append-only record of what an officer confirmed or declined to send (docs/53)
+    fn append_request_event(&self, event: &Value) -> Result<()>;
+    /// Oldest first, for one claim.
+    fn request_events(&self, claim_id: &str, limit: usize) -> Result<Vec<Value>>;
+    // batch events: append-only (a batch's status is the fold of its events, see batch.rs)
+    fn append_batch_event(&self, event: &Value) -> Result<()>;
+    /// Oldest first. One batch, or (None) the newest `limit` events of every batch.
+    fn batch_events(&self, batch_id: Option<&str>, limit: usize) -> Result<Vec<Value>>;
     fn add_dead_letter(&self, doc: &Value) -> Result<()>;
     fn dead_letters(&self, limit: usize) -> Result<Vec<Value>>;
     fn pop_dead_letter(&self, dead_id: &str) -> Result<Option<Value>>;
@@ -169,7 +228,10 @@ pub trait QueueStore: Send + Sync {
 struct Inner {
     docs: BTreeMap<(String, i64), Value>,
     configs: Vec<Value>,
+    reliability: Vec<Value>,
     deals: Vec<Value>,
+    batch_events: Vec<Value>,
+    request_events: Vec<Value>,
     dead: Vec<(String, Value)>,
     jobs: BTreeMap<String, Value>,
     cache: HashMap<String, String>,
@@ -432,6 +494,36 @@ impl QueueStore for MemoryQueueStore {
         Ok(self.lock().configs.clone())
     }
 
+    fn put_reliability(&self, doc: &Value, expected_version: i64) -> Result<bool> {
+        check_reliability_doc(doc, expected_version)?;
+        let mut g = self.lock();
+        if g.reliability.last().and_then(|c| c["version"].as_i64()).unwrap_or(0) != expected_version {
+            return Ok(false);
+        }
+        let mut stored = doc.clone();
+        stored["history"] = json!([]);
+        g.reliability.push(stored);
+        Ok(true)
+    }
+
+    fn reliability_history(&self) -> Result<Vec<Value>> {
+        Ok(self.lock().reliability.clone())
+    }
+
+    fn set_reliability_status(&self, version: i64, from: &str, to: &str, actor: &str, now: f64, detail: Option<Value>) -> Result<Option<Value>> {
+        check_reliability_move(from, to, actor, now)?;
+        let mut g = self.lock();
+        let Some(d) = g.reliability.iter_mut().find(|d| d["version"].as_i64() == Some(version)) else { return Ok(None) };
+        if d["status"] != from {
+            return Ok(None);
+        }
+        d["status"] = json!(to);
+        if let Some(h) = d["history"].as_array_mut() {
+            h.push(reliability_event(from, to, actor, now, detail));
+        }
+        Ok(Some(d.clone()))
+    }
+
     fn append_deal(&self, doc: &Value) -> Result<()> {
         check_id_doc(doc, "deal_id")?;
         self.lock().deals.push(doc.clone());
@@ -444,6 +536,32 @@ impl QueueStore for MemoryQueueStore {
 
     fn deals(&self, limit: usize) -> Result<Vec<Value>> {
         Ok(self.lock().deals.iter().rev().take(limit).cloned().collect())
+    }
+
+    fn append_batch_event(&self, event: &Value) -> Result<()> {
+        check_batch_event(event)?;
+        self.lock().batch_events.push(event.clone());
+        Ok(())
+    }
+
+    fn batch_events(&self, batch_id: Option<&str>, limit: usize) -> Result<Vec<Value>> {
+        let g = self.lock();
+        let mut rows: Vec<Value> = g.batch_events.iter().filter(|e| batch_id.is_none_or(|b| e["batch_id"] == b)).cloned().collect();
+        let skip = rows.len().saturating_sub(limit);
+        Ok(rows.split_off(skip))
+    }
+
+    fn append_request_event(&self, event: &Value) -> Result<()> {
+        check_request_event(event)?;
+        self.lock().request_events.push(event.clone());
+        Ok(())
+    }
+
+    fn request_events(&self, claim_id: &str, limit: usize) -> Result<Vec<Value>> {
+        let g = self.lock();
+        let mut rows: Vec<Value> = g.request_events.iter().filter(|e| e["claim_id"] == claim_id).cloned().collect();
+        let skip = rows.len().saturating_sub(limit);
+        Ok(rows.split_off(skip))
     }
 
     fn add_dead_letter(&self, doc: &Value) -> Result<()> {

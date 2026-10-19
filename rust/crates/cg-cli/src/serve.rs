@@ -105,7 +105,9 @@ fn seed_demo(b: &Boot) -> Result<(), String> {
     configure_shift(&*q.store, accounts.as_object().into_iter().flatten().filter(|(_, v)| matches!(v["level"].as_i64(), Some(2 | 3))).map(|(k, _)| k.clone()).collect())?;
     let text = std::fs::read_to_string(b.root.join("data/development/claims.jsonl")).map_err(|e| e.to_string())?;
     let claims: Vec<Value> = text.lines().filter(|l| !l.trim().is_empty()).filter_map(|l| serde_json::from_str(l).ok()).collect();
-    let accepted = claims.iter().take(60).filter(|c| q.intake.submit(c).is_ok()).count();
+    // CG_DEMO_CLAIMS (default 60) is how many sample claims the demo starts with; 0 starts it empty
+    let how_many = std::env::var("CG_DEMO_CLAIMS").ok().and_then(|v| v.parse::<usize>().ok()).unwrap_or(60);
+    let accepted = q.intake.submit_batch(&claims[..claims.len().min(how_many)], "demo").map(|(_, rows)| rows.iter().filter(|r| r["accepted"] == true).count()).unwrap_or(0);
     let path = b.data_dir.join("demo_accounts.json");
     std::fs::write(&path, serde_json::to_string_pretty(&accounts).unwrap_or_default()).map_err(|e| e.to_string())?;
     println!("DEMO ACCOUNTS (generated now, kept in memory and in {}; never use real data):", path.display());

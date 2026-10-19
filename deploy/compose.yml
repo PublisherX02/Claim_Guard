@@ -87,7 +87,8 @@ services:
       timeout: 5s
       retries: 6
 
-  ollama:                       # optional, on-premises model for the explanation drafts; start with --profile ai
+  ollama:                       # Python reference stack only: the deployed Rust stack (deploy/rust) serves the model with vLLM (docs/40 section 12)
+                                # optional, on-premises model for the explanation drafts; start with --profile ai
     profiles: ["ai"]
     image: ollama/ollama:latest
     restart: unless-stopped

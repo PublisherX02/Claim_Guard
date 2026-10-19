@@ -1,6 +1,6 @@
-"""Red team of the AI step with the REAL local model (Ollama, gemma3:4b), through the whole Rust pipeline.
+"""Red team of the AI step with the REAL local model (vLLM serving google/gemma-3-4b-it; --provider ollama for a laptop), through the whole Rust pipeline.
 
-    python rust/tools/model_redteam.py [--model gemma3:4b] [--base http://127.0.0.1:11434]
+    VLLM_API_KEY=... python rust/tools/model_redteam.py [--provider vllm] [--model google/gemma-3-4b-it] [--base http://127.0.0.1:8000]
 
 The model never sees a claim: it writes a template from the rule's own text, and the system fills the claim's values into it afterwards.
 So an attacker's lever is the claim itself: a value (service code, provider id, currency, notes, line id) that is filled into the
@@ -63,11 +63,14 @@ def login(badge, acc):
 
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument('--model', default='gemma3:4b')
-    ap.add_argument('--base', default='http://127.0.0.1:11434')
+    ap.add_argument('--provider', default='vllm', choices=['vllm', 'ollama'])
+    ap.add_argument('--model', default=None)
+    ap.add_argument('--base', default=None)
     a = ap.parse_args()
+    default_model, default_base = {'vllm': ('google/gemma-3-4b-it', 'http://127.0.0.1:8000'), 'ollama': ('gemma3:4b', 'http://127.0.0.1:11434')}[a.provider]
     data = Path(tempfile.mkdtemp(prefix='cg_redteam_'))
-    env = dict(os.environ, CLAIMGUARD_ROOT=str(ROOT), QUEUE_AI_PROVIDER='ollama', OLLAMA_MODEL=a.model, OLLAMA_BASE_URL=a.base)
+    env = dict(os.environ, CLAIMGUARD_ROOT=str(ROOT), QUEUE_AI_PROVIDER=a.provider,
+               **{a.provider.upper() + '_MODEL': a.model or default_model, a.provider.upper() + '_BASE_URL': a.base or default_base})   # the API key comes from VLLM_API_KEY / OLLAMA_API_KEY
     proc = subprocess.Popen([CG, 'serve', '--demo', '--port', str(PORT), '--data-dir', str(data)], env=env, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
     bad = []
     try:

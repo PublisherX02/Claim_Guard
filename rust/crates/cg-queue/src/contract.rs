@@ -86,6 +86,23 @@ pub fn run(fresh: &dyn Fn() -> Box<dyn QueueStore>) {
     let set = s.transition("C1", 1, "explained", "ready", "a", NOW + 3.0, None, fields(&[("escalated", json!(true)), ("decided_by", json!("CG-1"))]), None).unwrap().unwrap();
     assert_eq!((set["escalated"].as_bool(), set["decided_by"].as_str()), (Some(true), Some("CG-1")));
 
+    // ---- the system clears a green claim: triaged -> decided, with the auto_cleared marker, and nothing else may jump to decided
+    let s = fresh();
+    assert!(s.put_triaged(&doc("G1")).unwrap());
+    let cleared = s.transition("G1", 1, "triaged", "decided", "system:auto-clear", NOW + 1.0, Some(json!({"auto_cleared": true, "findings": 0, "audit_draw": 57.25})), fields(&[("decided_by", json!("system:auto-clear")), ("auto_cleared", json!(true))]), None).unwrap().unwrap();
+    assert_eq!((cleared["state"].as_str(), cleared["decided_by"].as_str(), cleared["auto_cleared"].as_bool()), (Some("decided"), Some("system:auto-clear"), Some(true)));
+    assert_eq!(cleared["events"].as_array().unwrap().last().unwrap()["detail"]["audit_draw"].as_f64(), Some(57.25));
+    assert_eq!(s.by_state("decided", 10).unwrap().len(), 1);
+    assert!(s.put_triaged(&doc("G2")).unwrap());
+    assert!(s.transition("G2", 1, "ready", "decided", "x", NOW, None, None, None).is_err(), "ready -> decided is still illegal");
+    // the system records requests for information on a transition: the decisions and the marker are settable, and survive a read back
+    assert!(s.put_triaged(&doc("G3")).unwrap());
+    let asked = json!([{"rule_id": "R009", "action": "request_information", "actor": "system:auto-request", "reason": "Requested automatically", "at": 5.0, "round": 1}]);
+    let moved = s.transition("G3", 1, "triaged", "decided", "system:auto-request", NOW + 2.0, Some(json!({"auto_requested": true, "findings": 1})),
+                             fields(&[("decided_by", json!("system:auto-request")), ("auto_requested", json!(true)), ("decisions", asked.clone())]), None).unwrap().unwrap();
+    assert_eq!((moved["auto_requested"].as_bool(), moved["decisions"].clone()), (Some(true), asked.clone()));
+    assert_eq!(s.get("G3", None).unwrap().unwrap()["decisions"], asked);
+
     // ---- outbox, by_state, counts
     let s = fresh();
     assert!(s.put_triaged(&make_doc("B", 1, "hb", "A", "decide", 2, "P1", NOW + 5.0, None)).unwrap());
@@ -186,6 +203,52 @@ pub fn run(fresh: &dyn Fn() -> Box<dyn QueueStore>) {
     assert_eq!(hist[0]["claim_id"], "S");
     assert!(hist[0].get("member_id").is_none(), "only the fields the cross-claim rules need");
 
+    // ---- reliability snapshots
+    let s = fresh();
+    assert!(s.reliability_history().unwrap().is_empty());
+    let snap = |v: i64| json!({"version": v, "status": "proposed", "rules": {}});
+    assert!(s.put_reliability(&snap(1), 0).unwrap());
+    assert!(!s.put_reliability(&snap(1), 0).unwrap(), "a stale write loses");
+    assert!(s.put_reliability(&snap(2), 1).unwrap());
+    assert!(s.put_reliability(&snap(5), 2).is_err(), "must be exactly the next version");
+    assert!(s.put_reliability(&json!({"version": 3, "status": "approved"}), 2).is_err(), "a new snapshot is always proposed");
+    assert_eq!(s.reliability_history().unwrap().iter().map(|d| d["version"].as_i64().unwrap()).collect::<Vec<_>>(), vec![1, 2]);
+    assert!(s.set_reliability_status(1, "approved", "superseded", "a", NOW, None).unwrap().is_none(), "wrong current status: nothing happens");
+    assert!(s.set_reliability_status(9, "proposed", "approved", "a", NOW, None).unwrap().is_none(), "unknown version");
+    assert!(s.set_reliability_status(1, "proposed", "superseded", "a", NOW, None).is_err(), "an illegal move is refused");
+    let moved = s.set_reliability_status(1, "proposed", "approved", "CG-4004", NOW + 1.0, Some(json!({"requested_by": "CG-4005"}))).unwrap().unwrap();
+    assert_eq!((moved["status"].as_str(), moved["history"][0]["actor"].as_str(), moved["history"][0]["to"].as_str()), (Some("approved"), Some("CG-4004"), Some("approved")));
+    assert!(s.set_reliability_status(1, "proposed", "approved", "x", NOW + 2.0, None).unwrap().is_none(), "approved only once");
+    // two administrators approving the same proposal at once: exactly one wins
+    let s = fresh();
+    assert!(s.put_reliability(&snap(1), 0).unwrap());
+    let wins = AtomicUsize::new(0);
+    std::thread::scope(|t| {
+        for i in 0..6 {
+            let (s, wins) = (&s, &wins);
+            t.spawn(move || {
+                if s.set_reliability_status(1, "proposed", "approved", &format!("A{i}"), NOW, None).unwrap().is_some() {
+                    wins.fetch_add(1, Ordering::SeqCst);
+                }
+            });
+        }
+    });
+    assert_eq!(wins.load(Ordering::SeqCst), 1);
+    // two learners racing for the same version: exactly one stores it
+    let s = fresh();
+    let stored = AtomicUsize::new(0);
+    std::thread::scope(|t| {
+        for _ in 0..6 {
+            let (s, stored) = (&s, &stored);
+            t.spawn(move || {
+                if s.put_reliability(&snap(1), 0).unwrap() {
+                    stored.fetch_add(1, Ordering::SeqCst);
+                }
+            });
+        }
+    });
+    assert_eq!(stored.load(Ordering::SeqCst), 1);
+
     // ---- configuration
     let s = fresh();
     assert!(s.latest_config().unwrap().is_none());
@@ -216,6 +279,21 @@ pub fn run(fresh: &dyn Fn() -> Box<dyn QueueStore>) {
     assert!(s.get_deal("NOPE").unwrap().is_none());
     assert_eq!(s.deals(10).unwrap().iter().map(|d| d["deal_id"].as_str().unwrap().to_string()).collect::<Vec<_>>(), ["D2", "D1"], "newest first");
     assert!(s.append_deal(&json!({"seed": 3})).is_err());
+    // batch events: append-only, oldest first, one batch or all, validated
+    s.append_batch_event(&json!({"batch_id": "B1", "kind": "created", "at": NOW})).unwrap();
+    s.append_batch_event(&json!({"batch_id": "B2", "kind": "created", "at": NOW + 1.0})).unwrap();
+    s.append_batch_event(&json!({"batch_id": "B1", "kind": "flagged", "at": NOW + 2.0, "category": "R007"})).unwrap();
+    assert_eq!(s.batch_events(Some("B1"), 10).unwrap().iter().map(|e| e["kind"].as_str().unwrap().to_string()).collect::<Vec<_>>(), ["created", "flagged"], "oldest first, one batch");
+    assert_eq!(s.batch_events(None, 10).unwrap().len(), 3);
+    assert_eq!(s.batch_events(None, 2).unwrap().iter().map(|e| e["batch_id"].as_str().unwrap().to_string()).collect::<Vec<_>>(), ["B2", "B1"], "the newest N, still oldest first");
+    assert!(s.batch_events(Some("nope"), 10).unwrap().is_empty() && s.batch_events(Some("B1"), 0).unwrap().is_empty());
+    s.append_request_event(&json!({"request_id": "Q1", "claim_id": "C1", "kind": "sent", "at": NOW})).unwrap();
+    s.append_request_event(&json!({"request_id": "Q2", "claim_id": "C2", "kind": "declined", "at": NOW + 1.0})).unwrap();
+    s.append_request_event(&json!({"request_id": "Q3", "claim_id": "C1", "kind": "declined", "at": NOW + 2.0})).unwrap();
+    assert_eq!(s.request_events("C1", 10).unwrap().iter().map(|e| e["request_id"].as_str().unwrap().to_string()).collect::<Vec<_>>(), ["Q1", "Q3"], "one claim, oldest first");
+    assert!(s.request_events("C9", 10).unwrap().is_empty() && s.request_events("C1", 0).unwrap().is_empty());
+    assert!(s.append_request_event(&json!({"request_id": "Q4", "claim_id": "C1", "kind": "maybe", "at": NOW})).is_err() && s.append_request_event(&json!({"claim_id": "C1", "kind": "sent", "at": NOW})).is_err());
+    assert!(s.append_batch_event(&json!({"kind": "created", "at": NOW})).is_err() && s.append_batch_event(&json!({"batch_id": "B3", "kind": "created"})).is_err());
     s.add_dead_letter(&json!({"dead_id": "X1", "claim_id": "C1", "reason": "boom", "at": NOW})).unwrap();
     assert_eq!(s.dead_letters(10).unwrap().len(), 1);
     assert_eq!(s.pop_dead_letter("X1").unwrap().unwrap()["reason"], "boom");

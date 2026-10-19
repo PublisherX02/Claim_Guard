@@ -1,0 +1,179 @@
+{
+ "note": "the 26 questions and 5 off-topic strings of rust/crates/cg-engine/src/rag.rs tests, copied verbatim",
+ "answerable": [
+  {
+   "q": "what happens if the invoice number is missing",
+   "want": [
+    "rule R001"
+   ]
+  },
+  {
+   "q": "a missing diagnosis code",
+   "want": [
+    "rule R001"
+   ]
+  },
+  {
+   "q": "claim line without a service date",
+   "want": [
+    "rule R001"
+   ]
+  },
+  {
+   "q": "service date after the submission date",
+   "want": [
+    "rule R002"
+   ]
+  },
+  {
+   "q": "is the coverage active on the date of service",
+   "want": [
+    "rule R003"
+   ]
+  },
+  {
+   "q": "the coverage ended before the service",
+   "want": [
+    "rule R003"
+   ]
+  },
+  {
+   "q": "patient id does not match the beneficiary on the coverage",
+   "want": [
+    "rule R004"
+   ]
+  },
+  {
+   "q": "member id must match exactly, case sensitive",
+   "want": [
+    "rule R004"
+   ]
+  },
+  {
+   "q": "provider is not in the network",
+   "want": [
+    "rule R005"
+   ]
+  },
+  {
+   "q": "which providers are allowed for EDU-BASIC",
+   "want": [
+    "policy EDU-BASIC (table version 0)",
+    "rule R005"
+   ]
+  },
+  {
+   "q": "two identical lines on the same day",
+   "want": [
+    "rule R006"
+   ]
+  },
+  {
+   "q": "what should I do about a possible duplicate",
+   "want": [
+    "rule R006"
+   ]
+  },
+  {
+   "q": "quantity times unit price does not equal the net amount",
+   "want": [
+    "rule R007"
+   ]
+  },
+  {
+   "q": "how is the amount rounded",
+   "want": [
+    "rule R007",
+    "rule R012"
+   ]
+  },
+  {
+   "q": "which services need an authorization reference",
+   "want": [
+    "rule R008",
+    "policy EDU-BASIC (table version 0)",
+    "policy EDU-PLUS (table version 0)"
+   ]
+  },
+  {
+   "q": "authorization is for another patient",
+   "want": [
+    "rule R009"
+   ]
+  },
+  {
+   "q": "authorization status approved and its valid dates",
+   "want": [
+    "rule R009"
+   ]
+  },
+  {
+   "q": "what supporting document is required for imaging",
+   "want": [
+    "rule R010",
+    "policy EDU-BASIC (table version 0)",
+    "policy EDU-PLUS (table version 0)"
+   ]
+  },
+  {
+   "q": "the attached document is only a draft",
+   "want": [
+    "rule R010"
+   ]
+  },
+  {
+   "q": "unknown service code",
+   "want": [
+    "rule R011"
+   ]
+  },
+  {
+   "q": "total amount does not equal the sum of the lines",
+   "want": [
+    "rule R012"
+   ]
+  },
+  {
+   "q": "highest unit price for SVC-LAB",
+   "want": [
+    "rule R013",
+    "policy EDU-BASIC (table version 0)",
+    "policy EDU-PLUS (table version 0)"
+   ]
+  },
+  {
+   "q": "quantity must be a positive integer",
+   "want": [
+    "rule R013"
+   ]
+  },
+  {
+   "q": "how many days after the service can a claim be submitted",
+   "want": [
+    "rule R014",
+    "policy EDU-BASIC (table version 0)",
+    "policy EDU-PLUS (table version 0)"
+   ]
+  },
+  {
+   "q": "submission window for EDU-PLUS",
+   "want": [
+    "policy EDU-PLUS (table version 0)",
+    "rule R014"
+   ]
+  },
+  {
+   "q": "claim currency is different from SAR",
+   "want": [
+    "rule R015"
+   ]
+  }
+ ],
+ "off_topic": [
+  "what is the weather today",
+  "who won the football match",
+  "recommend a treatment for diabetes",
+  "write me a poem",
+  ""
+ ]
+}

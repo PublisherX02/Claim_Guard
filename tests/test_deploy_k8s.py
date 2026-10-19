@@ -67,7 +67,7 @@ class Manifests(unittest.TestCase):
         self.assertEqual(into_data["podSelector"]["matchLabels"], {"tier": "data"})
         self.assertEqual(into_data["ingress"], [{"from": [{"podSelector": {"matchLabels": {"tier": "app"}}}]}])
         ports = sorted(p["port"] for r in of("NetworkPolicy", "app-to-data")[0]["spec"]["egress"] for p in r["ports"])
-        self.assertEqual(ports, [6379, 11434, 27017])
+        self.assertEqual(ports, [6379, 8000, 27017])
         for d in of("NetworkPolicy"):  # the data tier is granted no egress rule of its own
             if d["spec"]["podSelector"].get("matchLabels", {}).get("tier") == "data":
                 self.assertNotIn("Egress", d["spec"]["policyTypes"])
@@ -84,6 +84,31 @@ class Manifests(unittest.TestCase):
         self.assertTrue(ing["spec"]["tls"])
         self.assertEqual(ing["spec"]["rules"][0]["http"]["paths"][0]["backend"]["service"]["name"], "api")
         self.assertEqual(ing["metadata"]["annotations"]["nginx.ingress.kubernetes.io/proxy-body-size"], "100k")
+
+    def test_the_ingress_lets_through_what_the_api_accepts_and_no_more(self):
+        """The application's body limits (cg-api lib.rs) must fit inside the ingress's: 64 KB everywhere, 4 MB to submit a batch of 1,000 claims, 17 MB to import a file.
+        A limit tighter than the application's turns a good request into a 413 (a batch above about 65 claims once did)."""
+        api = (ROOT / "rust" / "crates" / "cg-api" / "src" / "lib.rs").read_text(encoding="utf-8")
+        body = int(re.search(r"MAX_BODY_BYTES: usize = ([\d_]+)", api).group(1).replace("_", ""))
+        submit = eval(re.search(r"MAX_SUBMIT_BYTES: usize = ([\d\s*]+);", api).group(1))
+        upload = eval(re.search(r"MAX_UPLOAD_BYTES: usize = ([\d\s*]+);", api).group(1))
+        units = {"k": 1024, "m": 1024 * 1024}
+
+        def size(ing):
+            v = ing["metadata"]["annotations"]["nginx.ingress.kubernetes.io/proxy-body-size"]
+            return int(v[:-1]) * units[v[-1]]
+        general, sub, imp = of("Ingress", "claimguard")[0], of("Ingress", "claimguard-submit")[0], of("Ingress", "claimguard-import")[0]
+        self.assertGreaterEqual(size(general), body)
+        self.assertLessEqual(size(general), 2 * body, "the general limit stays small")
+        self.assertGreaterEqual(size(sub), submit)
+        self.assertGreaterEqual(size(imp), upload)
+        paths = lambda ing: sorted(p["path"] for r in ing["spec"]["rules"] for p in r["http"]["paths"])  # noqa: E731
+        self.assertEqual(paths(sub), ["/api/v1/queue/submit"])
+        self.assertEqual(paths(imp), ["/api/v1/queue/import/csv", "/api/v1/queue/import/file"])
+        for ing in (sub, imp):
+            self.assertTrue(ing["spec"]["tls"])
+            self.assertEqual(ing["spec"]["rules"][0]["http"]["paths"][0]["pathType"], "Exact")
+        self.assertGreaterEqual(int(sub["metadata"]["annotations"]["nginx.ingress.kubernetes.io/proxy-read-timeout"]), 120, "taking in 1,000 claims takes tens of seconds")
 
     def test_third_party_images_are_pinned_by_digest_and_no_secret_value_is_in_the_file(self):
         for name, spec in pods():

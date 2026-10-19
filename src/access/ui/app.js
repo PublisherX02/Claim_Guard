@@ -7,7 +7,7 @@
 
   var NAV = [
     ['Work', [['#/inbox', 'My inbox', 'claims.decide'], ['#/claims', 'All claims', 'claims.view'], ['#/ask', 'Ask the rulebook', 'claims.view']]],
-    ['Queue', [['#/queue', 'Overview', 'queue.view'], ['#/import', 'Import from files', 'routing.manage'], ['#/submit', 'Submit claims', 'routing.manage'], ['#/config', 'Routing settings', 'routing.manage'], ['#/rules', 'Payer rules', 'routing.manage']]],
+    ['Queue', [['#/queue', 'Overview', 'queue.view'], ['#/import', 'Import from files', 'routing.manage'], ['#/submit', 'Submit claims', 'routing.manage'], ['#/batches', 'Batches', 'routing.manage'], ['#/config', 'Routing settings', 'routing.manage'], ['#/rules', 'Payer rules', 'routing.manage']]],
     ['Administration', [['#/health', 'System health', 'queue.view'], ['#/audit', 'Audit and traceability', 'audit.view'], ['#/users', 'Users', 'users.manage']]]
   ];
   var LEVELS = { 1: 'Viewer', 2: 'Reviewer', 3: 'Senior reviewer', 4: 'Administrator' };
@@ -48,19 +48,23 @@
     offerDemo(demo, badge, pass, code, submit);
   }
 
-  // The desktop app's local demo mode exposes pywebview.api.demo_login; it is absent in a browser and on a real server.
+  // Local demo only: the desktop app exposes pywebview.api.demo_login; `serve_access.py --demo` serves GET /demo/login/{level}.
+  // Neither exists on a real server (the route answers 404 there), so no demo buttons are shown.
   function offerDemo(box, badge, pass, code, submit) {
-    function show() {
+    function fetchLogin(l) { return fetch('/demo/login/' + l, { cache: 'no-store' }).then(function (r) { return r.ok ? r.json() : null; }); }
+    function show(viaWeb) {
       var api = window.pywebview && window.pywebview.api;
-      if (!api || !api.demo_login || box.firstChild) return;
-      box.appendChild(h('div', { class: 'card stack' }, h('b', { text: 'Local demo accounts' }), h('p', { class: 'muted small', text: 'Only in the desktop demo. Fills in a generated sign-in for you.' }),
+      var get = api && api.demo_login ? function (l) { return api.demo_login(l); } : (viaWeb ? fetchLogin : null);
+      if (!get || box.firstChild) return;
+      box.appendChild(h('div', { class: 'card stack' }, h('b', { text: 'Local demo accounts' }), h('p', { class: 'muted small', text: 'Only in the local demo. Signs you in with a generated demo account.' }),
         h('div', { class: 'row' }, [2, 3, 4, 1].map(function (l) {
           return h('button', { class: 'btn small', type: 'button', text: LEVELS[l], onclick: function () {
-            api.demo_login(l).then(function (c) { badge.value = c.badge; pass.value = c.password; code.value = c.code; submit(); });
+            get(l).then(function (c) { if (c) { badge.value = c.badge; pass.value = c.password; code.value = c.code; submit(); } });
           } });
         }))));
     }
-    show(); window.addEventListener('pywebviewready', show);
+    show(false); window.addEventListener('pywebviewready', function () { show(false); });
+    if (!(window.pywebview && window.pywebview.api)) fetchLogin(4).then(function (c) { if (c) show(true); }, function () {});
   }
 
   function passwordView() {
@@ -115,6 +119,7 @@
     [/^#\/queue$/, 'queue.view', function (m, el) { CG.views.queue(el); }, '#/queue'],
     [/^#\/import$/, 'routing.manage', function (m, el) { CG.views.importClaims(el); }, '#/import'],
     [/^#\/submit$/, 'routing.manage', function (m, el) { CG.views.submit(el); }, '#/submit'],
+    [/^#\/batches$/, 'routing.manage', function (m, el) { CG.views.batches(el); }, '#/batches'],
     [/^#\/rules$/, 'routing.manage', function (m, el) { CG.views.rules(el); }, '#/rules'],
     [/^#\/ask$/, 'claims.view', function (m, el) { CG.views.ask(el); }, '#/ask'],
     [/^#\/config$/, 'routing.manage', function (m, el) { CG.views.config(el); }, '#/config'],

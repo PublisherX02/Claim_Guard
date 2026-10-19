@@ -23,6 +23,25 @@ from access.store import StoreUnavailable  # noqa: E402
 LOCAL = config.LOCAL_HOSTS
 
 
+def _offer_demo_logins(app, accounts):
+    """Demo mode only (never registered otherwise): GET /demo/login/{level} hands the sign-in page a generated demo login, as the desktop
+    app's bridge does. Answers only requests from this PC, and the demo itself refuses any non-local bind."""
+    import pyotp
+    from fastapi import Request
+    from fastapi.responses import JSONResponse
+
+    def demo_login(level: int, request: Request):
+        if (request.client.host if request.client else None) not in ('127.0.0.1', '::1'):
+            return JSONResponse({'error': 'not found'}, status_code=404)
+        for badge, a in accounts.items():
+            if a['level'] == level:
+                return JSONResponse({'badge': badge, 'password': a['password'], 'code': pyotp.TOTP(a['secret']).now()},
+                                    headers={'Cache-Control': 'no-store'})
+        return JSONResponse({'error': 'not found'}, status_code=404)
+
+    app.add_api_route('/demo/login/{level}', demo_login, methods=['GET'], include_in_schema=False)
+
+
 def main(argv=None, env=None, out=None, run=None, store=None, data_dir=None, claims_path=None):
     out = out or sys.stdout
     env = dict(os.environ if env is None else env)
@@ -80,6 +99,8 @@ def main(argv=None, env=None, out=None, run=None, store=None, data_dir=None, cla
         for badge, a in accounts.items():
             say(f'  {badge}  level {a["level"]}  {a["name"]:<22} password: {a["password"]}')
         say('Authenticator codes: python scripts/demo_code.py CG-2002   (prints the current 6-digit code)')
+        _offer_demo_logins(app, accounts)
+        say('Demo sign-in: open the console and press a role button; no password or code to type.')
     if args.dev:
         where = 'in the configured database' if stack.settings.mongo_uri else 'in memory (lost on exit)'
         say(f'DEV MODE: users live {where}; generated secrets are kept in {stack.data_dir / "dev_secrets.json"}. Do not use real data.')

@@ -12,7 +12,7 @@ Server: Linux, NVIDIA RTX 3080 10 GB, 12 GB RAM, 8 cores. Needs: Docker + compos
 
 ## Checks
 - `docker compose -f deploy/rust/compose.yml -f deploy/rust/compose.gpu.yml --env-file .env --profile ai --profile documents ps` : every service healthy.
-- `docker exec <ollama container> ollama ps` : both models listed, PROCESSOR column `100% GPU`.
+- `nvidia-smi` : the card's memory in use matches `VLLM_GPU_UTIL` (and `VLLM_VLM_GPU_UTIL` if the vision server is on); `docker compose ... exec worker cg model-check` : all 15 rules accepted. No vLLM server has been started in this build: this is the first real run (`docs/40` section 12).
 - If the reader warns about the vision model: documents still work with Tesseract only.
 
 ## Known limits

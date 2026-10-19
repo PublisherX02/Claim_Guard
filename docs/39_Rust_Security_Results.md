@@ -201,7 +201,7 @@ cargo audit                                                               # depe
 python rust/tools/pentest.py                                              # 116 checks against a local server
 python rust/tools/flood.py                                                # load and exhaustion
 python rust/tools/audit_guard_demo.py                                     # rewrite a live log and watch the protection notice
-python rust/tools/model_redteam.py                                        # needs Ollama with gemma3:4b
+python rust/tools/model_redteam.py                                        # needs a model server (vLLM; --provider ollama on a laptop)
 python rust/tools/xss_seed.py --port 8498 ; python rust/tools/xss_browser.py --port 8498 --accounts <file> --seed-log <log>   # needs Chrome and Playwright
 python rust/tools/deploy_attack.py                                        # needs Docker; builds nothing, uses claimguard-rs:latest
 python rust/tools/mutate.py                                               # about two hours; edits and restores sources, never run beside a build

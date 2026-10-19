@@ -2,10 +2,14 @@
 //! people read about, and each policy passage names the table version).
 //!
 //! What it is and is not. It is retrieval: a question goes in, the passages of the rulebook and the policies that best match come out, each with the rule or
-//! policy it came from, ranked by BM25 (lexical, no model, no network, deterministic). Nothing is generated, so nothing can be invented: the answer IS the
-//! quoted passage and its citation. A question that matches nothing is refused ("not in the rulebook documents") instead of answered with the nearest guess.
-//! It never sees a claim: the corpus is the rulebook and the policy table only. A dense (embedding) retriever and a model that phrases an answer are possible
-//! later; they would have to beat this on `tests` below before replacing it.
+//! policy it came from. Nothing is generated, so nothing can be invented: the answer IS the quoted passage and its citation. It never sees a claim: the corpus
+//! is the rulebook and the policy table only.
+//!
+//! Two ways to rank, chosen per request by `PayerRules::ask`:
+//! * **semantic** (when an embedding sidecar is configured and reachable; docs/52): the cosine of sentence embeddings (`paraphrase-multilingual-MiniLM-L12-v2`),
+//!   refusing below a threshold chosen on a held-out half. It understands "the same procedure appears twice" and French or Arabic questions. Its weakness is
+//!   a question close to the domain but not answered by it ("how do I appeal a rejected claim"): the nearest passage comes back, so the answer carries a caveat.
+//! * **keyword** (BM25: lexical, no model, no network, deterministic): the fallback, and the only mode when no sidecar is configured. It refuses what matches nothing.
 
 use serde_json::{json, Value};
 use std::collections::{BTreeMap, HashMap};
@@ -13,6 +17,15 @@ use std::collections::{BTreeMap, HashMap};
 const STOP: &[&str] = &["a", "an", "and", "are", "as", "at", "be", "by", "can", "do", "does", "for", "how", "if", "in", "is", "it", "of", "on", "or", "that", "the", "to", "what", "when", "which", "who", "with", "must", "should", "this", "there", "than", "then"];
 const K1: f64 = 1.5;
 const B: f64 = 0.75;
+/// Whether a field passage is embedded together with its Arabic names (experiments/rag_v2: no gain, so off).
+const EMBED_ALIASES: bool = false;
+
+/// Other ways of asking about each rule (Arabic, French) and the out-of-scope topics (docs/55). Used to find passages, never quoted.
+const PHRASES_TEXT: &str = include_str!("../data/rule_phrases.json");
+
+/// The kind of a passage about something the rulebook does not cover: a question that lands closest to one is refused, and the topic is named.
+pub const OUT_OF_SCOPE: &str = "out of scope";
+
 /// A hit must score at least this much, or the question is refused (a single weak word shared with a passage is not an answer).
 const MIN_SCORE: f64 = 1.2;
 
@@ -21,6 +34,8 @@ pub struct Passage {
     pub source: String,
     pub kind: String,
     pub text: String,
+    /// Other names the passage is asked about (the Arabic names of a field). Used only for the embedding and for BM25 tokens, never quoted.
+    aliases: String,
     tokens: Vec<String>,
 }
 
@@ -28,6 +43,8 @@ pub struct Index {
     passages: Vec<Passage>,
     df: HashMap<String, usize>,
     avg_len: f64,
+    /// passages that are text of the rulebook (all but the out-of-scope ones), for the keyword statistics
+    n_text: usize,
 }
 
 #[derive(Debug, Clone)]
@@ -36,6 +53,11 @@ pub struct Hit {
     pub kind: String,
     pub text: String,
     pub score: f64,
+}
+
+/// Turns texts into vectors of one fixed length (the embedding sidecar, `deploy/embed`). Implemented over HTTP in `cg-cli`; tests use a stub.
+pub trait Embedder: Send + Sync {
+    fn embed(&self, texts: &[String]) -> Result<Vec<Vec<f32>>, String>;
 }
 
 fn stem(w: &str) -> String {
@@ -84,7 +106,7 @@ fn sentences(text: &str) -> Vec<String> {
 
 fn passage(source: &str, kind: &str, text: String) -> Passage {
     let tokens = tokens(&format!("{source} {text}"));
-    Passage { source: source.into(), kind: kind.into(), text, tokens }
+    Passage { source: source.into(), kind: kind.into(), text, aliases: String::new(), tokens }
 }
 
 fn num(v: &Value) -> String {
@@ -125,6 +147,29 @@ impl Index {
                 ps.push(passage(&src, "policy", format!("Policy {id}: the highest quantity on one line for {svc} is {}.", num(n))));
             }
         }
+        // Arabic and French ways of asking, attached to the rule's title passage for the embedding only
+        let spec: Value = serde_json::from_str(PHRASES_TEXT).expect("rule_phrases.json is valid JSON (a test checks it)");
+        for p in ps.iter_mut().filter(|p| p.kind == "title" && p.source.starts_with("rule R")) {
+            let id = p.source.trim_start_matches("rule ");
+            if let Some(r) = spec["rules"].get(id) {
+                let list = |k: &str| r[k].as_array().into_iter().flatten().filter_map(Value::as_str).collect::<Vec<_>>();
+                p.aliases = format!("{} | {}", list("ar").join("، "), list("fr").join(" ; "));
+            }
+        }
+        // the data dictionary (docs/55): what each claim field means, in English, found by its Arabic names too
+        for f in cg_core::localize::field_entries() {
+            let mut p = passage(&f.source, "field", f.text);
+            p.tokens.extend(tokens(&f.aliases));
+            p.aliases = f.aliases;
+            ps.push(p);
+        }
+        // out-of-scope topics: found by meaning only (no keyword tokens), they turn a near-domain question into a refusal that names the topic
+        for d in spec["decoys"].as_array().into_iter().flatten() {
+            let list = |k: &str| d[k].as_array().into_iter().flatten().filter_map(Value::as_str).collect::<Vec<_>>();
+            let topic = d["topic"].as_str().unwrap_or("");
+            ps.push(Passage { source: format!("out of scope: {topic}"), kind: OUT_OF_SCOPE.into(), text: d["text"].as_str().unwrap_or("").to_string(), aliases: format!("{} | {}", list("ar").join("، "), list("fr").join(" ; ")), tokens: vec![] });
+        }
+        let n_text = ps.iter().filter(|p| p.kind != OUT_OF_SCOPE).count();
         let mut df: HashMap<String, usize> = HashMap::new();
         for p in &ps {
             let mut seen: Vec<&String> = p.tokens.iter().collect();
@@ -134,12 +179,64 @@ impl Index {
                 *df.entry(t.clone()).or_insert(0) += 1;
             }
         }
-        let avg_len = if ps.is_empty() { 1.0 } else { ps.iter().map(|p| p.tokens.len()).sum::<usize>() as f64 / ps.len() as f64 };
-        Index { passages: ps, df, avg_len }
+        let avg_len = if n_text == 0 { 1.0 } else { ps.iter().map(|p| p.tokens.len()).sum::<usize>() as f64 / n_text as f64 };
+        Index { passages: ps, df, avg_len, n_text }
     }
 
     pub fn len(&self) -> usize {
         self.passages.len()
+    }
+
+    /// The text embedded for each passage, in index order. The experiment (docs/52) embedded exactly this: the source and kind in front of the passage.
+    pub fn embed_texts(&self) -> Vec<String> {
+        self.passages.iter().map(|p| if (EMBED_ALIASES || p.kind != "field") && !p.aliases.is_empty() { format!("{} ({}): {} Also asked as: {}", p.source, p.kind, p.text, p.aliases) } else { format!("{} ({}): {}", p.source, p.kind, p.text) }).collect()
+    }
+
+    /// Semantic search: the passages whose vectors are closest to the question's, one per (source, kind), best first. Refused (empty) when even the closest is
+    /// below `threshold` (a question that is not about the rulebook has no close passage) or when the closest is an out-of-scope topic, which is then named in the
+    /// second value. `vectors` are the passage vectors in index order.
+    pub fn search_dense_ex(&self, vectors: &[Vec<f32>], question_vec: &[f32], k: usize, threshold: f64) -> (Vec<Hit>, Option<String>) {
+        if vectors.len() != self.passages.len() || question_vec.is_empty() || vectors.iter().any(|v| v.len() != question_vec.len()) {
+            return (vec![], None);
+        }
+        let qn = norm(question_vec);
+        if qn == 0.0 {
+            return (vec![], None);
+        }
+        let mut scored: Vec<(f64, usize)> = vectors.iter().enumerate().map(|(i, v)| (dot(v, question_vec) / (norm(v).max(1e-12) * qn), i)).collect();
+        scored.sort_by(|a, b| b.0.partial_cmp(&a.0).unwrap_or(std::cmp::Ordering::Equal).then(a.1.cmp(&b.1)));
+        let Some(top) = scored.first().copied() else { return (vec![], None) };
+        if self.passages[top.1].kind == OUT_OF_SCOPE {
+            return (vec![], Some(self.passages[top.1].source.trim_start_matches("out of scope: ").to_string()));
+        }
+        if top.0 < threshold {
+            return (vec![], None);
+        }
+        let mut out: Vec<Hit> = vec![];
+        for (score, i) in scored {
+            let p = &self.passages[i];
+            if p.kind == OUT_OF_SCOPE || out.iter().any(|h| h.source == p.source && h.kind == p.kind) {
+                continue;
+            }
+            out.push(Hit { source: p.source.clone(), kind: p.kind.clone(), text: p.text.clone(), score });
+            if out.len() >= k {
+                break;
+            }
+        }
+        (out, None)
+    }
+
+    pub fn search_dense(&self, vectors: &[Vec<f32>], question_vec: &[f32], k: usize, threshold: f64) -> Vec<Hit> {
+        self.search_dense_ex(vectors, question_vec, k, threshold).0
+    }
+
+    /// The field passages an Arabic question names (`cg_core::localize::fields_named`): a dictionary lookup that does not depend on the embedding.
+    pub fn named_fields(&self, question: &str) -> Vec<Hit> {
+        cg_core::localize::fields_named(question)
+            .iter()
+            .filter_map(|src| self.passages.iter().find(|p| p.kind == "field" && &p.source == src))
+            .map(|p| Hit { source: p.source.clone(), kind: p.kind.clone(), text: p.text.clone(), score: 1.0 })
+            .collect()
     }
 
     pub fn is_empty(&self) -> bool {
@@ -152,9 +249,23 @@ impl Index {
         if q.is_empty() {
             return vec![];
         }
-        let n = self.passages.len() as f64;
+        let n = self.n_text as f64;
         let mut scored: Vec<(f64, usize)> = vec![];
+        let asked = question.to_lowercase();
+        let asked_spaced = asked.replace('_', " ");
         for (i, p) in self.passages.iter().enumerate() {
+            // keyword search reads a field passage only when the question asks what a field is or means: otherwise the many shared words
+            // ("service date", "unit price") would let the dictionary push the rule that answers the question out of first place
+            if p.kind == OUT_OF_SCOPE {
+                continue;
+            }
+            if p.kind == "field" {
+                let key = p.source.rsplit(['.', ' ']).next().unwrap_or("");
+                let defining = ["field", "mean", "used for", "stands for", "defin"].iter().any(|w| asked.contains(w));
+                if !(defining && (asked.contains(key) || asked_spaced.contains(&key.replace('_', " ")) || asked.contains("field"))) {
+                    continue;
+                }
+            }
             let mut tf: BTreeMap<&String, usize> = BTreeMap::new();
             for t in &p.tokens {
                 *tf.entry(t).or_insert(0) += 1;
@@ -193,6 +304,14 @@ impl Index {
         }
         out
     }
+}
+
+fn dot(a: &[f32], b: &[f32]) -> f64 {
+    a.iter().zip(b).map(|(x, y)| *x as f64 * *y as f64).sum()
+}
+
+fn norm(a: &[f32]) -> f64 {
+    dot(a, a).sqrt()
 }
 
 pub fn hits_json(question: &str, hits: &[Hit]) -> Value {
@@ -284,7 +403,7 @@ mod tests {
         let hits = ix.search("highest unit price for SVC-LAB", 3);
         assert!(!hits.is_empty());
         for h in &hits {
-            assert!(h.source.starts_with("rule R") || h.source.starts_with("policy "), "{}", h.source);
+            assert!(h.source.starts_with("rule R") || h.source.starts_with("policy ") || h.source.starts_with("field "), "{}", h.source);
             assert!(!h.text.is_empty());
         }
         assert!(hits.iter().any(|h| h.text.contains("260")), "the policy passage quotes the actual limit: {:?}", hits.iter().map(|h| h.text.clone()).collect::<Vec<_>>());
@@ -308,5 +427,35 @@ mod tests {
         let b = ix.search("duplicate lines", 5);
         assert_eq!(a.iter().map(|h| (h.source.clone(), h.kind.clone())).collect::<Vec<_>>(), b.iter().map(|h| (h.source.clone(), h.kind.clone())).collect::<Vec<_>>());
         assert!(ix.passages.iter().all(|p| !p.text.contains("PAT-") && !p.text.contains("CG-")), "the corpus holds no claim data");
+    }
+
+    #[test]
+    fn a_question_closest_to_an_out_of_scope_topic_is_refused_and_the_topic_is_named() {
+        let ix = index();
+        let n = ix.passages.len();
+        // every passage gets its own axis, so the closest passage to a question is the one it is built from
+        let vectors: Vec<Vec<f32>> = (0..n).map(|i| (0..n).map(|j| if i == j { 1.0 } else { 0.0 }).collect()).collect();
+        let at = |i: usize| -> Vec<f32> { (0..n).map(|j| if i == j { 1.0 } else { 0.0 }).collect() };
+        let decoy = ix.passages.iter().position(|p| p.kind == OUT_OF_SCOPE).expect("there are out-of-scope topics");
+        let (hits, topic) = ix.search_dense_ex(&vectors, &at(decoy), 4, 0.1);
+        assert!(hits.is_empty() && topic.as_deref().is_some_and(|t| !t.is_empty()), "{topic:?}");
+        let rule = ix.passages.iter().position(|p| p.source == "rule R007").unwrap();
+        let (hits, topic) = ix.search_dense_ex(&vectors, &at(rule), 4, 0.1);
+        assert!(topic.is_none() && hits[0].source == "rule R007" && hits.iter().all(|h| h.kind != OUT_OF_SCOPE));
+        // vectors of the wrong length are refused, never silently truncated
+        assert!(ix.search_dense_ex(&vectors, &[1.0, 0.0], 4, 0.1).0.is_empty());
+    }
+
+    #[test]
+    fn every_rule_has_other_ways_of_asking_and_decoys_are_never_keyword_hits() {
+        let spec: Value = serde_json::from_str(PHRASES_TEXT).unwrap();
+        for id in (1..=15).map(|n| format!("R{n:03}")) {
+            assert!(spec["rules"][&id]["ar"].as_array().is_some_and(|a| !a.is_empty()) && spec["rules"][&id]["fr"].as_array().is_some_and(|a| !a.is_empty()), "{id}");
+        }
+        assert!(spec["decoys"].as_array().unwrap().len() >= 10);
+        let ix = index();
+        assert!(ix.search("appeal a rejected claim deductible premium", 5).iter().all(|h| h.kind != OUT_OF_SCOPE));
+        let texts = ix.embed_texts();
+        assert!(texts.iter().any(|t| t.starts_with("rule R001 (title)") && t.contains("Also asked as")));
     }
 }

@@ -220,7 +220,7 @@ change only visible as a whole-file diff) — both real but secondary to the two
 
 ### 6a. Local models
 
-`OllamaExplanationProvider` (`src/llm_adapter.py`) serves any model through a locally-running Ollama instance
+**Note (2026-10-15): the deployed Rust build now serves the model with vLLM (`docs/40` section 12); no vLLM server has been started yet, and every figure below was measured through Ollama (a 4-bit build) and has not been repeated.** `OllamaExplanationProvider` (`src/llm_adapter.py`) serves any model through a locally-running Ollama instance
 (`http://localhost:11434`), fully offline: no API key leaves the machine, no per-call cost, and it goes through the
 exact same schema, grounding and fallback path as every hosted provider — nothing about the safety net changes for a
 local model. Motivation: the hosted Mistral-Nemo default costs money per call and needs internet access; a model that
@@ -742,6 +742,30 @@ frozen experiment numbers). **Dependencies:** `pip-audit` is clean for `requirem
 file. The opt-in local-model file and the third-party comparison system's file had findings and were raised on 2026-10-06 (their earlier
 pins are kept in comments, for the frozen results); the comparison code's unit tests and an agent build and query pass on the new
 versions, GPU model loading was not re-run (`docs/32`, section 6).
+
+### 10h. Confidence routing (archived) and the workload report
+
+**Archived, not wired (2026-10-15):** the routing build below is at git tag `archive/hitl-routing-2026-10-15`; only the library and simulator remain in the tree. The current feature is the read-only workload report: `docs/49_Reviewer_Workload_Report.md`, `cg queue workload`, `cg sim workload` (rules that waste reviews, rules almost always upheld with the bounded price of skipping; simulated reviewers; no time measured yet).
+
+Archived design, full note: `docs/48_HITL_Confidence_and_Learning_Loop.md`. Confidence is measured, not modelled: per rule, the share of flagged findings that reviewers uphold (last confirm or dismiss per claim and rule), with an exact 95% interval (checked against the Python oracle on 1,685 cases, largest difference 2.8e-13), one reviewer capped at 40% of a rule's decisions, at least 20 decisions from 3 reviewers before a rule is judged. A rule is doubtful when the interval's upper bound is below 0.6. Off by default (`learn_enabled`, `route_by_reliability`, `uncertainty_weight`).
+
+Effects: a doubtful rule makes a claim need a senior; the dispatcher priority adds `uncertainty_weight x widest interval`; verdicts never change; reviewers see words only. Governance: `learn` stores a numbered proposal with a replay report; activation goes through the two-administrator approval gate used by payer rules; routing ignores a snapshot that fails `verify`. Code: `rust/crates/cg-queue/src/reliability.rs`, routes under `/api/v1/queue/reliability`, console page "Learned reliability", `cg queue learn|reliability|verify-reliability|replay-reliability|activate-reliability`, `cg sim` (simulated reviewers, experiments, fast-forward), evidence `outputs/defense/learning.json`.
+
+Simulated evidence (seed 1): R006 (hidden true rate 0.35) is doubtful after 405 decisions; no rule with hidden rate 0.97 was ever doubtful; routing on raised the senior share from 76.2% to 87.5% with identical verdict hashes; the reviewer cap and minimum protect against an adversary deciding up to about 30% of claims or a fully captured queue, not 40% to 80%. All reviewers there are simulated.
+
+### 10i. Less work per operator
+
+Full note: `docs/50_Operator_Workload_Reduction.md`; plan `docs/superpowers/plans/2026-10-15-operator-workload-reduction.md`. Three new routing-configuration fields, all versioned and logged: `auto_clear_green` (bool, default false), `audit_percent` (1 to 100, default 5) and `bulk_confirm_skip_lower` (0 = off, else 0.8 to 0.999).
+
+Auto-clear: `flow::green_path` decides an intact green claim as `system:auto-clear` (new legal move `triaged -> decided`, field `auto_cleared`) unless a random draw below `audit_percent` sends it to a person (event `why: green_audit`, `audit_draw` on the claim). Damaged or flagged claims are never cleared. `workload::audit_report` / `cg queue audit` give the escalation rate of the audited sample with an exact 95% upper bound. Shadow agreement and the feedback report leave system-cleared claims out of "verified by a person".
+
+Confirm without a reason: `decide_finding` records the fixed text for a `confirm_issue` with no reason; dismissing still needs one. Bulk confirm: `POST /api/v1/work/bulk-confirm` {rule_id, claim_ids (1 to 25)}; the rule must be a light-review rule now (cached 5 minutes), each claim goes through `decide_finding`, a random `audit_percent` is left for full review, and decisions with the bulk reason are excluded from `reliability::counted_decisions`. `GET /work/inbox` also returns `light_review`. The workload report adds `time.breakdown` and `planning_per_500_claims`.
+
+Auto-request: `auto_request_info` (off | medium | all, default off). `flow::advance` records `request_information` decisions as `system:auto-request` for UNABLE_TO_ASSESS findings of the configured severity (settable `decisions` and `auto_requested` on a transition): a claim with nothing else goes `triaged -> decided`; a claim with real findings goes on to `ready` with the requests attached and a person decides the rest (`service::targets` and the high-severity set skip system-requested findings, `decide_finding` refuses them). A random `audit_percent` is handled by a person (event `info_audit`). `workload::audit_report` adds the audit suggestion on `audit_percent` and the request audit (agreed / differed). System decisions are excluded from the feedback report, shadow agreement, reliability evidence and review timing.
+
+Console: Confirm button, Confirm all (button, or `c` twice), auto-open of the next claim, By rule inbox.
+
+Tests: `cargo test -p cg-queue` (config, auto-clear, auto-request, audit report and suggestion, time breakdown, planning, confirm, bulk confirm incl. high severity and not-evidence); `cargo test -p cg-queue --test auto_clear_run` measures auto-clear on the real pipeline. Nothing here is measured on real reviewers.
 
 ## 11. Experiments in detail
 

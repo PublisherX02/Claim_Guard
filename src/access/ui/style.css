@@ -158,3 +158,11 @@ ul.plain { margin: .3rem 0 0; padding-left: 1.1rem; }
 @media (max-width: 560px) { .hbar { grid-template-columns: 7rem 1fr 4.5rem; } }
 .comp.wide { grid-column: 1 / -1; }
 .card h3 { margin-top: 1rem; }
+
+.fixgrid { display: grid; grid-template-columns: repeat(auto-fit, minmax(15rem, 1fr)); gap: .4rem 1.2rem; margin: .6rem 0; }
+.fixrow { display: flex; align-items: center; gap: .5rem; } .fixrow label { min-width: 7.5rem; color: var(--muted); font-size: .88rem; }
+.fixin { width: 100%; min-width: 4.5rem; padding: .3rem .45rem; border: 1px solid var(--line); border-radius: 6px; background: var(--surface); color: inherit; font: inherit; }
+.fixin.num { text-align: right; } .fixin.edited { border-color: var(--accent); background: var(--info-soft); }
+.fixpanel summary { cursor: pointer; } .fixpanel textarea { width: 100%; margin: .3rem 0 .6rem; }
+.copilot .steps { padding-left: 1.2rem; } .copilot .steps li { margin: .6rem 0; }
+.chip.good { background: var(--ok-soft); color: var(--ok); } .chip.muted { background: var(--surface-2); color: var(--muted); }

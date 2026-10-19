@@ -1,0 +1,85 @@
+{
+ "connections": 16,
+ "requests_each": 3000,
+ "results": {
+  "healthz": {
+   "direct": {
+    "requests": 2992,
+    "errors": 0,
+    "per_second": 6195,
+    "p50_ms": 2.14,
+    "p95_ms": 5.41,
+    "p99_ms": 7.77
+   },
+   "nginx": {
+    "requests": 2992,
+    "errors": 0,
+    "per_second": 3105,
+    "p50_ms": 4.72,
+    "p95_ms": 7.69,
+    "p99_ms": 9.69
+   },
+   "caddy": {
+    "requests": 2992,
+    "errors": 0,
+    "per_second": 988,
+    "p50_ms": 4.93,
+    "p95_ms": 8.11,
+    "p99_ms": 10.52
+   }
+  },
+  "inbox (signed in)": {
+   "direct": {
+    "requests": 2992,
+    "errors": 0,
+    "per_second": 421,
+    "p50_ms": 36.84,
+    "p95_ms": 45.7,
+    "p99_ms": 55.46
+   },
+   "nginx": {
+    "requests": 2992,
+    "errors": 0,
+    "per_second": 215,
+    "p50_ms": 71.15,
+    "p95_ms": 95.75,
+    "p99_ms": 108.38
+   },
+   "caddy": {
+    "requests": 2992,
+    "errors": 0,
+    "per_second": 180,
+    "p50_ms": 75.54,
+    "p95_ms": 103.12,
+    "p99_ms": 126.17
+   }
+  },
+  "console file, gzip": {
+   "direct": {
+    "requests": 2992,
+    "errors": 0,
+    "per_second": 5854,
+    "p50_ms": 2.37,
+    "p95_ms": 5.03,
+    "p99_ms": 6.89
+   },
+   "nginx": {
+    "requests": 2992,
+    "errors": 0,
+    "per_second": 2375,
+    "p50_ms": 6.19,
+    "p95_ms": 10.07,
+    "p99_ms": 14.24
+   },
+   "caddy": {
+    "requests": 2992,
+    "errors": 0,
+    "per_second": 901,
+    "p50_ms": 6.18,
+    "p95_ms": 10.03,
+    "p99_ms": 17.07
+   }
+  }
+ },
+ "note": "one laptop, one python client; proxies use TLS, direct does not"
+}

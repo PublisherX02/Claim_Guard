@@ -109,6 +109,25 @@ M = [
     ('broker-deadletter-ignores-in-flight-copy', 'cg-queue', 'cg-queue/src/consumer.rs', 'if in_flight.lock().unwrap_or_else(|p| p.into_inner()).contains(&key) {\n            return false;', 'if false {\n            return false;'),
     ('broker-client-panic-ends-the-thread', 'cg-queue', 'cg-queue/src/consumer.rs', 'match guarded(|| broker.read(&consumer, cfg.block_ms)) {', 'match broker.read(&consumer, cfg.block_ms) {'),
     ('broker-redis-credentials-not-masked', 'cg-redis', 'cg-redis/src/lib.rs', 'let msg = mask_credentials(&e.to_string().replace(&self.url, "<redis>"), &self.url);', 'let msg = e.to_string();'),
+    # learned reliability (docs/47)
+    ('rel-doubtful-boundary-inclusive', 'cg-queue', QUE + 'reliability.rs', '} else if upper < p.doubtful_below {', '} else if upper <= p.doubtful_below {'),
+    ('rel-min-reviewers-ignored', 'cg-queue', QUE + 'reliability.rs', ' || reviewers < p.min_reviewers {', ' {'),
+    ('rel-cap-without-floor-of-one', 'cg-queue', QUE + 'reliability.rs', '.floor() as usize).max(1);', '.floor() as usize);'),
+    ('rel-cap-rounds-up', 'cg-queue', QUE + 'reliability.rs', '(cap * rows.len() as f64).floor() as usize', '(cap * rows.len() as f64).ceil() as usize'),
+    ('rel-apply-trusts-the-snapshot', 'cg-queue', QUE + 'reliability.rs', '    verify(snap)?;\n    let rules = snap["rules"]', '    let rules = snap["rules"]'),
+    ('rel-upheld-inverted', 'cg-queue', QUE + 'reliability.rs', 'upheld: d["action"] == "confirm_issue",', 'upheld: d["action"] != "confirm_issue",'),
+    ('rel-unflagged-rule-counted', 'cg-queue', QUE + 'reliability.rs', 'if flagged.contains(rule) && RESOLVING.contains(&action) && d["reason"].as_str() != Some(crate::service::BULK_REASON) {', 'if RESOLVING.contains(&action) && d["reason"].as_str() != Some(crate::service::BULK_REASON) {'),
+    ('wl-bulk-counted-as-evidence', 'cg-queue', QUE + 'reliability.rs', 'if flagged.contains(rule) && RESOLVING.contains(&action) && d["reason"].as_str() != Some(crate::service::BULK_REASON) {', 'if flagged.contains(rule) && RESOLVING.contains(&action) {'),
+    ('wl-auto-clear-always-on', 'cg-queue', QUE + 'flow.rs', 'if !cfg.auto_clear_green || triage::degraded', 'if false || triage::degraded'),
+    ('wl-auto-clear-ignores-damage', 'cg-queue', QUE + 'flow.rs', 'if !cfg.auto_clear_green || triage::degraded(&doc["results"]) || !triage::flagged(&doc["results"]).is_empty() {', 'if !cfg.auto_clear_green {'),
+    ('wl-audit-sample-dropped', 'cg-queue', QUE + 'flow.rs', 'if draw < cfg.audit_percent as f64 {', 'if false && draw < cfg.audit_percent as f64 {'),
+    ('wl-shadow-counts-system-clears', 'cg-queue', QUE + 'shadow.rs', 'if doc["auto_cleared"] == true {\n            continue; // the system decided this one', 'if false {\n            continue; // the system decided this one'),
+    ('wl-confirm-needs-reason-again', 'cg-queue', QUE + 'service.rs', 'let reason = if action == "confirm_issue" && cg_core::text::blank(reason) { CONFIRM_REASON } else { reason };', 'let reason = reason;'),
+    ('wl-bulk-any-rule', 'cg-queue', QUE + 'service.rs', 'if !self.light_review_rules().contains(rule_id) {', 'if false {'),
+    ('wl-bulk-no-full-review-share', 'cg-queue', QUE + 'service.rs', 'if crate::flow::audit_draw() < cfg.audit_percent as f64 {', 'if false {'),
+    ('wl-time-counts-bulk', 'cg-queue', QUE + 'workload.rs', ' && x["reason"].as_str() != Some(crate::service::BULK_REASON)).filter(|x| x["at"]', ').filter(|x| x["at"]'),
+    ('rel-activate-ignores-newer-active', 'cg-queue', QUE + 'reliability.rs', 'if previous.is_some_and(|v| v > version) {', 'if false && previous.is_some_and(|v| v > version) {'),
+    ('rel-activate-any-status', 'cg-queue', QUE + 'reliability.rs', 'if doc["status"] != "proposed" {', 'if false {'),
 ]
 
 

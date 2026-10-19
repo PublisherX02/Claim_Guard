@@ -49,6 +49,19 @@ pub struct PayerRules {
     state: Mutex<State>,
     /// the question index, rebuilt when the table version changes
     index: Mutex<Option<(u64, Arc<crate::rag::Index>)>>,
+    /// meaning-based search (docs/52): the embedder, its refusal threshold, and the passage vectors per table version. Off unless `set_embedder` is called.
+    dense: Mutex<Dense>,
+}
+
+/// How long to leave the embedding sidecar alone after it failed, so a dead sidecar costs one failed call in this many seconds, not one per question.
+const EMBEDDER_BACKOFF_SECS: u64 = 20;
+
+#[derive(Default)]
+struct Dense {
+    cfg: Option<(Arc<dyn crate::rag::Embedder>, f64)>,
+    /// passage vectors by the hash of the embedded text, so a policy edit re-embeds only the passages that changed
+    cache: std::collections::HashMap<String, Vec<f32>>,
+    failed_at: Option<std::time::Instant>,
 }
 
 fn read_json(path: &Path) -> Result<Value, String> {
@@ -112,7 +125,7 @@ impl PayerRules {
         let services_json = read_json(&root.join("rules/services.json"))?;
         let rules_json = read_json(&root.join("rules/rules.json"))?;
         let services = services_json.as_object().map(|m| m.keys().cloned().collect()).unwrap_or_default();
-        let p = PayerRules { engine, log_path: data_dir.join("payer_rules.jsonl"), shipped: shipped.clone(), services, rules_json, services_json, state: Mutex::new(State { version: 0, policies: shipped, rows_seen: 0 }), index: Mutex::new(None) };
+        let p = PayerRules { engine, log_path: data_dir.join("payer_rules.jsonl"), shipped: shipped.clone(), services, rules_json, services_json, state: Mutex::new(State { version: 0, policies: shipped, rows_seen: 0 }), index: Mutex::new(None), dense: Mutex::new(Dense::default()) };
         p.refresh()?;
         Ok(p)
     }
@@ -171,9 +184,95 @@ impl PayerRules {
                 }
             }
         };
-        let mut out = crate::rag::hits_json(question, &ix.search(question, k));
+        let mut topic = None;
+        let (hits, mode, fallback) = match self.ask_semantic(&ix, question, k) {
+            Some(Ok((hits, t))) => {
+                topic = t;
+                (hits, "semantic", None)
+            }
+            Some(Err(why)) => (ix.search(question, k), "keyword", Some(why)),
+            None => (ix.search(question, k), "keyword", None),
+        };
+        let mut out = crate::rag::hits_json(question, &hits);
         out["table_version"] = json!(version);
+        out["mode"] = json!(mode);
+        if let Some(t) = topic {
+            out["out_of_scope"] = json!(t);
+            out["note"] = json!(format!("This looks like a question about \"{t}\", which the rulebook does not cover: nothing in the fifteen rules, the payer policies or the field dictionary answers it."));
+        }
+        if mode == "semantic" {
+            if !hits.is_empty() {
+                out["note"] = json!("Closest passages by meaning, quoted from the rulebook and the policies in force; nothing here is generated. A passage can be close in topic without answering the question: read it before you rely on it.");
+            }
+            out["caveat"] = json!("closest passage by meaning; it may not answer your question");
+        }
+        if let Some(why) = fallback {
+            out["fallback"] = json!(format!("The meaning-based search is not available ({why}); this is the keyword search."));
+        }
         out
+    }
+
+    /// Turn on meaning-based search for "Ask the rulebook". `threshold` is the lowest cosine at which the closest passage still counts as an answer.
+    pub fn set_embedder(&self, embedder: Arc<dyn crate::rag::Embedder>, threshold: f64) {
+        let mut d = self.dense.lock().unwrap_or_else(|e| e.into_inner());
+        d.cfg = Some((embedder, threshold));
+        d.failed_at = None;
+    }
+
+    /// None: meaning-based search is not configured. Some(Err): configured but unreachable (the caller falls back to keywords). Some(Ok): its answer.
+    fn ask_semantic(&self, ix: &crate::rag::Index, question: &str, k: usize) -> Option<Result<(Vec<crate::rag::Hit>, Option<String>), String>> {
+        use sha2::{Digest, Sha256};
+        let (embedder, threshold) = {
+            let d = self.dense.lock().unwrap_or_else(|e| e.into_inner());
+            let (e, t) = d.cfg.clone()?;
+            if d.failed_at.is_some_and(|t| t.elapsed().as_secs() < EMBEDDER_BACKOFF_SECS) {
+                return Some(Err("it failed a moment ago".into()));
+            }
+            (e, t)
+        };
+        let result = (|| -> Result<(Vec<crate::rag::Hit>, Option<String>), String> {
+            if question.trim().is_empty() {
+                return Ok((vec![], None));
+            }
+            let texts = ix.embed_texts();
+            let keys: Vec<String> = texts.iter().map(|t| hex::encode(Sha256::digest(t.as_bytes()))).collect();
+            let missing: Vec<usize> = {
+                let d = self.dense.lock().unwrap_or_else(|e| e.into_inner());
+                (0..texts.len()).filter(|i| !d.cache.contains_key(&keys[*i])).collect()
+            };
+            for chunk in missing.chunks(16) {
+                let batch: Vec<String> = chunk.iter().map(|i| texts[*i].clone()).collect();
+                let vecs = embedder.embed(&batch)?;
+                if vecs.len() != batch.len() {
+                    return Err("the embedder returned the wrong number of vectors".into());
+                }
+                let mut d = self.dense.lock().unwrap_or_else(|e| e.into_inner());
+                for (i, v) in chunk.iter().zip(vecs) {
+                    d.cache.insert(keys[*i].clone(), v);
+                }
+            }
+            let vectors: Vec<Vec<f32>> = {
+                let d = self.dense.lock().unwrap_or_else(|e| e.into_inner());
+                keys.iter().filter_map(|key| d.cache.get(key).cloned()).collect()
+            };
+            let q = embedder.embed(&[question.to_string()])?.into_iter().next().ok_or("the embedder returned nothing")?;
+            if vectors.len() != texts.len() || vectors.iter().any(|v| v.len() != q.len()) || q.iter().any(|x| !x.is_finite()) {
+                return Err("the embedder returned vectors of the wrong shape".into());
+            }
+            let mut hits = ix.named_fields(question);
+            let (dense, topic) = ix.search_dense_ex(&vectors, &q, k, threshold);
+            for h in dense {
+                if !hits.iter().any(|x| x.source == h.source && x.kind == h.kind) {
+                    hits.push(h);
+                }
+            }
+            hits.truncate(k);
+            let topic = if hits.is_empty() { topic } else { None };
+            Ok((hits, topic))
+        })();
+        let mut d = self.dense.lock().unwrap_or_else(|e| e.into_inner());
+        d.failed_at = if result.is_err() { Some(std::time::Instant::now()) } else { None };
+        Some(result)
     }
 
     pub fn history(&self) -> Vec<Value> {
@@ -421,5 +520,119 @@ mod tests {
         assert_eq!(again.version(), 1, "a restart keeps the table");
         assert_eq!(e3.rulebook_hash(), e2.rulebook_hash());
         assert!(cg_audit::verify(&dir.path().join("payer_rules.jsonl")).is_ok(), "the history is a verifying hash chain");
+    }
+
+    // ---- meaning-based "Ask the rulebook" (docs/52) ----------------------------------------------------------------------------
+
+    /// A stand-in embedder: hashes words into 128 buckets. Not meaningful, but deterministic, so the plumbing (modes, threshold, cache, fallback) can be tested.
+    struct Stub {
+        calls: std::sync::atomic::AtomicUsize,
+        texts: std::sync::atomic::AtomicUsize,
+        down: std::sync::atomic::AtomicBool,
+    }
+
+    impl Stub {
+        fn new() -> Arc<Stub> {
+            Arc::new(Stub { calls: Default::default(), texts: Default::default(), down: Default::default() })
+        }
+    }
+
+    impl crate::rag::Embedder for Stub {
+        fn embed(&self, texts: &[String]) -> Result<Vec<Vec<f32>>, String> {
+            use std::sync::atomic::Ordering::SeqCst;
+            self.calls.fetch_add(1, SeqCst);
+            if self.down.load(SeqCst) {
+                return Err("connection refused".into());
+            }
+            self.texts.fetch_add(texts.len(), SeqCst);
+            Ok(texts.iter().map(|t| {
+                let mut v = vec![0f32; 128];
+                for w in crate::rag::tokens(t) {
+                    v[w.bytes().fold(7usize, |h, b| h.wrapping_mul(31).wrapping_add(b as usize)) % 128] += 1.0;
+                }
+                v
+            }).collect())
+        }
+    }
+
+    #[test]
+    fn without_an_embedder_the_answer_is_the_keyword_search() {
+        let dir = tempfile::tempdir().unwrap();
+        let (_e, p) = open(dir.path());
+        let r = p.ask("highest unit price for SVC-LAB", 4);
+        assert_eq!(r["mode"], "keyword");
+        assert!(r.get("fallback").is_none() && r.get("caveat").is_none());
+        assert_eq!(r["answered"], true);
+    }
+
+    #[test]
+    fn with_an_embedder_the_answer_is_semantic_and_carries_the_caveat() {
+        let dir = tempfile::tempdir().unwrap();
+        let (_e, p) = open(dir.path());
+        p.set_embedder(Stub::new(), 0.2);
+        let r = p.ask("highest unit price for SVC-LAB", 4);
+        assert_eq!(r["mode"], "semantic");
+        assert_eq!(r["answered"], true);
+        assert!(r["caveat"].as_str().unwrap().contains("may not answer"));
+        assert!(r["results"].as_array().unwrap().len() <= 4);
+        assert!(r["results"][0]["score"].as_f64().unwrap() >= 0.2, "{r}");
+    }
+
+    #[test]
+    fn below_the_threshold_it_refuses_and_a_blank_question_is_not_embedded() {
+        let dir = tempfile::tempdir().unwrap();
+        let (_e, p) = open(dir.path());
+        let stub = Stub::new();
+        p.set_embedder(stub.clone(), 0.99);
+        let r = p.ask("zzqx plugh xyzzy", 4);
+        assert_eq!(r["mode"], "semantic");
+        assert_eq!(r["answered"], false);
+        assert_eq!(r["results"].as_array().unwrap().len(), 0);
+        let calls = stub.calls.load(std::sync::atomic::Ordering::SeqCst);
+        let r = p.ask("   ", 4);
+        assert_eq!(r["answered"], false);
+        assert_eq!(stub.calls.load(std::sync::atomic::Ordering::SeqCst), calls, "a blank question never reaches the embedder");
+    }
+
+    #[test]
+    fn a_dead_embedder_falls_back_to_keywords_and_is_not_hammered() {
+        use std::sync::atomic::Ordering::SeqCst;
+        let dir = tempfile::tempdir().unwrap();
+        let (_e, p) = open(dir.path());
+        let stub = Stub::new();
+        stub.down.store(true, SeqCst);
+        p.set_embedder(stub.clone(), 0.2);
+        let r = p.ask("highest unit price for SVC-LAB", 4);
+        assert_eq!(r["mode"], "keyword");
+        assert_eq!(r["answered"], true, "the keyword search still answers");
+        assert!(r["fallback"].as_str().unwrap().contains("keyword search"));
+        let after_first = stub.calls.load(SeqCst);
+        for _ in 0..5 {
+            assert_eq!(p.ask("highest unit price for SVC-LAB", 4)["mode"], "keyword");
+        }
+        assert_eq!(stub.calls.load(SeqCst), after_first, "within the back-off the sidecar is left alone");
+    }
+
+    #[test]
+    fn a_policy_change_re_embeds_the_policy_passages_but_not_the_rules() {
+        use std::sync::atomic::Ordering::SeqCst;
+        let dir = tempfile::tempdir().unwrap();
+        let (_e, p) = open(dir.path());
+        let stub = Stub::new();
+        p.set_embedder(stub.clone(), 0.2);
+        p.ask("highest unit price for SVC-LAB", 4);
+        let first = stub.texts.load(SeqCst);
+        assert!(first > 60, "the first question embeds the whole corpus ({first})");
+        p.ask("submission window", 4);
+        assert_eq!(stub.texts.load(SeqCst), first + 1, "the second question embeds only the question");
+        let mut pol = p.current()["policies"].clone();
+        pol["EDU-BASIC"]["max_unit_price"]["SVC-LAB"] = json!(417);
+        p.apply(&pol, "CG-3001", None, "raise the laboratory ceiling after the amendment").unwrap();
+        let before = stub.texts.load(SeqCst);
+        let r = p.ask("highest unit price for SVC-LAB", 4);
+        let used = stub.texts.load(SeqCst) - before;
+        // a policy passage names its table version, so the new version's passages are new texts; the rule passages are unchanged and come from the cache
+        assert!(used > 1 && used < first, "the new version's policy passages (and the question) are embedded, the rules are not: {used} of {first}");
+        assert_eq!(r["mode"], "semantic");
     }
 }

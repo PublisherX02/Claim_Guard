@@ -1,0 +1,485 @@
+//! The experiments behind docs/48. Every number comes from simulated reviewers (see `personas`): they show how the mechanism behaves, not
+//! how accurate it would be with real people. All functions are seeded, return plain JSON and write nothing.
+
+use crate::generate::{load_corpus, Corpus, Lab};
+use crate::personas::truth;
+use cg_queue::dispatcher::{Agent, Dispatcher};
+use cg_queue::reliability::{self, Params};
+use cg_queue::routing_config::{self as rc, RoutingConfig};
+use cg_queue::store::{MemoryQueueStore, QueueStore};
+use cg_queue::triage;
+use serde_json::{json, Value};
+use std::collections::{BTreeMap, BTreeSet};
+use std::path::Path;
+use std::sync::Arc;
+
+const NOTE: &str = "simulated reviewers; shows the mechanism, not real-world accuracy";
+
+fn params() -> Params {
+    Params::from_config(&RoutingConfig::default())
+}
+
+fn snapshot_from(store: &dyn QueueStore, p: &Params) -> Value {
+    reliability::make_snapshot(&reliability::counted_decisions(&store.by_state("decided", 1_000_000).unwrap_or_default()), p, 1, 0.0, 1)
+}
+
+fn counted_total(store: &dyn QueueStore) -> usize {
+    reliability::counted_decisions(&store.by_state("decided", 1_000_000).unwrap_or_default()).len()
+}
+
+/// Rules whose hidden truth says findings are almost always right, yet the snapshot calls them doubtful.
+fn wrongly_doubtful(snap: &Value) -> BTreeSet<String> {
+    let t = truth();
+    reliability::doubtful_rules(snap).into_iter().filter(|r| t.get(r.as_str()).is_some_and(|x| *x >= 0.9)).collect()
+}
+
+fn row_view(snap: &Value, rule: &str) -> Value {
+    let r = &snap["rules"][rule];
+    if r.is_null() {
+        return json!({"status": "unseen"});
+    }
+    json!({"n": r["n"], "rate": r["rate"], "lower": r["lower"], "upper": r["upper"], "status": r["status"]})
+}
+
+/// Decisions pile up in one store, 100 at a time; after each batch the snapshot is recomputed.
+pub fn convergence(root: &Path, seed: u64) -> Result<Value, String> {
+    let corpus = load_corpus(root)?;
+    let store = MemoryQueueStore::new();
+    let lab = Lab::new(seed, false);
+    let (mut claims, mut curve, mut next) = (0usize, vec![], 0usize);
+    let checkpoints = [100usize, 200, 500, 1000, 2000, 4000];
+    let (mut first, mut wrong) = (Value::Null, BTreeSet::new());
+    while counted_total(&store) < 4000 {
+        let s = lab.run_from(&store, &corpus, claims, 100, &RoutingConfig::default(), None)?;
+        claims += s.claims;
+        let total = counted_total(&store);
+        let snap = snapshot_from(&store, &params());
+        if first.is_null() && snap["rules"]["R006"]["status"] == "doubtful" {
+            first = json!(total);
+        }
+        wrong.extend(wrongly_doubtful(&snap));
+        while next < checkpoints.len() && total >= checkpoints[next] {
+            curve.push(json!({"decisions": total, "R001": row_view(&snap, "R001"), "R006": row_view(&snap, "R006"), "R013": row_view(&snap, "R013")}));
+            next += 1;
+        }
+    }
+    Ok(json!({"curve": curve, "r006_first_doubtful_at_decisions": first, "rules_wrongly_doubtful": wrong, "hidden_truth": truth(), "note": NOTE}))
+}
+
+fn senior_share(store: &dyn QueueStore) -> (f64, usize, BTreeMap<String, String>) {
+    let docs = store.by_state("decided", 1_000_000).unwrap_or_default();
+    let senior = docs.iter().filter(|d| d["receipt"]["eligibility"] == "decide_high").count();
+    let hashes = docs.iter().map(|d| (d["claim_id"].as_str().unwrap_or("").to_string(), triage::result_hash(&d["results"]))).collect();
+    (if docs.is_empty() { 0.0 } else { senior as f64 / docs.len() as f64 }, senior, hashes)
+}
+
+/// The same later claims, reviewed with and without the learned snapshot: who gets them changes, what they say does not.
+pub fn routing_effect(root: &Path, seed: u64) -> Result<Value, String> {
+    let corpus = load_corpus(root)?;
+    let lab = Lab::new(seed, false);
+    let base = MemoryQueueStore::new();
+    lab.run(&base, &corpus, 2000, &RoutingConfig::default(), None)?;
+    let snap = snapshot_from(&base, &params());
+    let (off, on) = (MemoryQueueStore::new(), MemoryQueueStore::new());
+    lab.run_from(&off, &corpus, 100_000, 1500, &RoutingConfig::default(), None)?;
+    lab.run_from(&on, &corpus, 100_000, 1500, &RoutingConfig::default(), Some(&snap))?;
+    let ((share_off, q_off, h_off), (share_on, q_on, h_on)) = (senior_share(&off), senior_share(&on));
+    let equal = !h_off.is_empty() && h_off == h_on;
+    let mut out = json!({"doubtful_rules": reliability::doubtful_rules(&snap), "claims": h_off.len(), "senior_share_off": share_off, "senior_share_on": share_on,
+        "senior_queue_off": q_off, "senior_queue_on": q_on, "per_senior_off": q_off as f64 / 4.0, "per_senior_on": q_on as f64 / 4.0,
+        "newly_senior": q_on.saturating_sub(q_off), "verdict_hashes_equal": equal, "note": NOTE});
+    if q_on > q_off {
+        out["load_note"] = json!(format!("The senior queue grows from {q_off} to {q_on} of {} claims when routing uses the snapshot.", h_off.len()));
+    }
+    Ok(out)
+}
+
+fn item_width(snap: &Value, results: &Value) -> f64 {
+    triage::flagged(results).iter().filter_map(|r| r["rule_id"].as_str()).map(|id| snap["rules"][id]["width"].as_f64().unwrap_or(1.0)).fold(0.0, f64::max)
+}
+
+fn mean_width(snap: &Value) -> f64 {
+    let t = truth();
+    t.keys().map(|r| snap["rules"][*r]["width"].as_f64().unwrap_or(1.0)).sum::<f64>() / t.len() as f64
+}
+
+fn known(snap: &Value, rules: &BTreeSet<String>) -> bool {
+    rules.iter().all(|r| matches!(snap["rules"][r.as_str()]["status"].as_str(), Some("measured") | Some("doubtful")))
+}
+
+fn run_strategy(corpus: &Corpus, seed: u64, uncertainty_first: bool) -> Result<Value, String> {
+    let store = MemoryQueueStore::new();
+    let flagged_rules: BTreeSet<String> = corpus.items.iter().flat_map(|(_, r)| triage::flagged(r).into_iter().filter_map(|f| f["rule_id"].as_str().map(str::to_string))).collect();
+    let (mut used, mut batch) = (BTreeSet::new(), 0u64);
+    let (mut width_600, mut known_at) = (Value::Null, Value::Null);
+    let mut snap = snapshot_from(&store, &params());
+    while counted_total(&store) < 4000 {
+        let mut order: Vec<usize> = (0..corpus.items.len()).filter(|i| !used.contains(i)).collect();
+        if order.len() < 20 {
+            used.clear();
+            order = (0..corpus.items.len()).collect();
+        }
+        if uncertainty_first {
+            order.sort_by(|a, b| item_width(&snap, &corpus.items[*b].1).partial_cmp(&item_width(&snap, &corpus.items[*a].1)).unwrap_or(std::cmp::Ordering::Equal).then(a.cmp(b)));
+        }
+        let take: Vec<usize> = order.into_iter().take(30).collect();
+        used.extend(take.iter().copied());
+        let sub = Corpus { items: take.iter().map(|i| corpus.items[*i].clone()).collect() };
+        let mut lab = Lab::new(seed + batch, false);
+        lab.id_prefix = format!("AL{batch}");
+        lab.run(&store, &sub, 50, &RoutingConfig::default(), None)?;
+        batch += 1;
+        snap = snapshot_from(&store, &params());
+        let total = counted_total(&store);
+        if width_600.is_null() && total >= 600 {
+            width_600 = json!(mean_width(&snap));
+        }
+        if known_at.is_null() && known(&snap, &flagged_rules) {
+            known_at = json!(total);
+        }
+    }
+    Ok(json!({"mean_width_at_600_decisions": width_600, "decisions_until_every_flagged_rule_is_known": known_at}))
+}
+
+/// Reviewing the least-known claims first versus in arrival order.
+pub fn active_learning(root: &Path, seed: u64) -> Result<Value, String> {
+    let corpus = load_corpus(root)?;
+    Ok(json!({"arrival": run_strategy(&corpus, seed, false)?, "uncertainty_first": run_strategy(&corpus, seed, true)?,
+        "note": "a demonstration on simulated reviewers, not a finding about real ones"}))
+}
+
+/// One adversarial senior who dismisses everything decides a share of the claims. The same decisions are read with and without the protections
+/// (a reviewer's cap on one rule, and a minimum number of different reviewers).
+pub fn poisoning(root: &Path, seed: u64) -> Result<Value, String> {
+    let corpus = load_corpus(root)?;
+    let weak = Params { reviewer_cap: 1.0, min_reviewers: 1, ..params() };
+    let mut sweep = vec![];
+    for share in [0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.8, 1.0] {
+        let store = MemoryQueueStore::new();
+        let mut lab = Lab::new(seed, true);
+        lab.adversary_share = Some(share);
+        lab.run(&store, &corpus, 3000, &RoutingConfig::default(), None)?;
+        let (a, b) = (wrongly_doubtful(&snapshot_from(&store, &weak)), wrongly_doubtful(&snapshot_from(&store, &params())));
+        sweep.push(json!({"adversary_share": share, "wrongly_doubtful_without_protection": a.len(), "wrongly_doubtful_with_protection": b.len()}));
+    }
+    let captured = sweep.last().cloned().unwrap_or(Value::Null);
+    let list = |k: &str| -> Vec<Value> { (0..captured[k].as_u64().unwrap_or(0)).map(|_| json!("rule")).collect() };
+    Ok(json!({"sweep": sweep,
+        "without_protection": {"wrongly_doubtful": list("wrongly_doubtful_without_protection")},
+        "with_cap_and_minimum": {"wrongly_doubtful": list("wrongly_doubtful_with_protection")},
+        "reading": "The two cases are the last sweep row (the adversary decides every claim): the minimum of three different reviewers keeps every rule unmeasured. \
+A reviewer's cap on one rule limits a minority adversary but cannot out-vote an adversary who decides more than the cap and more than the honest reviewers together; see the sweep.",
+        "note": NOTE}))
+}
+
+fn agent(b: &str) -> Agent {
+    Agent { badge_id: b.into(), permissions: ["claims.decide".to_string()].into_iter().collect(), active: true }
+}
+
+/// Properties that must hold for every seed; each value is true or false.
+pub fn invariants(root: &Path) -> Result<Value, String> {
+    let corpus = load_corpus(root)?;
+    let cfg = RoutingConfig::default();
+    // 1. with the feature off nothing about a stored receipt differs from a plain receipt, and no reliability field exists
+    let store = MemoryQueueStore::new();
+    Lab::new(3, false).run(&store, &corpus, 200, &cfg, None)?;
+    let docs = store.by_state("decided", 100_000).map_err(|e| e.to_string())?;
+    let off_equal = !docs.is_empty()
+        && docs.iter().all(|d| {
+            let fresh = triage::make_receipt(&d["claim"], &d["results"], &cfg, "sim-pack", "sim-engine", 0.0);
+            let r = &d["receipt"];
+            r.get("reliability_version").is_none() && r.get("doubtful_rules").is_none() && ["lane", "score", "eligibility", "result_hash"].iter().all(|k| r[*k] == fresh[*k])
+        });
+    // 2. a snapshot with an altered status is refused
+    let snap = snapshot_from(&store, &params());
+    let some_rule = snap["rules"].as_object().and_then(|o| o.keys().next().cloned()).ok_or("no rules in the snapshot")?;
+    let mut bad = snap.clone();
+    bad["rules"][&some_rule]["status"] = json!(if snap["rules"][&some_rule]["status"] == "doubtful" { "measured" } else { "doubtful" });
+    let tampered = reliability::verify(&snap).is_ok() && reliability::verify(&bad).is_err();
+    // 3. applying a snapshot changes no verdict field
+    let mut doubtful = snap.clone();
+    doubtful["rules"]["R006"] = reliability::row(2, 40, 5, &params());
+    let unchanged = corpus.items.iter().take(200).all(|(c, results)| {
+        let before = triage::make_receipt(c, results, &cfg, "p", "e", 1.0);
+        let mut after = before.clone();
+        reliability::apply(&mut after, results, &doubtful).is_ok() && ["lane", "score", "result_hash", "facts_hash", "statuses", "degraded"].iter().all(|k| before[*k] == after[*k])
+    });
+    // 4. a deal made with the uncertainty term replays from its stored seed
+    let deal_store = Arc::new(MemoryQueueStore::new());
+    let mut dcfg = RoutingConfig { version: 1, uncertainty_weight: 3.0, slice_size: 10, low_water: 5, ..RoutingConfig::default() };
+    dcfg.on_shift = vec!["A".into(), "B".into()];
+    deal_store.put_config(&rc::to_doc(&dcfg)?, 0).map_err(|e| e.to_string())?;
+    for i in 0..30 {
+        let id = format!("D{i}");
+        let mut d = cg_queue::contract::make_doc(&id, 1, &format!("h{id}"), "A", "decide", 2, "P1", 1000.0, None);
+        d["receipt"]["uncertainty"] = json!((i % 7) as f64 / 7.0);
+        if !deal_store.put_triaged(&d).map_err(|e| e.to_string())? {
+            return Err("duplicate".into());
+        }
+        deal_store.transition(&id, 1, "triaged", "ready", "t", 1_000_000.0, None, None, None).map_err(|e| e.to_string())?.ok_or("not ready")?;
+    }
+    let dispatcher = Dispatcher { store: deal_store.clone(), agents: Arc::new(|| vec![agent("A"), agent("B")]), clock: Arc::new(|| 1_000_000.0), rng_seed: Some(9), log: None };
+    let deal = dispatcher.deal(None, true);
+    let replays = !deal.assigned.is_empty() && dispatcher.verify(&deal.deal_id).unwrap_or(false);
+    Ok(json!({"feature_off_receipts_equal_baseline": off_equal, "tampered_snapshot_detected": tampered, "verdicts_unchanged_by_apply": unchanged, "replay_of_uncertainty_deal_matches": replays}))
+}
+
+/// What the workload report would have told an administrator, over many independent simulated review histories. The hidden truth is known,
+/// so every claim the report makes can be scored: did it find the rules that really waste reviews, did it name safe ones, did its bound on
+/// the wrong findings among the skipped hold. Time is not simulated (the timestamps are made up), so only counts are reported.
+pub fn workload_study(root: &Path, seed: u64, seeds: u64) -> Result<Value, String> {
+    use cg_queue::workload;
+    let corpus = load_corpus(root)?;
+    let truth = truth();
+    let bad: BTreeSet<&str> = truth.iter().filter(|(_, t)| **t < 0.6).map(|(r, _)| *r).collect();
+    let checkpoints = [300usize, 600, 1200, 2500, 5000];
+    let thresholds = [0.85f64, 0.90, 0.95];
+    // per checkpoint: sums over seeds
+    #[derive(Default, Clone)]
+    struct Acc { found: f64, false_alarms: f64, wasted_share: f64, runs: f64 }
+    #[derive(Default, Clone)]
+    struct Light { covered: f64, candidates: f64, runs_with: f64, bound_holds: f64, wrong_real: f64, wrong_bound: f64, unsafe_rule: f64, runs: f64 }
+    let mut retune = vec![Acc::default(); checkpoints.len()];
+    let mut light = vec![vec![Light::default(); checkpoints.len()]; thresholds.len()];
+    for k in 0..seeds {
+        let store = MemoryQueueStore::new();
+        let lab = Lab::new(seed + k, false);
+        let (mut claims, mut next) = (0usize, 0usize);
+        while next < checkpoints.len() {
+            let s = lab.run_from(&store, &corpus, claims, 100, &RoutingConfig::default(), None)?;
+            claims += s.claims;
+            let total = counted_total(&store);
+            while next < checkpoints.len() && total >= checkpoints[next] {
+                let decided = store.by_state("decided", 1_000_000).map_err(|e| e.to_string())?;
+                for (ti, t) in thresholds.iter().enumerate() {
+                    let rep = workload::report(&decided, &params(), *t, 1800.0);
+                    let rows = rep["rules"].as_array().cloned().unwrap_or_default();
+                    if ti == 0 {
+                        let flagged: BTreeSet<String> = rows.iter().filter(|r| r["role"] == "retune").filter_map(|r| r["rule"].as_str().map(str::to_string)).collect();
+                        let a = &mut retune[next];
+                        a.found += bad.iter().filter(|b| flagged.contains(**b)).count() as f64 / bad.len() as f64;
+                        a.false_alarms += flagged.iter().filter(|f| !bad.contains(f.as_str())).count() as f64;
+                        a.wasted_share += rep["retune"]["share_of_all_findings"].as_f64().unwrap_or(0.0);
+                        a.runs += 1.0;
+                    }
+                    let l = &mut light[ti][next];
+                    let cand: Vec<&Value> = rows.iter().filter(|r| r["role"] == "light_review").collect();
+                    l.runs += 1.0;
+                    l.candidates += cand.len() as f64;
+                    l.covered += rep["light_review"]["share_of_all_findings"].as_f64().unwrap_or(0.0);
+                    if !cand.is_empty() {
+                        l.runs_with += 1.0;
+                        let real: f64 = cand.iter().map(|r| r["n"].as_f64().unwrap_or(0.0) * (1.0 - truth.get(r["rule"].as_str().unwrap_or("")).copied().unwrap_or(0.0))).sum();
+                        let bound = rep["light_review"]["wrong_at_most_95pct"].as_f64().unwrap_or(0.0);
+                        l.wrong_real += real;
+                        l.wrong_bound += bound;
+                        l.bound_holds += f64::from(real <= bound);
+                        l.unsafe_rule += cand.iter().filter(|r| truth.get(r["rule"].as_str().unwrap_or("")).is_some_and(|x| *x < 0.9)).count() as f64;
+                    }
+                }
+                next += 1;
+            }
+        }
+    }
+    let n = seeds as f64;
+    let retune_out: Vec<Value> = checkpoints.iter().zip(&retune).map(|(c, a)| json!({"decisions": c, "share_of_bad_rules_found": a.found / a.runs, "good_rules_wrongly_listed_per_run": a.false_alarms / a.runs,
+        "reviews_on_listed_rules_that_were_overridden_share_of_all_findings": a.wasted_share / a.runs})).collect();
+    let mut light_out = vec![];
+    for (ti, t) in thresholds.iter().enumerate() {
+        for (ci, c) in checkpoints.iter().enumerate() {
+            let l = &light[ti][ci];
+            light_out.push(json!({"skip_lower": t, "decisions": c, "runs_with_any_candidate": l.runs_with / n, "mean_candidate_rules": l.candidates / n, "mean_share_of_findings_covered": l.covered / n,
+                "mean_truly_wrong_findings_among_them": if l.runs_with > 0.0 { l.wrong_real / l.runs_with } else { 0.0 }, "mean_stated_bound_on_wrong": if l.runs_with > 0.0 { l.wrong_bound / l.runs_with } else { 0.0 },
+                "bound_held_in_share_of_runs_with_candidates": if l.runs_with > 0.0 { json!(l.bound_holds / l.runs_with) } else { Value::Null },
+                "candidate_rules_whose_true_rate_is_below_0_9": l.unsafe_rule}));
+        }
+    }
+    let truth_table: BTreeMap<&str, f64> = truth.clone();
+    Ok(json!({"seeds": seeds, "first_seed": seed, "truth": truth_table, "bad_rules": bad, "retune_detection": retune_out, "light_review": light_out,
+        "time": "not simulated: the timestamps in simulated histories are invented, so no minutes or hours are reported; the production report measures them from lease-to-decision times",
+        "note": NOTE}))
+}
+
+pub fn all(root: &Path, seed: u64) -> Result<Value, String> {
+    Ok(json!({"simulated": true, "seed": seed,
+        "decisions_note": "Reviewers are simulated with a hidden true upheld rate per rule; claims and findings are the real development set, recycled under new ids. The curves show how the mechanism behaves, not accuracy with real people.",
+        "convergence": convergence(root, seed)?, "routing_effect": routing_effect(root, seed)?, "active_learning": active_learning(root, seed)?,
+        "poisoning": poisoning(root, seed)?, "invariants": invariants(root)?}))
+}
+
+/// Every labelled claim with the engine's results (the organizers' answer key, which the engine matches exactly: docs/46).
+fn all_labelled(root: &Path) -> Result<Vec<(Value, Value)>, String> {
+    let mut out = vec![];
+    for dir in ["development", "validation", "stress"] {
+        let read = |name: &str| -> Result<Vec<Value>, String> {
+            std::fs::read_to_string(root.join("data").join(dir).join(name)).map_err(|e| e.to_string())?.lines().filter(|l| !l.trim().is_empty()).map(|l| serde_json::from_str(l).map_err(|e| e.to_string())).collect()
+        };
+        let (claims, results) = (read("claims.jsonl")?, read("expected_results.jsonl")?);
+        let mut by: BTreeMap<String, Vec<Value>> = BTreeMap::new();
+        for r in results {
+            by.entry(r["claim_id"].as_str().unwrap_or("").to_string()).or_default().push(r);
+        }
+        for c in claims {
+            if let Some(rows) = by.remove(c["claim_id"].as_str().unwrap_or("")) {
+                out.push((c, Value::Array(rows)));
+            }
+        }
+    }
+    Ok(out)
+}
+
+fn stat(v: &[f64]) -> Value {
+    json!({"mean": v.iter().sum::<f64>() / v.len().max(1) as f64, "min": v.iter().cloned().fold(f64::MAX, f64::min), "max": v.iter().cloned().fold(f64::MIN, f64::max)})
+}
+
+/// Random batches of claims, and how many would be processed with no person at all under each policy.
+/// today: none. green: claims with no flagged finding and no degraded result. green + light: also flagged claims whose every finding belongs to a
+/// rule reviewers almost always uphold (learned from 3,000 simulated decisions; threshold = lower bound of the upheld rate).
+/// "Wrong" = a claim sent on automatically that contains a finding a person should have dismissed (drawn from the hidden truth).
+pub fn automatic_batches(root: &Path, seed: u64, batches: u64, batch_size: usize) -> Result<Value, String> {
+    use cg_queue::workload;
+    use rand::seq::SliceRandom;
+    use rand::{Rng, SeedableRng};
+    let pool = all_labelled(root)?;
+    let corpus = load_corpus(root)?;
+    let truth = truth();
+    let thresholds = [0.85f64, 0.90, 0.95];
+    let (mut green_n, mut degraded_n, mut flagged_n, mut findings_today) = (vec![], vec![], vec![], vec![]);
+    // per threshold: automatic flagged claims, wrong ones, claims left for a person, findings left for a person
+    let mut per_t: Vec<[Vec<f64>; 4]> = thresholds.iter().map(|_| [vec![], vec![], vec![], vec![]]).collect();
+    for b in 0..batches {
+        let mut rng = rand_chacha::ChaCha8Rng::seed_from_u64(seed * 1000 + b);
+        let mut idx: Vec<usize> = (0..pool.len()).collect();
+        idx.shuffle(&mut rng);
+        let batch: Vec<&(Value, Value)> = idx.iter().take(batch_size.min(pool.len())).map(|i| &pool[*i]).collect();
+        let (mut g, mut d, mut f, mut findings) = (0usize, 0usize, 0usize, 0usize);
+        for (_, r) in &batch {
+            let fl = triage::flagged(r);
+            if triage::degraded(r) {
+                d += 1;
+                findings += fl.len();
+            } else if fl.is_empty() {
+                g += 1;
+            } else {
+                f += 1;
+                findings += fl.len();
+            }
+        }
+        green_n.push(g as f64);
+        degraded_n.push(d as f64);
+        flagged_n.push(f as f64);
+        findings_today.push(findings as f64);
+        // what the reviewers of a separate simulated history have taught about each rule
+        let store = MemoryQueueStore::new();
+        Lab::new(seed * 1000 + b, false).run(&store, &corpus, 3000, &RoutingConfig::default(), None)?;
+        let decided = store.by_state("decided", 1_000_000).map_err(|e| e.to_string())?;
+        for (ti, t) in thresholds.iter().enumerate() {
+            let rep = workload::report(&decided, &params(), *t, 1800.0);
+            let light: BTreeSet<String> = rep["rules"].as_array().into_iter().flatten().filter(|r| r["role"] == "light_review").filter_map(|r| r["rule"].as_str().map(str::to_string)).collect();
+            let (mut auto, mut wrong, mut human_claims, mut human_findings) = (0usize, 0usize, 0usize, 0usize);
+            for (_, r) in &batch {
+                let fl = triage::flagged(r);
+                let degraded = triage::degraded(r);
+                if fl.is_empty() && !degraded {
+                    continue; // green: counted separately
+                }
+                if !degraded && fl.iter().all(|x| x["rule_id"].as_str().is_some_and(|id| light.contains(id))) {
+                    auto += 1;
+                    // a person would have dismissed a finding with probability 1 - truth
+                    if fl.iter().any(|x| !rng.gen_bool(truth.get(x["rule_id"].as_str().unwrap_or("")).copied().unwrap_or(0.9))) {
+                        wrong += 1;
+                    }
+                } else {
+                    human_claims += 1;
+                    human_findings += fl.len();
+                }
+            }
+            let slot = &mut per_t[ti];
+            slot[0].push(auto as f64);
+            slot[1].push(wrong as f64);
+            slot[2].push(human_claims as f64);
+            slot[3].push(human_findings as f64);
+        }
+    }
+    let size = batch_size.min(pool.len()) as f64;
+    let for_a_person_green: Vec<f64> = green_n.iter().map(|g| size - g).collect();
+    let mut policies = vec![
+        json!({"policy": "today", "processed_automatically": 0, "claims_for_a_person": size, "note": "every claim goes to a person; a claim with no finding is verified by one"}),
+        json!({"policy": "green claims only", "processed_automatically": stat(&green_n), "claims_for_a_person": stat(&for_a_person_green), "automatic_claims_that_were_wrong": 0,
+               "note": "a green claim has no flagged finding; the engine matches the answer key exactly on all labelled claims, so none is wrong on this data"}),
+    ];
+    for (ti, t) in thresholds.iter().enumerate() {
+        let s = &per_t[ti];
+        let auto_total: Vec<f64> = green_n.iter().zip(&s[0]).map(|(g, a)| g + a).collect();
+        let humans: Vec<f64> = auto_total.iter().map(|a| size - a).collect();
+        let share: Vec<f64> = auto_total.iter().map(|a| 100.0 * a / size).collect();
+        policies.push(json!({"policy": "green + light-review rules", "skip_lower": t, "processed_automatically": stat(&auto_total), "percent_of_batch": stat(&share), "of_which_flagged_claims": stat(&s[0]),
+            "automatic_flagged_claims_that_were_wrong": stat(&s[1]), "claims_for_a_person": stat(&humans), "findings_a_person_still_reviews": stat(&s[3])}));
+    }
+    Ok(json!({"batches": batches, "batch_size": size, "pool": pool.len(), "green_claims_per_batch": stat(&green_n), "claims_with_a_flagged_finding_per_batch": stat(&flagged_n),
+        "claims_with_a_degraded_result_per_batch": stat(&degraded_n), "findings_in_a_batch_reviewed_by_people_today": stat(&findings_today), "policies": policies,
+        "note": "the claims and the green/flagged split are real (labelled claims); which flagged rules reviewers almost always uphold, and whether an automatic flagged claim was wrong, come from simulated reviewers. No time is measured."}))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn root() -> std::path::PathBuf {
+        std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../..")
+    }
+
+    #[test]
+    fn r006_becomes_doubtful_after_a_stated_number_of_decisions_and_never_before_the_minimum() {
+        let c = convergence(&root(), 1).unwrap();
+        let first = c["r006_first_doubtful_at_decisions"].as_i64().expect("R006 becomes doubtful");
+        assert!(first >= 20, "never before the minimum number of decisions: {first}");
+        assert!(c["rules_wrongly_doubtful"].as_array().unwrap().is_empty(), "no rule with a true rate of 0.97 is ever marked doubtful: {c}");
+    }
+
+    #[test]
+    fn routing_on_changes_who_reviews_but_never_a_verdict_and_reports_senior_load() {
+        let r = routing_effect(&root(), 1).unwrap();
+        assert_eq!(r["verdict_hashes_equal"], true);
+        assert!(r["senior_share_on"].as_f64().unwrap() >= r["senior_share_off"].as_f64().unwrap());
+        assert!(r["senior_share_off"].is_number() && r["senior_queue_on"].is_number());
+    }
+
+    #[test]
+    fn a_captured_queue_is_stopped_by_the_minimum_reviewers_and_the_protections_never_make_it_worse() {
+        let p = poisoning(&root(), 1).unwrap();
+        assert_eq!(p["with_cap_and_minimum"]["wrongly_doubtful"].as_array().unwrap().len(), 0, "{p}");
+        assert!(!p["without_protection"]["wrongly_doubtful"].as_array().unwrap().is_empty(), "the attack must succeed without the protections, or the demo proves nothing: {p}");
+        for row in p["sweep"].as_array().unwrap() {
+            assert!(row["wrongly_doubtful_with_protection"].as_u64() <= row["wrongly_doubtful_without_protection"].as_u64(), "{row}");
+        }
+    }
+
+    #[test]
+    fn learning_by_uncertainty_is_reported_for_both_strategies() {
+        let a = active_learning(&root(), 1).unwrap();
+        assert!(a["arrival"]["mean_width_at_600_decisions"].is_number() && a["uncertainty_first"]["mean_width_at_600_decisions"].is_number(), "{a}");
+    }
+
+    #[test]
+    fn every_invariant_holds() {
+        let i = invariants(&root()).unwrap();
+        for (k, v) in i.as_object().unwrap() {
+            assert_eq!(v, &json!(true), "{k}");
+        }
+    }
+}
+
+#[cfg(test)]
+mod workload_tests {
+    use super::*;
+
+    #[test]
+    fn the_workload_study_finds_the_rules_that_waste_reviews_and_never_lists_a_good_one_as_bad() {
+        let w = workload_study(&std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../.."), 1, 3).unwrap();
+        let last = w["retune_detection"].as_array().unwrap().last().unwrap().clone();
+        assert!(last["share_of_bad_rules_found"].as_f64().unwrap() >= 0.99, "{last}");
+        assert_eq!(last["good_rules_wrongly_listed_per_run"].as_f64().unwrap(), 0.0, "{last}");
+        assert!(w["light_review"].as_array().unwrap().len() == 15);
+    }
+}
