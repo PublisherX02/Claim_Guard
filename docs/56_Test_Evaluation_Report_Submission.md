@@ -43,20 +43,34 @@ A pre-validation copilot: it ingests claims (FHIR R4 JSON, CSV, JSONL, or a PDF,
 
 ![Data flow of one claim](figures/dataflow.png)
 
-### 2.2 Three tiers of evidence, never merged into one headline number
+### 2.2 Which build each number comes from
+
+The project exists twice: the Python reference (the original Phase 1 build) and the Rust rebuild that the desktop app and server run. **This report mixes both, and each table says which**:
+
+| Evidence | Measured on | Why |
+|---|---|---|
+| Detection on the three public splits (section 3.1) | **both**: Python (`docs/29`, `metrics.json`) and Rust (`docs/46`, `rust_metrics.json`) give the same result | the Rust build is the product; the Python build is the reference it is checked against |
+| FHIR and CSV paths (section 3.4) | **both**: Python (docs/29) and Rust (re-measured on 2026-10-19, `outputs/evaluation/rust_formats_metrics.json`) | identical result |
+| Larger sets S7 to S9, the oracle, false-positive bounds on 25,068 and 4,064 generated claims (sections 4 and 5) | **Python engine** against the Python oracle (`tests/oracle.py`) | the oracle and generators are Python; the Rust engine was checked against the Python reference on the answer key and on ingestion (35 differential checks), not on the 107,635 generated claims |
+| Latency table 6.1 | **Python** reference; the Rust engine figure (0.19 ms) is stated separately | measured on different days |
+| Language benchmark (section 7) | a Rust port of the rules compared with five others | the study that led to the Rust decision |
+| AI explanation experiments (section 9), model comparison, architecture comparison | the **Python** pipeline (the explanation step was prototyped in Python and later ported); results are about models and prompts, not the language | |
+| Document reading, retrieval, Arabic intake, batches, security, nginx | the **Rust** build (these features were built in Rust only) | |
+
+### 2.3 Three tiers of evidence, never merged into one headline number
 
 - **Tier A, organizer answer key.** The only external truth: the organizers' synthetic dataset v1.0.0 (`data/development`, `data/validation`, `data/stress`, 600 claims, 9,000 results).
 - **Tier B, our independent oracle.** `tests/oracle.py` is a second implementation of the 15 rules written from the rulebook text alone. It tests whether two implementations agree; a shared misreading would not show.
 - **Tier C, hand-derived.** Expected statuses worked out by hand, one step either side of each boundary (123 cases).
 
-### 2.3 Definitions
+### 2.4 Definitions
 
 - **Positive class: `FAIL`**, as in the organizers' scorer. Precision, recall and F1 are computed on that class. `UNABLE_TO_ASSESS` (the engine's low-confidence state: an input is missing or unknown) is scored separately: an abstention is not an error, but an unnecessary one costs a reviewer time.
 - **Rule categories** (our grouping; the rulebook defines none): completeness and arithmetic (R001, R007, R012); eligibility and coverage (R003, R004, R005, R015); timing (R002, R014); authorization and documentation (R008, R009, R010); catalogue, pricing and duplicates (R006, R011, R013). Counts are pooled within a category, then F1 is averaged across the categories where it is defined. Macro F1 is also reported by severity and over all 15 rules so the grouping cannot flatter the result.
 - **Valid claims:** the claim-level false-positive rate is the share of claims with no gold FAIL where the engine raised any FAIL. Every rate carries the exact one-sided 95% (Clopper-Pearson) upper bound. By the rule of three, claiming an error rate below 1% needs about 300 error-free examples.
 - **Confidence:** deterministic results carry `confidence: null` with kind `not_probabilistic`. Nothing pretends a rule result has a probability.
 
-### 2.4 Provenance of every evaluation set
+### 2.5 Provenance of every evaluation set
 
 | Set | Tier | Name | Claims | Results | Label source | Limitation |
 |---|---|---|---|---|---|---|
@@ -119,6 +133,8 @@ The Rust engine (`rust/tools/phase2_eval.py`, `outputs/evaluation/rust_metrics.j
 **Read each cell with its count.** In the 50-claim split, **9 of the 15 rules have no failing example at all**, so their F1 is undefined and left out of the average, and the rest have as few as 3. That split cannot test most rules for missed failures. The 400-claim development split has at least 10 failing examples for every rule, and validation at least 4, so conclusions about single rules rest on those two, with the 50-claim split as a check.
 
 ### 3.4 The FHIR path: the one real cost
+
+**Measured on both builds, with the same result.** The Rust build was re-measured on 2026-10-19 (`cg ingest` on the 600 public claims in each format, then `cg evaluate`, scored against the key): FHIR precision 1.0000, recall 0.9502, **F1 0.9745** (439 true positives, 23 missed, 0 false positives, 310 disagreements, all of them R009 abstentions); CSV precision 1.0000, recall 1.0000, **F1 1.0000** (0 disagreements). So FHIR does **not** score 1.0 on the Rust build either; only the direct (normalized) and CSV paths do.
 
 Claims read back from FHIR bundles (S5) score F1 **0.9745** (precision 1.0000, recall 0.9502, status accuracy 0.9656, 310 disagreements). Every one of the 310 disagreements is rule R009 (authorization record matches service) becoming `UNABLE_TO_ASSESS`: a FHIR bundle in this dataset carries no authorization records, so the rule cannot be checked. 23 true FAILs and 287 PASSes become abstentions. The engine says so instead of guessing, the failing claims route to a reviewer, and **no failing result became a PASS**. The cost is reviewer workload: 134 of 201 fully clean claims (66.7%) receive an unnecessary abstention on this path. The CSV path (S6) is lossless: F1 1.0000, 0 disagreements. `rust/tools/compare_ingest.py` (35 checks) confirms the 600 public claims in all three formats give claims and reports identical to the Python reference.
 
