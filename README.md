@@ -68,7 +68,7 @@ How to read them: 240 synthetic documents (about 40 fields each) were read by Te
 
 ### Where to read more
 
-[docs/46](docs/46_Rust_Test_Evaluation_Report.md) test evaluation report · [docs/32](docs/32_Privacy_and_Security_Note.md) privacy and security note · [docs/45](docs/45_Document_Intake_Ledger_and_Streaming.md) files, ledger, streaming, payer rules, rulebook search · [docs/44](docs/44_OCR_and_RAG_Plan.md) OCR and RAG plan and the review of the colleague's repository · [docs/43](docs/43_Desktop_App_Release.md) the desktop app release notes · [docs/38](docs/38_Rust_Port.md) the Rust rebuild · [docs/42](docs/42_Mentor_Session_Pack.md) the mentor session pack · [SPECS.md](SPECS.md) the detailed specification.
+[docs/56](docs/56_Test_Evaluation_Report_Submission.md) **the submitted Test Evaluation Report** (detection metrics, F1, false positives, latency, limitations, every experiment and graph; [PDF](docs/56_Test_Evaluation_Report_Submission.pdf)) · [docs/46](docs/46_Rust_Test_Evaluation_Report.md) test evaluation report · [docs/32](docs/32_Privacy_and_Security_Note.md) privacy and security note · [docs/45](docs/45_Document_Intake_Ledger_and_Streaming.md) files, ledger, streaming, payer rules, rulebook search · [docs/44](docs/44_OCR_and_RAG_Plan.md) OCR and RAG plan and the review of the colleague's repository · [docs/43](docs/43_Desktop_App_Release.md) the desktop app release notes · [docs/38](docs/38_Rust_Port.md) the Rust rebuild · [docs/42](docs/42_Mentor_Session_Pack.md) the mentor session pack · [SPECS.md](SPECS.md) the detailed specification.
 
 ## Everything done so far, in one place
 
