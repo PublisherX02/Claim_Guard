@@ -25,6 +25,15 @@ data:
   DUAL_CONTROL: "true"
   APPROVAL_TTL_SECONDS: "86400"
   UNMASK_PER_HOUR: "60"
+  # privacy (docs/58, docs/59): a key per patient so that erasing a person also erases them from every backup; days a decided claim is kept (0 = keep all)
+  CG_PATIENT_KEYS: "true"
+  RETENTION_DAYS: "0"
+  # "Ask the rulebook" (docs/60): questions per person per minute, and how many of those may ask for a written answer (each holds the model for seconds)
+  ASK_PER_MINUTE: "30"
+  ASK_GENERATE_PER_MINUTE: "6"
+  ASK_LLM_PROVIDER: ""             # "vllm" lets the on-premises model below pick a graph query and write cited facts up; empty = graph, cache and passage search only
+  ASK_LLM_PREFIX: ""               # "1" puts the whole rulebook (about 3,600 tokens) first in every prompt: needs VLLM_MAX_LEN of 8192 or more on the vLLM pod
+  ASK_LLM_TIMEOUT: "60"
   # the proxy in front is the ingress controller: trust the address it forwards (set to the controller's pod network, not "*", in production)
   TRUSTED_PROXY_IPS: "*"
   QUEUE_AI_PROVIDER: ""            # "vllm" to use the on-premises model below

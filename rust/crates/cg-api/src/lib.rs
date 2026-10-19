@@ -123,6 +123,9 @@ pub struct Api {
     pub unmask_per_hour: i64,
     /// How many rulebook questions one person may ask per minute (ASK_PER_MINUTE, default 30): each one costs an embedding call.
     pub ask_per_minute: i64,
+    /// How many of those may ask for a written answer (`generate=1`) per minute (ASK_GENERATE_PER_MINUTE, default 6): each one holds the model for
+    /// several seconds, the same model that explains claims, so one person must not be able to crowd that out.
+    pub ask_generate_per_minute: i64,
     pub metrics: Arc<Metrics>,
     probes: Vec<Probe>,
     audit_status: Arc<AuditStatus>,
@@ -363,6 +366,7 @@ impl Api {
             ui: p.ui,
             unmask_per_hour: std::env::var("UNMASK_PER_HOUR").ok().and_then(|v| v.trim().parse::<i64>().ok()).filter(|n| *n >= 1).unwrap_or(60),
             ask_per_minute: std::env::var("ASK_PER_MINUTE").ok().and_then(|v| v.trim().parse::<i64>().ok()).filter(|n| *n >= 1).unwrap_or(30),
+            ask_generate_per_minute: std::env::var("ASK_GENERATE_PER_MINUTE").ok().and_then(|v| v.trim().parse::<i64>().ok()).filter(|n| *n >= 1).unwrap_or(6),
             metrics,
             probes,
             audit_status,
@@ -806,9 +810,18 @@ impl Api {
             e.headers.push(("retry-after".into(), "60".into()));
             return Err(e);
         }
-        let pr = self.payer()?;
         // generate=1 asks for a short written answer on top of the cited facts (needs a model; a request without one just gets the facts)
         let generate = matches!(query(req).get("generate").map(String::as_str), Some("1" | "true"));
+        if generate {
+            let used = self.access.store.bump_counter(&format!("askgen|{}", p.badge()), 60, self.now()).map_err(|_| ApiError::new(503, "unavailable"))?;
+            if used > self.ask_generate_per_minute {
+                self.access.note_forbidden(p.badge(), "GET", "/knowledge/search (written-answer limit)");
+                let mut e = ApiError::new(429, "too_many_written_answers");
+                e.headers.push(("retry-after".into(), "60".into()));
+                return Err(e);
+            }
+        }
+        let pr = self.payer()?;
         Ok(ApiResponse::json(200, &pr.ask_routed(q.trim(), 4, generate)))
     }
 
