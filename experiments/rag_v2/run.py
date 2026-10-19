@@ -31,6 +31,13 @@ MODELS = {
     "bge_m3": ("BAAI/bge-m3", "", ""),
 }
 RERANKERS = {"mmarco": "cross-encoder/mmarco-mMiniLMv2-L12-H384-v1", "bge_reranker": "BAAI/bge-reranker-v2-m3"}
+# a model folder downloaded by hand (D:/models/<name>, see docs/55) wins over the Hugging Face cache
+LOCAL = Path("D:/models")
+for _k, _name in (("e5_base", "multilingual-e5-base"),):
+    if (LOCAL / _name / "model.safetensors").exists():
+        MODELS[_k] = (str(LOCAL / _name),) + MODELS[_k][1:]
+if (LOCAL / "bge-reranker-v2-m3" / "model.safetensors").exists():
+    RERANKERS["bge_reranker"] = str(LOCAL / "bge-reranker-v2-m3")
 
 
 def norm_label(s):

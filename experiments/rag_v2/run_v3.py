@@ -43,9 +43,35 @@ def v3_rows():
     return [{**x, "set": "v3"} for x in q["answerable"]] + [{**x, "set": "v3"} for x in q["off_topic"]]
 
 
+def evaluate_system(out, key, dev, test, ranked, conf, grid):
+    t, j = base.tune(dev, ranked, conf, grid)
+    rep = {"threshold": t, "dev_objective": round(j, 3), "slices": {}}
+    sl = {"answerable (20)": [r for r in test if "want" in r], "ar rules+fields (14)": [r for r in test if "want" in r and r["lang"] == "ar"],
+          "fr rules (6)": [r for r in test if "want" in r and r["lang"] == "fr"], "near-domain refused (20)": [r for r in test if "want" not in r and r["kind"] == "near-domain"],
+          "pure refused (4)": [r for r in test if "want" not in r and r["kind"] == "pure"],
+          "near-domain en (12)": [r for r in test if "want" not in r and r["kind"] == "near-domain" and r["lang"] == "en"],
+          "near-domain ar/fr (8)": [r for r in test if "want" not in r and r["kind"] == "near-domain" and r["lang"] != "en"]}
+    for s_, rs in sl.items():
+        m = base.measure(rs, ranked, conf, t)
+        if "hit1" in m:
+            n = len(m["hit1"])
+            r3 = [any(h["source"] in r["want"] for h in ranked[r["id"]][:3]) for r in rs]
+            rep["slices"][s_] = {"n": n, "hit1": base.rate(m["hit1"]), "hit3": base.rate(m["hit3"]), "rank3": base.rate(r3), "hit3_ci": base.wilson(sum(m["hit3"]), n)}
+        else:
+            n = len(m["refused_off"])
+            rep["slices"][s_] = {"n": n, "refused": base.rate(m["refused_off"]), "refused_ci": base.wilson(sum(m["refused_off"]), n)}
+    pos = [conf[r["id"]] for r in test if "want" in r]
+    neg = [conf[r["id"]] for r in test if "want" not in r]
+    rep["auroc"] = round(float(np.mean([(p > q) + 0.5 * (p == q) for p in pos for q in neg])), 3)
+    out[key] = rep
+    print(f"[{key}] t={t} dev={j:.3f}", flush=True)
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--models", default="minilm_multi,bge_m3")
+    ap.add_argument("--rerankers", default="", help="names from run.RERANKERS: rerank the top five of bge-m3+phrases+decoys")
+    ap.add_argument("--stash-model", default="bge_m3")
     a = ap.parse_args()
     import torch
     from sentence_transformers import SentenceTransformer
@@ -56,6 +82,7 @@ def main():
     labels = base.field_labels()
     grid = np.round(np.arange(0.0, 1.0, 0.005), 3)
     out = {}
+    stash = None
     for name in a.models.split(","):
         mid, qp, pp = base.MODELS[name]
         model = SentenceTransformer(mid, device="cuda")
@@ -82,30 +109,33 @@ def main():
                         c = -1.0                                          # closest to an out-of-scope topic: refuse
                     ranked[r["id"]] = [h for h in rk if not h["source"].startswith("out of scope")] or rk
                     conf[r["id"]] = c
-                t, j = base.tune(dev, ranked, conf, grid)
-                key = f"{name}{'+phrases' if phrases else ''}{'+decoys' if decoys else ''}"
-                rep = {"threshold": t, "dev_objective": round(j, 3), "slices": {}}
-                sl = {"answerable (20)": [r for r in test if "want" in r], "ar rules+fields (14)": [r for r in test if "want" in r and r["lang"] == "ar"],
-                      "fr rules (6)": [r for r in test if "want" in r and r["lang"] == "fr"], "near-domain refused (20)": [r for r in test if "want" not in r and r["kind"] == "near-domain"],
-                      "pure refused (4)": [r for r in test if "want" not in r and r["kind"] == "pure"],
-                      "near-domain en (12)": [r for r in test if "want" not in r and r["kind"] == "near-domain" and r["lang"] == "en"],
-                      "near-domain ar/fr (8)": [r for r in test if "want" not in r and r["kind"] == "near-domain" and r["lang"] != "en"]}
-                for s, rs in sl.items():
-                    m = base.measure(rs, ranked, conf, t)
-                    if "hit1" in m:
-                        n = len(m["hit1"])
-                        r3 = [any(h["source"] in r["want"] for h in ranked[r["id"]][:3]) for r in rs]
-                        rep["slices"][s] = {"n": n, "hit1": base.rate(m["hit1"]), "hit3": base.rate(m["hit3"]), "rank3": base.rate(r3), "hit3_ci": base.wilson(sum(m["hit3"]), n)}
-                    else:
-                        n = len(m["refused_off"])
-                        rep["slices"][s] = {"n": n, "refused": base.rate(m["refused_off"]), "refused_ci": base.wilson(sum(m["refused_off"]), n)}
-                pos = [conf[r["id"]] for r in test if "want" in r]
-                neg = [conf[r["id"]] for r in test if "want" not in r]
-                rep["auroc"] = round(float(np.mean([(p > q) + 0.5 * (p == q) for p in pos for q in neg])), 3)
-                out[key] = rep
-                print(f"[{key}] t={t} dev={j:.3f}", flush=True)
+                key = name + ("+phrases" if phrases else "") + ("+decoys" if decoys else "")
+                evaluate_system(out, key, dev, test, ranked, conf, grid)
+                if name == a.stash_model and phrases and decoys:
+                    stash = (ps, S, rows, ranked, conf)
         del model
         torch.cuda.empty_cache()
+    if a.rerankers and stash:
+        from sentence_transformers import CrossEncoder
+        ps, S, rws, ranked0, conf0 = stash
+        for rn in a.rerankers.split(","):
+            ce = CrossEncoder(base.RERANKERS[rn], device="cuda", max_length=384)
+            ranked, conf = {}, {}
+            for qi, r in enumerate(rws):
+                nm = base.named_fields(r["q"], labels)
+                if nm or not r["q"]:
+                    ranked[r["id"]], conf[r["id"]] = ranked0[r["id"]], conf0[r["id"]]
+                    continue
+                order = list(np.argsort(-S[qi], kind="stable"))
+                cs = base.dedupe(order, ps, S[qi])
+                sc = base.sigmoid(np.asarray(ce.predict([(r["q"], ps[c["i"]]["text"]) for c in cs], batch_size=8, show_progress_bar=False), dtype=float))
+                o = sorted(range(len(cs)), key=lambda x: (-sc[x], x))
+                top = cs[o[0]]["source"]
+                conf[r["id"]] = -1.0 if top.startswith("out of scope") else float(sc[o[0]])
+                ranked[r["id"]] = [{**cs[x], "score": float(sc[x])} for x in o if not cs[x]["source"].startswith("out of scope")] or [cs[o[0]]]
+            evaluate_system(out, f"bge_m3+phrases+decoys > rerank {rn}", dev, test, ranked, conf, grid)
+            del ce
+            torch.cuda.empty_cache()
     (HERE / "results_v3.json").write_text(json.dumps(out, indent=1, default=float), encoding="utf-8")
     print("\nTEST (v3, frozen before the features were written)")
     print(f"{'system':32} {'thr':>5} {'ans hit@3':>10} {'ar hit@3':>9} {'fr hit@3':>9} {'near refused':>13} {'pure':>5} {'AUROC':>6}")

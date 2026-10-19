@@ -60,7 +60,7 @@ Reading it: the multilingual MiniLM that is already shipped is the best of the t
 
 ## 5. Round two (2026-10-19): bge-m3, Arabic/French phrases, out-of-scope topics
 
-The weights of bge-m3 reached the flash disk (`D:\hf_cache`, revision `5617a9f6…`); e5-base and bge-reranker-v2-m3 still failed to download (connection errors), so they remain unmeasured. Two features were added and measured on a **new test set frozen first** (`questions_v3_test.json`: 20 answerable, 24 off-topic; the same author wrote the questions and the features, so wording can overlap, and nothing was reviewed by a native speaker):
+The weights of bge-m3 reached the flash disk (`D:\hf_cache`, revision `5617a9f6…`); e5-base and bge-reranker-v2-m3 were downloaded later the same day (by resumable curl) and measured: see section 6. Two features were added and measured on a **new test set frozen first** (`questions_v3_test.json`: 20 answerable, 24 off-topic; the same author wrote the questions and the features, so wording can overlap, and nothing was reviewed by a native speaker):
 
 - **Phrases** (`cg-engine/data/rule_phrases.json`): two or three Arabic and two French ways of asking about each of the 15 rules, added to the rule's title passage for the embedding only. Never quoted.
 - **Out-of-scope topics** (14 decoy passages in the same file: appeals, copayment, premiums, covered benefits, contacts, fraud reporting, medical advice, payment timing, two insurers, provider registration, records and accounts, tax, data the claim does not hold, insurer internals): a question whose closest passage is one of these is refused, and the answer names the topic ("This looks like a question about ...").
@@ -85,4 +85,20 @@ Each part carries weight: the model alone fixes ranking, the phrases fix Arabic,
 
 Shipped changes: sidecar default model `BAAI/bge-m3` (max 256 tokens; image about 2.3 GB; Dockerfile pins the revision), threshold 0.485, compose memory 4 GB, `EMBED_ALIASES` stays off for field passages. **The sidecar image was not rebuilt** (about 2.3 GB of weights; the disk and network did not allow it); the product check ran the same `service.py` directly. `rust/tools/rag_parity.py` is superseded by `rag_product_check.py` and describes the old system.
 
-Not settled: the 95% / 85% figures rest on 20 questions each; the decoys and phrases were written by the same author as the test; the Arabic wording is unreviewed; e5-base and bge-reranker-v2-m3 unmeasured; a CPU-only host needs about 2 GB more memory and a minute of warm-up than before.
+Not settled: the 95% / 85% figures rest on 20 questions each; the decoys and phrases were written by the same author as the test; the Arabic wording is unreviewed; a CPU-only host needs about 2 GB more memory and a minute of warm-up than before.
+
+## 6. e5-base and the bge-reranker-v2-m3 (measured 2026-10-19)
+
+Same frozen v3 test (20 answerable, 20 near-domain, 4 pure off-topic), thresholds chosen on dev only, GPU fp16. Reproduce: `HF_HOME=D:/hf_cache python experiments/rag_v2/run_v3.py --models minilm_multi,e5_base,bge_m3 --rerankers bge_reranker`.
+
+| system | answerable hit@3 | Arabic | French | near-domain refused | pure refused | AUROC |
+|---|---|---|---|---|---|---|
+| MiniLM + phrases + decoys | 50% | 57% | 33% | 70% | 100% | 0.84 |
+| e5-base + phrases + decoys | 95% | 93% | 100% | 75% | 75% | 0.86 |
+| **bge-m3 + phrases + decoys (shipped)** | **95%** | **93%** | **100%** | **85%** | **100%** | **0.98** |
+| bge-m3 + phrases + decoys, then bge-reranker-v2-m3 on the top five | 40% | 43% | 33% | 85% | 100% | 0.91 |
+
+- **e5-base** ranks as well as bge-m3 once phrases and decoys are added, but without them it is poor (50%, AUROC 0.53) and it refuses worse (75% near-domain, only 75% of pure off-topic). bge-m3 stays.
+- **The reranker made things worse** (hit@3 95% to 40%). Probable cause, not tested: it scores the question against the passage text only, without the Arabic/French "also asked as" phrases that carry the match, so the right rule is demoted. A reranker given the aliased text, or fine-tuned, might differ; as measured it is **not** added.
+- Caveat: 20 questions per slice, author-written test, unreviewed Arabic; differences of a few questions are within the confidence intervals.
+
