@@ -661,13 +661,16 @@ Batches of up to 1,000 claims with a random 5% audit sample and quarantine of th
 
 The penetration test, the fuzzing, the mutation test, the deployment attack, the real-model red team, the browser attack, the flood and timing tests, the backup test and the dependency scans are reported in the separate **Privacy and Security Note** (`docs/57`), which also holds the threat model, the access-control and least-privilege design and the audit design. They are not repeated here.
 
+**Numbers from the final pass (details in `docs/57` section 9.7).** Penetration test **125 of 125** (nine new checks on the rulebook route); mutation harness **102 breakages**, the nine added for the rulebook route all caught (two needed a new test first); backup and restore **35 of 35**, which now includes erasing a person after a backup, restoring the older backup and checking the person stays erased. That last test found a real fault in `restore.sh` (a replay that read no ledger and still reported success), now fixed and made to fail closed. Deployment structural tests: 49 pass.
+
 ---
 
 ## 16. Deployment measurements
 
 - **Proxy cost** (16 keep-alive connections, TLS in front): `/healthz` 6,200/s direct, 3,100/s nginx, 990/s Caddy; the signed-in inbox 421/s direct, 215/s nginx, 180/s Caddy. 421 signed-in requests a second from one process is about a hundred times the 200 requests a minute the target-server plan asks for. Docker Desktop adds a network hop that a Linux host does not, so these cost numbers overstate a proxy's cost on the target.
 - **Concurrency of the explanation step:** section 9.4.
-- **Desktop app:** the window starts its bundled server and the health check answers; unsigned, Windows only, not run on a clean PC. Current release: `desktop-v0.4.0`.
+- **Desktop app:** the window starts its bundled server and the health check answers; unsigned, Windows only, not run on a clean PC. Published release: `desktop-v0.4.0`. A rebuild with the final server (the binary that passed the 125-check penetration test; package SHA-256 `EF1F60E30C49C215B652FC613E11134729F79D150333C212255E5D69061F6A03`) was made on 2026-10-19; it was packaged and its server compared by hash, but the window itself was not opened by an automated test.
+- **Backup, erasure and restore through the real scripts:** `backup_restore_test.py`, 35 checks (see section 15). Run on Docker Desktop for Windows, not on the Linux target.
 
 ---
 
@@ -686,7 +689,7 @@ The penetration test, the fuzzing, the mutation test, the deployment attack, the
 11. **The retrieval test sets are small and author-written.** 20 questions per slice; the same author wrote the test and the features; the Arabic and French are not reviewed by a native speaker. The 60 graph questions (section 12.5) were written by the planner's author too, so 52 answered by the graph is not an out-of-sample figure; the model is Gemma 3 4B on a laptop; the answer cache is per process; the prefix-cache saving was measured on Ollama only.
 12. **The learning, routing and workload experiments use simulated reviewers.** No review time has been measured; the real effect of any workload saving is unknown. Confidence routing is archived because it raised senior load.
 13. **The desktop app is unsigned**, Windows only, and was not run on a clean PC. The embedding sidecar image was not rebuilt for bge-m3.
-14. **Not yet run on the target server** and nothing here has run on real hospital traffic.
+14. **Not yet run on the target server** and nothing here has run on real hospital traffic. This includes the backup, erasure and restore test, which ran under Git Bash on Windows (and there found a path fault that Linux would not show), and the vLLM serving of the explanation model, which was never benchmarked: every model-speed figure here is Ollama on the RTX 4060 laptop.
 15. **Nothing here measures review quality or decisions** by real people; the advisory extension rules (E001 to E103) are outside the official score.
 
 ---
