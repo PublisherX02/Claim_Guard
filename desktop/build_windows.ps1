@@ -2,6 +2,7 @@
 #   powershell -ExecutionPolicy Bypass -File desktop\build_windows.ps1
 # The package holds the window plus the Rust server (cg.exe), the rule files and the sample claims, so the "local demo" runs from the
 # exe alone; connecting to a real server (https://...) works as before. Build the server first: cd rust; cargo build --release -p cg-cli
+param([string]$Out = 'dist')   # output folder under desktop\ (use dist_new to leave a running dist\ClaimGuard.exe alone)
 $ErrorActionPreference = 'Stop'
 $here = Split-Path -Parent $MyInvocation.MyCommand.Path
 $repo = Split-Path -Parent $here
@@ -18,5 +19,5 @@ if (-not (Test-Path "$work\venv\Scripts\python.exe")) { uv venv "$work\venv" --p
 uv pip install --python "$work\venv\Scripts\python.exe" -r "$here\requirements-desktop.txt" pyinstaller==6.16.0
 & "$work\venv\Scripts\pyinstaller.exe" --noconfirm --onefile --windowed --name ClaimGuard `
     --add-data "$engine;engine" `
-    --distpath "$here\dist" --workpath "$work\pyi" --specpath $work "$here\claimguard_desktop.py"
-Get-FileHash "$here\dist\ClaimGuard.exe" -Algorithm SHA256
+    --distpath "$here\$Out" --workpath "$work\pyi" --specpath $work "$here\claimguard_desktop.py"
+Get-FileHash "$here\$Out\ClaimGuard.exe" -Algorithm SHA256
