@@ -55,7 +55,7 @@ The project exists twice: the Python reference (the original Phase 1 build) and 
 | Latency table 6.1 | **Python** reference; the Rust engine figure (0.19 ms) is stated separately | measured on different days |
 | Language benchmark (section 7) | a Rust port of the rules compared with five others | the study that led to the Rust decision |
 | AI explanation experiments (section 9), model comparison, architecture comparison | the **Python** pipeline (the explanation step was prototyped in Python and later ported); results are about models and prompts, not the language | |
-| Document reading, retrieval, Arabic intake, batches, security, nginx | the **Rust** build (these features were built in Rust only) | |
+| Document reading, retrieval, Arabic intake, batches | the **Rust** build (these features were built in Rust only) | |
 
 ### 2.3 Three tiers of evidence, never merged into one headline number
 
@@ -495,7 +495,7 @@ gemma3:4b is the strongest candidate on every automated axis and has an 84-case 
 
 ![Default pipeline by input condition](figures/ocr_by_condition.png)
 
-The default pipeline (two readers, upscaled) reads **97.4%** of fields correctly (digital PDFs 100%, scans 98.9%, image-only PDFs 98.7%, phone-style photos 88.1% with 12% of photos perfect). A *silent* error is a wrong field that nothing flagged: the second reader cuts them from 41 to **1** in 240 documents, and photos are the reason a person always compares the page before anything is submitted. The evaluation found and fixed two bugs (an empty date cell dropped a claim line; a two-number row must be flagged, not guessed). Other tests: 41 extractor/gate/reader unit tests, 9 API flow tests with a stub reader on a real socket, 18 black-box checks on the reader (hostile PDFs, bad types, oversize) inside the hardened container (image: 0 high or critical vulnerabilities with a published fix, Trivy), and an end-to-end run in real Chrome. **Not tested:** real hospital paper, handwriting, stamps, and Arabic documents.
+The default pipeline (two readers, upscaled) reads **97.4%** of fields correctly (digital PDFs 100%, scans 98.9%, image-only PDFs 98.7%, phone-style photos 88.1% with 12% of photos perfect). A *silent* error is a wrong field that nothing flagged: the second reader cuts them from 41 to **1** in 240 documents, and photos are the reason a person always compares the page before anything is submitted. The evaluation found and fixed two bugs (an empty date cell dropped a claim line; a two-number row must be flagged, not guessed). Other tests: 41 extractor/gate/reader unit tests and an end-to-end run in real Chrome. (The upload gate, the reader container and their attack tests are covered in the separate Privacy and Security Note, `docs/57`.) **Not tested:** real hospital paper, handwriting, stamps, and Arabic documents.
 
 ---
 
@@ -630,24 +630,9 @@ Batches of up to 1,000 claims with a random 5% audit sample and quarantine of th
 
 ---
 
-## 15. Security and robustness testing
+## 15. Security and privacy testing
 
-| Method | Result |
-|---|---|
-| Black-box penetration test (`rust/tools/pentest.py`, real sockets) | **116 checks, 116 pass** (two fixes found: connections held open forever, a 70 KB header accepted) |
-| Fuzzing at the API boundary | **400,000 random requests, 0 server errors, 0 leaks** |
-| Mutation test of the security rules | 75 deliberate breakages, **all caught** in a full run (some were missed until tests were added) |
-| Deployed Docker stack | 50 checks, found 4 problems (fixed) |
-| Real gemma3:4b model | 15 of 15 rules; a red team found and fixed a real weakness in the AI guard |
-| Single-machine flood | 16 checks |
-| Console in real Chrome | 19 checks, no payload ran |
-| Refusal timing | all eight kinds within 3% |
-| Damaged FHIR bundles | 12,000: same accept/quarantine verdict as the reference, none becomes a pass |
-| nginx in front of the server (`rust/tools/nginx_proxy_test.py`) | 22 of 22; found and fixed a real fault |
-| Backup, restore, key rotation | restore proven end to end (found two real bugs in its first version) |
-| Dependency audit | `cargo audit`: five advisories, all via `yara-x`, none reachable |
-
-The 116-check penetration test was last run before the final changes (the upload gate and the rulebook search); those are covered by their own tests, not by that run. The deployed-stack, flood and timing tests ran on the development laptop. See docs/39.
+The penetration test, the fuzzing, the mutation test, the deployment attack, the real-model red team, the browser attack, the flood and timing tests, the backup test and the dependency scans are reported in the separate **Privacy and Security Note** (`docs/57`), which also holds the threat model, the access-control and least-privilege design and the audit design. They are not repeated here.
 
 ---
 
@@ -700,9 +685,8 @@ HF_HOME=D:/hf_cache python experiments/rag_v2/run.py
 HF_HOME=D:/hf_cache python experiments/rag_v2/run_v3.py --models minilm_multi,e5_base,bge_m3 --rerankers bge_reranker
 python experiments/rag_v2/plot.py && python experiments/rag_v2/plot_v3.py
 HF_HOME=D:/hf_cache python rust/tools/rag_product_check.py
-# Arabic, batches, security
+# Arabic, batches
 python rust/tools/arabic_e2e.py && python rust/tools/batch_e2e.py
-python rust/tools/pentest.py
 ```
 
 Accuracy numbers are deterministic (fixed seeds 20260927 and 20261004). Latency varies with the machine. The commit that produced each evidence file is recorded in its JSON.
@@ -716,7 +700,6 @@ Accuracy numbers are deterministic (fixed seeds 20260927 and 20261004). Latency 
 | AI explanation experiments | docs/21 | `experiments/raw/`, `experiments/summary.json`, `experiments/results_tables.md`, manual scoring sheets |
 | Architecture comparison | docs/24, docs/25 | `outputs/architecture_comparison/` |
 | Language choice | docs/36 | `benchmarks/languages/results/` |
-| Security of the Rust build | docs/39 | `rust/tools/`, `outputs/defense/` |
 | Documents (OCR), ledger, payer rules | docs/44, docs/45 | `rust/tools/doc_eval.py` |
 | Confidence routing (archived), workload | docs/48, docs/49, docs/50 | `outputs/defense/automatic.json`, `experiments/laya_kaggle/` |
 | Copilot, batches, nginx | docs/51, docs/53, docs/54 | `outputs/defense/` |
