@@ -9,9 +9,11 @@
 
 pub mod bsonconv;
 pub mod crypt;
+pub mod keys;
 pub mod queue;
 pub mod users;
 
+pub use keys::MongoKeyStore;
 pub use queue::MongoQueueStore;
 pub use users::MongoUserStore;
 

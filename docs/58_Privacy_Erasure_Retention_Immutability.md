@@ -17,13 +17,13 @@ Rules the code enforces:
 - The patient is found by the keyed index (`patient_key`), so the lookup works on the encrypted store; an identifier that looks like a query matches nothing (tested).
 - **A claim a person is working on is never erased from under them** (states `leased` and `awaiting_countersign`): the whole request is refused and nothing at all is deleted.
 - Erasing twice is harmless; another patient's claims are untouched (tested).
-- Every use writes a `privacy_action` event (actor, action, claim count, version count) to the security log. The event carries no patient identifier and no claim id.
+- Every erasure is first written to the erasure ledger (docs/59). Every use writes a `privacy_action` event (actor, action, claim count, version count) to the security log. The event carries no patient identifier and no claim id.
 
 **Why the audit logs are not rewritten.** They are chained, signed and mirrored, and they hold badge numbers, claim ids and hashes, never a name or an identifier (the data-minimisation check, docs/57 section 3.2). Once the claim is gone, a claim id names no one. This is the design that lets the log stay uneditable and the erasure still be real.
 
 **What an erasure does not reach (said plainly):**
 
-- **Backups.** The encrypted backups still hold the claim until they age out; how long backups are kept is the operator's decision (`deploy/rust/backup.sh`).
+- **Backups** are handled by docs/59: each patient's data is encrypted under their own key and the erasure destroys it, so an old backup of that patient is unreadable once the (short-lived) key backup has aged out; and an erasure ledger is replayed after every restore. Backups made before the patient keys were switched on cannot be shredded and must age out.
 - **The insurer's own systems.** The product holds a copy; it is not the system of record.
 - The claim id stays in the audit logs, as above.
 
@@ -65,7 +65,7 @@ The image was **not rebuilt** (instruction: do not rebuild the image); the chang
 - **Erasure through the web API and the console.** The commands run on the server, by a level 4 operator. There is no button and no two-person approval for erasure yet; the safeguard today is the count to confirm and the log entry. A second administrator's approval would reuse the existing dual-control mechanism.
 - **An INSERT-only database role for the audit log.** The logs are files, not database rows. Append-only files (section 3) are the control we built; a MongoDB sink with an insert-only writer role and a read-only reader role was not.
 - **True WORM / object-lock storage and a live timestamp authority.**
-- **Erasure from backups.**
+- **Erasure from backups, end to end through Docker** (built and tested at the database level in docs/59; the backup and restore scripts were not run with a rebuilt image).
 - **The batch job table is still in memory** (a restart forgets running jobs; sending the batch again is the repair).
 - **The pen test was not extended** to the new commands (they are not network routes). They are covered by unit and store-contract tests.
 

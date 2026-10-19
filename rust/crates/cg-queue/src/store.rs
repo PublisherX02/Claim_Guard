@@ -199,6 +199,15 @@ pub trait QueueStore: Send + Sync {
     fn erase_claim(&self, claim_id: &str) -> Result<i64>;
     /// Retention: ids of claims whose newest version was decided before `cutoff` (nothing has happened to it since), oldest first, at most `limit`.
     fn closed_before(&self, cutoff: f64, limit: usize) -> Result<Vec<String>>;
+    /// The keyed patient index stored on a claim (None for a store that does not keep one). Used to find the patient's key when erasing.
+    fn patient_key_of_claim(&self, _claim_id: &str) -> Result<Option<String>> {
+        Ok(None)
+    }
+    /// Deletes the patient's own encryption key unless some claim of theirs is still stored. True if a key was deleted. This is what makes
+    /// every surviving copy of an erased claim, a backup included, unreadable.
+    fn forget_patient_key_if_orphaned(&self, _patient_key: &str) -> Result<bool> {
+        Ok(false)
+    }
     // configuration
     fn put_config(&self, doc: &Value, expected_version: i64) -> Result<bool>;
     fn latest_config(&self) -> Result<Option<Value>>;

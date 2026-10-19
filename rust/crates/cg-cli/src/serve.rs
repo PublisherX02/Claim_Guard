@@ -162,7 +162,7 @@ fn start(a: Args, dev: bool) -> Result<(), String> {
         }
         // In a real deployment the worker is its own process (`cg worker`); only the demo runs it here.
         if a.demo {
-            worker = Some(start_workers(q, stop.clone(), &b.env));
+            worker = Some(start_workers(q, stop.clone(), &b.env, &b.data_dir));
             guard = Some(start_audit_guard(&b, q, stop.clone()));
         }
         queue_service = Some(q.service.clone());
@@ -207,7 +207,7 @@ pub fn worker(args: &[String]) -> i32 {
     };
     let Some(q) = &b.queue else { return 2 };
     let stop = Arc::new(AtomicBool::new(false));
-    let handle = start_workers(q, stop.clone(), &b.env);
+    let handle = start_workers(q, stop.clone(), &b.env, &b.data_dir);
     let guard = start_audit_guard(&b, q, stop.clone());
     println!("worker running (relay, deal, expire, reconcile, audit protection)");
     match tokio::runtime::Builder::new_current_thread().enable_all().build() {

@@ -31,6 +31,11 @@ x-app: &app
     VLLM_API_KEY: ${VLLM_API_KEY:-}                   # the key the server was started with
     FEATHERLESS_API_KEY: ${FEATHERLESS_API_KEY:-}
     TRUSTED_PROXY_IPS: ${TRUSTED_PROXY_IPS:-*}
+    # privacy (docs/58, docs/59): a key per patient (the default; false keeps one master key and nothing can be shredded), and how many days
+    # a decided claim is kept (0 = keep everything; the worker erases older ones hourly). ASK_PER_MINUTE rations "Ask the rulebook" per person.
+    CG_PATIENT_KEYS: ${CG_PATIENT_KEYS:-true}
+    RETENTION_DAYS: ${RETENTION_DAYS:-0}
+    ASK_PER_MINUTE: ${ASK_PER_MINUTE:-30}
     # audit protection (docs/39): a second, append-only copy of both logs on its own volume (only the worker mounts it), and an optional
     # RFC 3161 timestamp authority; the API reads these two only to know which checks the health panel should expect
     AUDIT_MIRROR_DIR: ${AUDIT_MIRROR_DIR:-/mirror}

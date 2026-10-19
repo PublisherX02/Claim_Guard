@@ -9,6 +9,7 @@ pub mod consumer;
 pub mod contract;
 pub mod copilot;
 pub mod dispatcher;
+pub mod erasure_ledger;
 pub mod explain;
 pub mod flow;
 pub mod guard;

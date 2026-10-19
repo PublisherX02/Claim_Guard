@@ -2,7 +2,9 @@
 //! versions of the system did not do.
 //!
 //! * **Subject access.** Everything held about one patient: every version of every claim of theirs, decrypted, with the request events attached.
-//! * **Erasure.** Every version of the claim is deleted from the queue store, with its request events and its dead letters. The audit logs are *not*
+//! * **Erasure.** The erasure is written to the erasure ledger first (docs/59). Then every version of the claim is deleted from the queue store, with
+//!   its request events and its dead letters, and the patient's own encryption key is deleted when none of their claims is left, which makes any copy
+//!   of their data that survives elsewhere (a backup) unreadable. The audit logs are *not*
 //!   rewritten, because they are chained and signed and because they hold no personal data about the patient: they carry badge numbers, claim ids and
 //!   hashes only (checked by `tests/test_data_minimization.py` and, for the Rust build, by the pen test). A claim id on its own names no one once the claim is gone.
 //! * **Retention.** A claim that was decided long enough ago is erased in the same way, by a daily job, when `RETENTION_DAYS` is set.
@@ -10,6 +12,7 @@
 //! Nothing here decides who may ask: the callers (the CLI on the server, and the API routes behind a permission, a fresh authenticator code and, for
 //! erasure, a second administrator) do. Every function takes the store, so the same code runs against the in-memory twin and against MongoDB.
 
+use crate::erasure_ledger::Ledger;
 use crate::store::QueueStore;
 use cg_access::store::StoreError;
 use serde_json::{json, Value};
@@ -90,9 +93,22 @@ pub fn erase_preview(store: &dyn QueueStore, claim_ids: &[String]) -> R<Value> {
     Ok(json!({"claims": claim_ids.len(), "versions_at_most": versions}))
 }
 
-/// Erasure: deletes every version of each claim. Final. The result lists the claim ids and the number of versions deleted.
-pub fn erase_claims(store: &dyn QueueStore, claim_ids: &[String]) -> R<Value> {
+/// Erasure: deletes every version of each claim, then the patient's key if no claim of theirs is left. Final. The erasure is written to the
+/// ledger BEFORE anything is deleted, so a cut-short run is finished by the next replay. The result lists the claim ids, the number of
+/// versions deleted and the number of patient keys destroyed.
+pub fn erase_claims(store: &dyn QueueStore, ledger: &Ledger, claim_ids: &[String], kind: &str, actor: &str, now: f64) -> R<Value> {
     erase_preview(store, claim_ids)?;
+    let mut keys: Vec<String> = vec![];
+    for id in claim_ids {
+        if let Some(k) = store.patient_key_of_claim(id)? {
+            if !keys.contains(&k) {
+                keys.push(k);
+            }
+        }
+    }
+    if !claim_ids.is_empty() {
+        ledger.append(kind, actor, now, claim_ids, &keys).map_err(PrivacyError::Refused)?;
+    }
     let mut erased = vec![];
     let mut versions = 0;
     for id in claim_ids {
@@ -102,11 +118,45 @@ pub fn erase_claims(store: &dyn QueueStore, claim_ids: &[String]) -> R<Value> {
             versions += n;
         }
     }
-    Ok(json!({"claims_erased": erased.len(), "versions_erased": versions, "claim_ids": erased}))
+    let mut destroyed = 0;
+    for k in &keys {
+        if store.forget_patient_key_if_orphaned(k)? {
+            destroyed += 1;
+        }
+    }
+    Ok(json!({"claims_erased": erased.len(), "versions_erased": versions, "patient_keys_destroyed": destroyed, "claim_ids": erased}))
+}
+
+/// After a restore: applies every erasure in the ledger again. Whatever a backup brought back is deleted, and the keys of those patients are
+/// destroyed if the restore brought them back too. Safe to run any number of times; run it before the system serves anyone.
+pub fn replay_ledger(store: &dyn QueueStore, ledger: &Ledger) -> R<Value> {
+    let entries = ledger.read().map_err(PrivacyError::Refused)?;
+    let (mut claims, mut versions, mut destroyed) = (0, 0, 0);
+    let mut keys: Vec<String> = vec![];
+    for e in &entries {
+        for id in e["claim_ids"].as_array().into_iter().flatten().filter_map(Value::as_str) {
+            let n = store.erase_claim(id)?;
+            if n > 0 {
+                claims += 1;
+                versions += n;
+            }
+        }
+        for k in e["patient_keys"].as_array().into_iter().flatten().filter_map(Value::as_str) {
+            if !keys.iter().any(|x| x == k) {
+                keys.push(k.to_string());
+            }
+        }
+    }
+    for k in &keys {
+        if store.forget_patient_key_if_orphaned(k)? {
+            destroyed += 1;
+        }
+    }
+    Ok(json!({"ledger_entries": entries.len(), "claims_erased_again": claims, "versions_erased_again": versions, "patient_keys_destroyed": destroyed}))
 }
 
 /// Retention: erase claims decided more than `days` days ago (at most `limit` per run). `days == 0` means retention is off and nothing is touched.
-pub fn run_retention(store: &dyn QueueStore, now: f64, days: u32, limit: usize, dry_run: bool) -> R<Value> {
+pub fn run_retention(store: &dyn QueueStore, ledger: &Ledger, actor: &str, now: f64, days: u32, limit: usize, dry_run: bool) -> R<Value> {
     if days == 0 {
         return Ok(json!({"retention": "off", "claims": 0, "versions": 0, "dry_run": dry_run}));
     }
@@ -116,19 +166,9 @@ pub fn run_retention(store: &dyn QueueStore, now: f64, days: u32, limit: usize, 
         return Ok(json!({"retention_days": days, "cutoff": cutoff, "claims": ids.len(), "versions": 0, "dry_run": true, "claim_ids": ids}));
     }
     // a claim that became active between the listing and now is skipped, not an error: the next run sees it again
-    let mut erased = vec![];
-    let mut versions = 0;
-    for id in &ids {
-        if erase_preview(store, std::slice::from_ref(id)).is_err() {
-            continue;
-        }
-        let n = store.erase_claim(id)?;
-        if n > 0 {
-            erased.push(id.clone());
-            versions += n;
-        }
-    }
-    Ok(json!({"retention_days": days, "cutoff": cutoff, "claims": erased.len(), "versions": versions, "dry_run": false, "claim_ids": erased}))
+    let ready: Vec<String> = ids.into_iter().filter(|id| erase_preview(store, std::slice::from_ref(id)).is_ok()).collect();
+    let r = erase_claims(store, ledger, &ready, "retention", actor, now)?;
+    Ok(json!({"retention_days": days, "cutoff": cutoff, "claims": r["claims_erased"], "versions": r["versions_erased"], "patient_keys_destroyed": r["patient_keys_destroyed"], "dry_run": false, "claim_ids": r["claim_ids"]}))
 }
 
 #[cfg(test)]
@@ -136,6 +176,12 @@ mod tests {
     use super::*;
     use crate::contract::{make_doc, NOW};
     use crate::store::MemoryQueueStore;
+
+    fn ledger() -> (tempfile::TempDir, Ledger) {
+        let d = tempfile::tempdir().unwrap();
+        let l = Ledger::open(d.path().join("erasure_ledger.jsonl"));
+        (d, l)
+    }
 
     fn store() -> MemoryQueueStore {
         let s = MemoryQueueStore::new();
@@ -162,14 +208,17 @@ mod tests {
     fn erasure_deletes_every_version_and_leaves_other_people_alone() {
         let s = store();
         assert!(s.put_triaged(&make_doc("A1", 2, "h-A1-2", "A", "decide", 2, "PAT-A", NOW + 1.0, None)).unwrap());
+        let (_d, l) = ledger();
         let ids = claim_ids_of(&s, "PAT-A").unwrap();
         assert_eq!(ids, ["A1", "A2"]);
         assert_eq!(erase_preview(&s, &ids).unwrap()["claims"], 2);
-        let r = erase_claims(&s, &ids).unwrap();
+        let r = erase_claims(&s, &l, &ids, "erase", "CG-4004", NOW).unwrap();
         assert_eq!((r["claims_erased"].as_i64(), r["versions_erased"].as_i64()), (Some(2), Some(3)));
         assert!(export_subject(&s, "PAT-A", NOW).unwrap()["claims"].as_array().unwrap().is_empty(), "nothing of the patient is left to export");
         assert!(s.get("B1", None).unwrap().is_some(), "another patient's claim is untouched");
-        assert_eq!(erase_claims(&s, &ids).unwrap()["claims_erased"], 0, "a second erasure finds nothing and is harmless");
+        assert_eq!(erase_claims(&s, &l, &ids, "erase", "CG-4004", NOW).unwrap()["claims_erased"], 0, "a second erasure finds nothing and is harmless");
+        let e = l.read().unwrap();
+        assert_eq!((e[0]["claim_ids"].as_array().unwrap().len(), e[0]["kind"].as_str()), (2, Some("erase")), "the erasure was written down before it was done");
     }
 
     #[test]
@@ -178,8 +227,10 @@ mod tests {
         assert!(s.transition("A1", 1, "triaged", "explanation_skipped", "system:t", NOW + 1.0, None, None, None).unwrap().is_some());
         assert!(s.transition("A1", 1, "explanation_skipped", "ready", "system:t", NOW + 2.0, None, None, None).unwrap().is_some());
         assert!(s.lease("A1", 1, "CG-2002", NOW + 3.0, NOW + 100.0).unwrap().is_some());
-        let e = erase_claims(&s, &["A1".to_string(), "A2".to_string()]).unwrap_err().to_string();
+        let (_d, l) = ledger();
+        let e = erase_claims(&s, &l, &["A1".to_string(), "A2".to_string()], "erase", "CG-4004", NOW).unwrap_err().to_string();
         assert!(e.contains("being worked on") && e.contains("A1"), "{e}");
+        assert!(l.read().unwrap().is_empty(), "a refused erasure leaves no ledger line");
         assert!(s.get("A2", None).unwrap().is_some(), "nothing at all is erased when one claim is refused");
     }
 
@@ -192,19 +243,38 @@ mod tests {
             s.lease(id, 1, "CG-2002", at - 0.5, at + 100.0).unwrap().unwrap();
             s.transition(id, 1, "leased", "decided", "CG-2002", at, None, None, Some("CG-2002")).unwrap().unwrap();
         };
+        let (_d, l) = ledger();
         let day = 86_400.0;
         decide("A1", NOW);
         decide("B1", NOW + 400.0 * day);
         let now = NOW + 500.0 * day;
-        assert_eq!(run_retention(&s, now, 0, 100, false).unwrap()["retention"], "off");
+        assert_eq!(run_retention(&s, &l, "system:worker", now, 0, 100, false).unwrap()["retention"], "off");
         assert!(s.get("A1", None).unwrap().is_some(), "with retention off nothing is touched");
-        let dry = run_retention(&s, now, 365, 100, true).unwrap();
+        let dry = run_retention(&s, &l, "system:worker", now, 365, 100, true).unwrap();
         assert_eq!((dry["claims"].as_i64(), dry["dry_run"].as_bool()), (Some(1), Some(true)));
         assert!(s.get("A1", None).unwrap().is_some(), "a dry run deletes nothing");
-        let real = run_retention(&s, now, 365, 100, false).unwrap();
+        let real = run_retention(&s, &l, "system:worker", now, 365, 100, false).unwrap();
         assert_eq!((real["claims"].as_i64(), real["claim_ids"][0].as_str()), (Some(1), Some("A1")));
         assert!(s.get("A1", None).unwrap().is_none(), "A1 was decided 500 days ago");
         assert!(s.get("B1", None).unwrap().is_some(), "B1 was decided 100 days ago");
         assert!(s.get("A2", None).unwrap().is_some(), "A2 was never decided");
+        assert_eq!(l.read().unwrap().len(), 1, "the retention run was written down, the dry run was not");
+    }
+
+    #[test]
+    fn replaying_the_ledger_deletes_what_a_restored_backup_brings_back() {
+        let (_d, l) = ledger();
+        let live = store();
+        erase_claims(&live, &l, &claim_ids_of(&live, "PAT-A").unwrap(), "erase", "CG-4004", NOW).unwrap();
+        // a backup taken before the erasure is restored: A1 and A2 are back, and so is B1
+        let restored = store();
+        assert_eq!(export_subject(&restored, "PAT-A", NOW).unwrap()["totals"]["claims"], 2);
+        let r = replay_ledger(&restored, &l).unwrap();
+        assert_eq!((r["claims_erased_again"].as_i64(), r["ledger_entries"].as_i64()), (Some(2), Some(1)));
+        assert_eq!(export_subject(&restored, "PAT-A", NOW).unwrap()["totals"]["claims"], 0, "the erased patient is gone again");
+        assert!(restored.get("B1", None).unwrap().is_some(), "nobody else is touched");
+        assert_eq!(replay_ledger(&restored, &l).unwrap()["claims_erased_again"], 0, "replaying twice changes nothing");
+        std::fs::write(l.path(), "garbage\n").unwrap();
+        assert!(replay_ledger(&restored, &l).is_err(), "a damaged ledger stops the replay instead of being skipped");
     }
 }
