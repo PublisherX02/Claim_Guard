@@ -15,8 +15,8 @@ pub struct HttpEmbedder {
 }
 
 impl HttpEmbedder {
-    /// EMBEDDER_URL (http://host:port), EMBEDDER_TOKEN, EMBEDDER_TIMEOUT (seconds, 1 to 60, default 8), EMBEDDER_THRESHOLD (0.05 to 0.95, default 0.415: the value
-    /// chosen on the held-out half in docs/52 for paraphrase-multilingual-MiniLM-L12-v2; another model needs its own threshold).
+    /// EMBEDDER_URL (http://host:port), EMBEDDER_TOKEN, EMBEDDER_TIMEOUT (seconds, 1 to 60, default 8), EMBEDDER_THRESHOLD (0.05 to 0.95, default 0.485: the value
+    /// chosen on the dev rows in docs/55 for BAAI/bge-m3; another model needs its own threshold, e.g. 0.415 for paraphrase-multilingual-MiniLM-L12-v2).
     /// Ok(None) when no URL is set: meaning-based search is then off.
     pub fn from_env(env: &HashMap<String, String>) -> Result<Option<(HttpEmbedder, f64)>, String> {
         let Some(url) = env.get("EMBEDDER_URL").map(|s| s.trim().trim_end_matches('/').to_string()).filter(|s| !s.is_empty()) else { return Ok(None) };
@@ -26,7 +26,7 @@ impl HttpEmbedder {
         let token = env.get("EMBEDDER_TOKEN").map(|s| s.trim().to_string()).filter(|s| !s.is_empty()).ok_or("EMBEDDER_TOKEN is required with EMBEDDER_URL")?;
         let timeout = env.get("EMBEDDER_TIMEOUT").and_then(|s| s.trim().parse::<u64>().ok()).filter(|n| (1..=60).contains(n)).unwrap_or(8);
         let threshold = match env.get("EMBEDDER_THRESHOLD").map(|s| s.trim()).filter(|s| !s.is_empty()) {
-            None => 0.415,
+            None => 0.485,
             Some(s) => s.parse::<f64>().ok().filter(|t| (0.05..=0.95).contains(t)).ok_or("EMBEDDER_THRESHOLD must be a number between 0.05 and 0.95")?,
         };
         Ok(Some((HttpEmbedder { url, token, timeout: Duration::from_secs(timeout) }, threshold)))
@@ -65,7 +65,7 @@ mod tests {
         assert!(HttpEmbedder::from_env(&env(&[("EMBEDDER_URL", "http://x:1")])).is_err(), "a token is required");
         assert!(HttpEmbedder::from_env(&env(&[("EMBEDDER_URL", "http://x:1"), ("EMBEDDER_TOKEN", "t"), ("EMBEDDER_THRESHOLD", "7")])).is_err());
         let (_, t) = HttpEmbedder::from_env(&env(&[("EMBEDDER_URL", "http://x:1/"), ("EMBEDDER_TOKEN", "t")])).unwrap().unwrap();
-        assert_eq!(t, 0.415);
+        assert_eq!(t, 0.485);
     }
 
     #[test]

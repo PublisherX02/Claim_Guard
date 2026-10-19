@@ -8,9 +8,9 @@ It sees only the text of the rulebook passages and the reviewer's question, neve
 pinned revision and the process runs with HF_HUB_OFFLINE=1.
 
 The vectors must be exactly what the experiment measured: sentence-transformers, `encode(..., normalize_embeddings=True)`. The refusal threshold in the server
-(EMBEDDER_THRESHOLD, 0.415) was chosen on those vectors; a different model, runtime or pooling needs its own threshold and a new run of rust/tools/rag_parity.py.
+(EMBEDDER_THRESHOLD, 0.485) was chosen on those vectors (BAAI/bge-m3, max 256 tokens, docs/55); a different model, runtime or pooling needs its own threshold and a new run of rust/tools/rag_parity.py.
 
-Environment: EMBED_TOKEN (required), EMBED_MODEL (default sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2), EMBED_DEVICE (default cpu),
+Environment: EMBED_TOKEN (required), EMBED_MODEL (default BAAI/bge-m3; the earlier sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2 needs threshold 0.415), EMBED_DEVICE (default cpu),
 EMBED_HOST (127.0.0.1), EMBED_PORT (8091).
 """
 import hmac
@@ -20,7 +20,7 @@ import os
 import sys
 import threading
 
-MODEL_ID = os.environ.get('EMBED_MODEL', 'sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2')
+MODEL_ID = os.environ.get('EMBED_MODEL', 'BAAI/bge-m3')
 DEVICE = os.environ.get('EMBED_DEVICE', 'cpu')
 MAX_TEXTS, MAX_CHARS, MAX_BODY = 128, 2000, 512 * 1024
 TOKEN = os.environ.get('EMBED_TOKEN', '')
@@ -32,6 +32,7 @@ def load():
     global MODEL
     from sentence_transformers import SentenceTransformer
     MODEL = SentenceTransformer(MODEL_ID, device=DEVICE)
+    MODEL.max_seq_length = 256          # what the experiment measured; passages and questions are short
     return MODEL
 
 

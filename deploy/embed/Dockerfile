@@ -1,4 +1,4 @@
-# The embedding sidecar for "Ask the rulebook" (docs/52): paraphrase-multilingual-MiniLM-L12-v2 on CPU, about 120 MB of weights, baked in at a pinned revision.
+# The embedding sidecar for "Ask the rulebook" (docs/52): BAAI/bge-m3 on CPU (docs/55), about 2.3 GB of weights, baked in at a pinned revision. The earlier MiniLM image (120 MB) needs EMBEDDER_THRESHOLD=0.415.
 # Build from the repository root:   docker build -f deploy/embed/Dockerfile -t claimguard-embed:latest .
 # It runs on the private network with no route out and HF_HUB_OFFLINE=1, read-only, as an unprivileged user (see compose.yml).
 FROM python:3.12-slim@sha256:f77ac9e44ae96ef2c90b8053ea08c31f8be030f824196b0ae4db6d462c84e51f
@@ -8,7 +8,7 @@ RUN pip install --no-cache-dir --index-url https://download.pytorch.org/whl/cpu 
  && pip install --no-cache-dir -r /app/requirements.txt
 # The model is fetched at build time at this exact revision; nothing is fetched when the container runs.
 ENV HF_HOME=/opt/hf
-RUN python -c "from huggingface_hub import snapshot_download as d; d('sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2', revision='e8f8c211226b894fcb81acc59f3b34ba3efd5f42')" \
+RUN python -c "from huggingface_hub import snapshot_download as d; d('BAAI/bge-m3', revision='5617a9f61b028005a4858fdac845db406aefb181', allow_patterns=['*.json', '*.txt', '*.model', 'pytorch_model.bin', 'tokenizer*', '1_Pooling/*', 'modules.json'])" \
  && chmod -R a+rX /opt/hf
 COPY deploy/embed/service.py /app/service.py
 ENV HF_HUB_OFFLINE=1 EMBED_HOST=0.0.0.0 EMBED_PORT=8091 PYTHONDONTWRITEBYTECODE=1 PYTHONUNBUFFERED=1

@@ -2,7 +2,7 @@
 
 Written 2026-10-18. Two jobs: (1) the system accepts a claim written in English **or** Arabic and knows what every field means; (2) rebuild the rulebook search after docs/52 admitted its regressions.
 
-**Read this first.** All Arabic in this work (field names, enumerated values, month names, the Arabic test questions) was written by the assistant. **No native Arabic speaker has reviewed it.** A wrong entry can produce a refusal or a field mapped to the wrong English name; it cannot silently change a claim's amounts or identifiers (see the rules below). The question sets were also written by the assistant, not by adjusters. The bigger embedding models and rerankers named in the plan (multilingual-e5-base, bge-m3, bge-reranker-v2-m3) **were not evaluated**: see section 4 for what happened to the downloads. So "the best model" below means "the best of the two that could be run".
+**Read this first (updated 2026-10-19).** Section 5 supersedes the model choice of section 3: after the large models could be run, the shipped search is now bge-m3 with Arabic/French phrases and out-of-scope topics. All Arabic in this work (field names, enumerated values, month names, the Arabic test questions) was written by the assistant. **No native Arabic speaker has reviewed it.** A wrong entry can produce a refusal or a field mapped to the wrong English name; it cannot silently change a claim's amounts or identifiers (see the rules below). The question sets were also written by the assistant, not by adjusters. The bigger embedding models and rerankers named in the plan (multilingual-e5-base, bge-m3, bge-reranker-v2-m3) **were not evaluated**: see section 4 for what happened to the downloads. So "the best model" below means "the best of the two that could be run".
 
 ## 1. Arabic claims (`cg_core::localize`, `data/field_glossary.json`)
 
@@ -56,3 +56,33 @@ Reading it: the multilingual MiniLM that is already shipped is the best of the t
 - `rust/tools/rag_parity.py` (product against experiment) was **not** re-run and still describes the old 111-passage, 0.29 setup; it needs updating before it is used as a gate again.
 - The sidecar was not rebuilt and no browser check of an Arabic claim or question was done.
 - Arabic rule questions, and any Arabic wording outside the glossary, are not reliably understood.
+
+
+## 5. Round two (2026-10-19): bge-m3, Arabic/French phrases, out-of-scope topics
+
+The weights of bge-m3 reached the flash disk (`D:\hf_cache`, revision `5617a9f6…`); e5-base and bge-reranker-v2-m3 still failed to download (connection errors), so they remain unmeasured. Two features were added and measured on a **new test set frozen first** (`questions_v3_test.json`: 20 answerable, 24 off-topic; the same author wrote the questions and the features, so wording can overlap, and nothing was reviewed by a native speaker):
+
+- **Phrases** (`cg-engine/data/rule_phrases.json`): two or three Arabic and two French ways of asking about each of the 15 rules, added to the rule's title passage for the embedding only. Never quoted.
+- **Out-of-scope topics** (14 decoy passages in the same file: appeals, copayment, premiums, covered benefits, contacts, fraud reporting, medical advice, payment timing, two insurers, provider registration, records and accounts, tax, data the claim does not hold, insurer internals): a question whose closest passage is one of these is refused, and the answer names the topic ("This looks like a question about ...").
+
+Thresholds were chosen on dev rows only. Test results (n = 20 answerable, 20 near-domain, 4 pure off-topic; 95% intervals are wide, about plus or minus 20 points):
+
+| system | threshold | answerable hit@3 | Arabic hit@3 (14) | French hit@3 (6) | near-domain refused | pure refused | AUROC |
+|---|---|---|---|---|---|---|---|
+| MiniLM (shipped before) | 0.415 | 40% | 50% | 17% | 65% | 100% | 0.82 |
+| MiniLM + phrases + topics | 0.295 | 50% | 57% | 33% | 70% | 100% | 0.84 |
+| bge-m3 | 0.480 | 75% | 64% | 100% | 45% | 100% | 0.88 |
+| bge-m3 + topics | 0.450 | 75% | 64% | 100% | 85% | 100% | 0.94 |
+| bge-m3 + phrases | 0.515 | 90% | 86% | 100% | 70% | 100% | 0.96 |
+| **bge-m3 + phrases + topics (shipped)** | **0.485** | **95%** | **93%** | **100%** | **85%** | **100%** | **0.98** |
+
+![round two](img/rag_v2/5_round2_models_and_features.png)
+![arabic and french](img/rag_v2/6_round2_arabic_french.png)
+
+Each part carries weight: the model alone fixes ranking, the phrases fix Arabic, the topics fix refusal. Dev-set objective rose from 0.67 (MiniLM) to 0.88.
+
+**Through the product** (`rust/tools/rag_product_check.py`, `outputs/defense/rag_product_check.json`; sidecar on a CPU in fp32, Rust cosine, real HTTP route): hit@3 0.95, hit@1 0.85, near-domain refused 0.85, pure refused 1.00: identical to the experiment's GPU numbers. Median 0.24 s per question. Memory: the sidecar resident size is about 2.1 GB, so the compose limit is 4 GB (it was 1 GB for MiniLM). The first question after a cold start waited up to 107 s in the test while the 190 passages were embedded on a CPU; the server now embeds them in the background at start-up (batches of 16, `EMBEDDER_TIMEOUT` 60 s), but on a CPU-only host the first minute after a restart can still fall back to keyword search (labelled as such).
+
+Shipped changes: sidecar default model `BAAI/bge-m3` (max 256 tokens; image about 2.3 GB; Dockerfile pins the revision), threshold 0.485, compose memory 4 GB, `EMBED_ALIASES` stays off for field passages. **The sidecar image was not rebuilt** (about 2.3 GB of weights; the disk and network did not allow it); the product check ran the same `service.py` directly. `rust/tools/rag_parity.py` is superseded by `rag_product_check.py` and describes the old system.
+
+Not settled: the 95% / 85% figures rest on 20 questions each; the decoys and phrases were written by the same author as the test; the Arabic wording is unreviewed; e5-base and bge-reranker-v2-m3 unmeasured; a CPU-only host needs about 2 GB more memory and a minute of warm-up than before.

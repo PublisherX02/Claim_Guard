@@ -165,6 +165,11 @@ pub fn boot(o: &Options) -> Result<Boot, String> {
     let payer = Arc::new(cg_engine::payer::PayerRules::open(&root, &data_dir, engine.clone()).map_err(|e| format!("payer rules: {e}"))?);
     if let Some((embedder, threshold)) = crate::embedder::HttpEmbedder::from_env(&env)? {
         payer.set_embedder(Arc::new(embedder), threshold); // meaning-based "Ask the rulebook"; without it (or when it is down) the keyword search answers
+        // embed the passages now, in the background: on a CPU the first question otherwise waits for all of them (about a minute with bge-m3)
+        let warm = payer.clone();
+        std::thread::spawn(move || {
+            let _ = warm.ask("warm up", 1);
+        });
     }
     {
         // an approved change of the payer rules is carried out here; other processes (the worker, the API) notice it within seconds

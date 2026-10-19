@@ -1,0 +1,36 @@
+{
+ "note": "Other ways a reviewer asks about each rule (Arabic, French) and out-of-scope topics. Written by the assistant, NOT reviewed by a native speaker. Used ONLY to find the right passage; never quoted in an answer. A decoy hit means: refuse, and say which topic it looks like.",
+ "rules": {
+  "R001": {"ar": ["بيانات المطالبة الإلزامية ناقصة", "حقل مطلوب فارغ أو غير موجود", "معلومات أساسية مفقودة في الفاتورة"], "fr": ["information obligatoire manquante", "champ requis vide ou absent"]},
+  "R002": {"ar": ["تسلسل التواريخ غير منطقي", "تاريخ الخدمة بعد تاريخ التقديم", "الخدمة مؤرخة في المستقبل"], "fr": ["chronologie des dates incohérente", "date de service après la date de soumission"]},
+  "R003": {"ar": ["التغطية التأمينية غير سارية وقت الخدمة", "انتهت الوثيقة أو لم تبدأ بعد", "المريض غير مؤمن في تاريخ الخدمة"], "fr": ["couverture non active à la date du service", "assurance expirée ou pas encore commencée"]},
+  "R004": {"ar": ["عدم تطابق رقم العضو مع المستفيد", "رقم المريض يختلف عن المستفيد في التغطية"], "fr": ["numéro de membre différent du bénéficiaire", "patient différent du bénéficiaire de la couverture"]},
+  "R005": {"ar": ["مقدم الخدمة ليس ضمن الشبكة المعتمدة", "مزود غير مسموح به في الوثيقة"], "fr": ["prestataire absent du réseau", "fournisseur non autorisé par la police"]},
+  "R006": {"ar": ["بنود مكررة محتملة", "الخدمة نفسها مسجلة أكثر من مرة في اليوم نفسه"], "fr": ["lignes en double possibles", "même service enregistré plusieurs fois le même jour"]},
+  "R007": {"ar": ["خطأ في حساب البند", "الصافي لا يساوي الكمية في سعر الوحدة"], "fr": ["erreur de calcul sur la ligne", "net différent de quantité fois prix unitaire"]},
+  "R008": {"ar": ["مرجع التفويض المطلوب غير موجود", "خدمة تتطلب موافقة مسبقة بدون رقم"], "fr": ["référence d'autorisation requise absente", "service nécessitant un accord préalable sans numéro"]},
+  "R009": {"ar": ["سجل التفويض لا يطابق الخدمة", "الموافقة لمريض أو خدمة أو تاريخ مختلف أو غير معتمدة"], "fr": ["l'autorisation ne correspond pas au service", "autorisation d'un autre patient, périmée ou non approuvée"]},
+  "R010": {"ar": ["المستند الداعم المطلوب مفقود", "المرفق غير نهائي أو من نوع خاطئ"], "fr": ["document justificatif requis manquant", "pièce jointe provisoire ou de mauvais type"]},
+  "R011": {"ar": ["رمز الخدمة غير موجود في الكتالوج", "خدمة غير معروفة"], "fr": ["code de service absent du catalogue", "prestation inconnue"]},
+  "R012": {"ar": ["إجمالي المطالبة لا يساوي مجموع البنود", "فرق بين المجموع العام والأسطر"], "fr": ["total de la demande différent de la somme des lignes", "écart entre total général et lignes"]},
+  "R013": {"ar": ["الكمية أو سعر الوحدة فوق الحد المسموح", "تجاوز الحد الأقصى في الوثيقة"], "fr": ["quantité ou prix unitaire au-dessus du plafond", "dépassement du maximum de la police"]},
+  "R014": {"ar": ["فات الموعد النهائي لتقديم المطالبة", "مدة التقديم المسموحة انتهت"], "fr": ["délai de soumission dépassé", "fenêtre de dépôt expirée"]},
+  "R015": {"ar": ["عملة المطالبة تختلف عن عملة الوثيقة", "عملة غير صحيحة"], "fr": ["devise de la demande différente de celle de la police", "mauvaise monnaie"]}
+ },
+ "decoys": [
+  {"topic": "appeals and disputes", "text": "How to appeal or dispute a rejected claim or a decision, and the deadline for doing so.", "ar": ["كيفية الاستئناف على مطالبة مرفوضة", "الاعتراض على قرار"], "fr": ["faire appel d'une décision de rejet", "contester un refus"]},
+  {"topic": "patient cost sharing", "text": "The patient's copayment, deductible, coinsurance and annual limit.", "ar": ["نسبة التحمل والمشاركة في الدفع", "الحد السنوي"], "fr": ["quote-part, franchise et plafond annuel du patient"]},
+  {"topic": "buying, changing or cancelling a policy", "text": "Premiums, how they are calculated, buying, renewing or cancelling an insurance policy.", "ar": ["قسط التأمين وكيفية احتسابه", "إلغاء الوثيقة أو تجديدها"], "fr": ["prime d'assurance, souscription, annulation du contrat"]},
+  {"topic": "what the insurance covers and waiting periods", "text": "Which benefits and treatments are covered (maternity, cosmetic surgery, hospital stay) and how long the waiting period is.", "ar": ["ما الذي تغطيه الوثيقة", "مدة الانتظار للولادة والجراحة التجميلية"], "fr": ["prestations couvertes, délai de carence, chirurgie esthétique"]},
+  {"topic": "contacts and people", "text": "Phone numbers, addresses, names of managers, medical directors, officers or the data protection officer.", "ar": ["رقم هاتف شركة التأمين", "اسم المدير أو المسؤول"], "fr": ["numéro de téléphone de l'assureur, nom du directeur"]},
+  {"topic": "fraud reporting and penalties", "text": "How fraud is reported, investigated or punished, and the law on false claims.", "ar": ["الإبلاغ عن الاحتيال وعقوبة المطالبة المزورة"], "fr": ["signalement de la fraude et sanctions pour fausse demande"]},
+  {"topic": "medical advice and coding choices", "text": "Whether a treatment is medically necessary, which diagnosis code to choose for an illness, what a medical term stands for.", "ar": ["هل العلاج ضروري طبيا", "أي رمز تشخيص أختار"], "fr": ["le traitement est-il médicalement nécessaire, quel code de diagnostic choisir"]},
+  {"topic": "payment timing and methods", "text": "How long the insurer takes to pay, reimbursement delays, payment in cash or by transfer.", "ar": ["كم يستغرق الدفع والتعويض", "الدفع نقدا"], "fr": ["délai de remboursement, paiement en espèces"]},
+  {"topic": "two insurers and who pays", "text": "Coordination of benefits: who pays when a patient has two insurers or when the patient can be charged the difference.", "ar": ["من يدفع عند وجود شركتي تأمين"], "fr": ["qui paie quand le patient a deux assureurs"]},
+  {"topic": "provider registration and the real network", "text": "How a provider joins the network, which real hospitals are in the insurer's network, credentialing.", "ar": ["تسجيل مقدم خدمة جديد", "المستشفيات في الشبكة الحقيقية"], "fr": ["inscription d'un prestataire, hôpitaux du réseau réel"]},
+  {"topic": "records, privacy and accounts", "text": "How long records are kept, privacy law, passwords, signing in, user accounts and system administration.", "ar": ["مدة حفظ السجلات الطبية", "إعادة تعيين كلمة المرور"], "fr": ["durée de conservation des dossiers, mot de passe, compte utilisateur"]},
+  {"topic": "tax and prices", "text": "Tax on an invoice, the price of a consultation at a clinic, fees and tariffs.", "ar": ["الضريبة على الفاتورة", "سعر الاستشارة في العيادة"], "fr": ["taxe sur la facture, prix d'une consultation"]},
+  {"topic": "data the claim does not hold", "text": "Information that is not a field of the claim: patient age, address, blood type, signature of the doctor, phone number of the patient.", "ar": ["عمر المريض وعنوانه وفصيلة الدم وتوقيع الطبيب"], "fr": ["âge, adresse, groupe sanguin, signature du médecin"]},
+  {"topic": "how the insurer works inside", "text": "How the insurer prioritises claims, approves exceptions to rules, or decides internally.", "ar": ["كيف تعطي الشركة الأولوية للمطالبات", "من يوافق على الاستثناءات"], "fr": ["comment l'assureur priorise les demandes, qui approuve les exceptions"]}
+ ]
+}

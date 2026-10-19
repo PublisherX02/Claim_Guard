@@ -184,14 +184,22 @@ impl PayerRules {
                 }
             }
         };
+        let mut topic = None;
         let (hits, mode, fallback) = match self.ask_semantic(&ix, question, k) {
-            Some(Ok(hits)) => (hits, "semantic", None),
+            Some(Ok((hits, t))) => {
+                topic = t;
+                (hits, "semantic", None)
+            }
             Some(Err(why)) => (ix.search(question, k), "keyword", Some(why)),
             None => (ix.search(question, k), "keyword", None),
         };
         let mut out = crate::rag::hits_json(question, &hits);
         out["table_version"] = json!(version);
         out["mode"] = json!(mode);
+        if let Some(t) = topic {
+            out["out_of_scope"] = json!(t);
+            out["note"] = json!(format!("This looks like a question about \"{t}\", which the rulebook does not cover: nothing in the fifteen rules, the payer policies or the field dictionary answers it."));
+        }
         if mode == "semantic" {
             if !hits.is_empty() {
                 out["note"] = json!("Closest passages by meaning, quoted from the rulebook and the policies in force; nothing here is generated. A passage can be close in topic without answering the question: read it before you rely on it.");
@@ -212,7 +220,7 @@ impl PayerRules {
     }
 
     /// None: meaning-based search is not configured. Some(Err): configured but unreachable (the caller falls back to keywords). Some(Ok): its answer.
-    fn ask_semantic(&self, ix: &crate::rag::Index, question: &str, k: usize) -> Option<Result<Vec<crate::rag::Hit>, String>> {
+    fn ask_semantic(&self, ix: &crate::rag::Index, question: &str, k: usize) -> Option<Result<(Vec<crate::rag::Hit>, Option<String>), String>> {
         use sha2::{Digest, Sha256};
         let (embedder, threshold) = {
             let d = self.dense.lock().unwrap_or_else(|e| e.into_inner());
@@ -222,9 +230,9 @@ impl PayerRules {
             }
             (e, t)
         };
-        let result = (|| -> Result<Vec<crate::rag::Hit>, String> {
+        let result = (|| -> Result<(Vec<crate::rag::Hit>, Option<String>), String> {
             if question.trim().is_empty() {
-                return Ok(vec![]);
+                return Ok((vec![], None));
             }
             let texts = ix.embed_texts();
             let keys: Vec<String> = texts.iter().map(|t| hex::encode(Sha256::digest(t.as_bytes()))).collect();
@@ -232,7 +240,7 @@ impl PayerRules {
                 let d = self.dense.lock().unwrap_or_else(|e| e.into_inner());
                 (0..texts.len()).filter(|i| !d.cache.contains_key(&keys[*i])).collect()
             };
-            for chunk in missing.chunks(64) {
+            for chunk in missing.chunks(16) {
                 let batch: Vec<String> = chunk.iter().map(|i| texts[*i].clone()).collect();
                 let vecs = embedder.embed(&batch)?;
                 if vecs.len() != batch.len() {
@@ -252,13 +260,15 @@ impl PayerRules {
                 return Err("the embedder returned vectors of the wrong shape".into());
             }
             let mut hits = ix.named_fields(question);
-            for h in ix.search_dense(&vectors, &q, k, threshold) {
+            let (dense, topic) = ix.search_dense_ex(&vectors, &q, k, threshold);
+            for h in dense {
                 if !hits.iter().any(|x| x.source == h.source && x.kind == h.kind) {
                     hits.push(h);
                 }
             }
             hits.truncate(k);
-            Ok(hits)
+            let topic = if hits.is_empty() { topic } else { None };
+            Ok((hits, topic))
         })();
         let mut d = self.dense.lock().unwrap_or_else(|e| e.into_inner());
         d.failed_at = if result.is_err() { Some(std::time::Instant::now()) } else { None };

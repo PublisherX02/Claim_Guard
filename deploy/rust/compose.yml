@@ -47,7 +47,8 @@ x-app: &app
     # "Ask the rulebook" by meaning (docs/52): the embedding service's address (empty: the keyword search answers; it also answers whenever this service is down)
     EMBEDDER_URL: ${EMBEDDER_URL:-}
     EMBEDDER_TOKEN: ${EMBEDDER_TOKEN:-}
-    EMBEDDER_THRESHOLD: ${EMBEDDER_THRESHOLD:-0.415}
+    EMBEDDER_THRESHOLD: ${EMBEDDER_THRESHOLD:-0.485}
+    EMBEDDER_TIMEOUT: ${EMBEDDER_TIMEOUT:-60}       # bge-m3 on a CPU needs seconds per batch of passages
   volumes:
     - claimguard_data:/data
   depends_on:
@@ -162,7 +163,7 @@ services:
     pids_limit: 128
     cpus: 2.0
 
-  embed:                        # optional, "Ask the rulebook" by meaning (docs/52): a small sentence-embedding model on CPU, weights baked in; start with --profile search
+  embed:                        # optional, "Ask the rulebook" by meaning (docs/52): BAAI/bge-m3 on CPU (docs/55), weights baked in (about 2.3 GB); start with --profile search
     profiles: ["search"]
     build: { context: ../.., dockerfile: deploy/embed/Dockerfile }
     image: claimguard-embed:latest
@@ -174,7 +175,7 @@ services:
     cap_drop: [ALL]
     read_only: true
     tmpfs: [/tmp]
-    mem_limit: 1g
+    mem_limit: 4g              # bge-m3 weights in fp32 are about 2.3 GB; the measured resident size is in docs/55
     pids_limit: 128
     cpus: 2.0
 
