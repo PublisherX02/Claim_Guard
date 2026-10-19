@@ -412,6 +412,19 @@ fn a_reason_that_contains_the_patients_identifier_is_refused_and_unmasking_is_ra
 }
 
 #[test]
+fn rulebook_questions_are_rationed_per_person() {
+    let mut t = t();
+    let viewer = t.login("CG-1001");
+    t.api.ask_per_minute = 2;
+    // this harness has no payer rules, so an allowed question answers 404; what matters is that the third is refused for rate, not for content
+    let statuses: Vec<u16> = (0..4).map(|_| t.get("/api/v1/knowledge/search?q=what%20is%20R003", &viewer).status).collect();
+    assert_eq!(statuses, vec![404, 404, 429, 429], "the third question in the minute is refused");
+    let other = t.login("CG-2002");
+    assert_eq!(t.get("/api/v1/knowledge/search?q=what%20is%20R003", &other).status, 404, "another person's allowance is their own");
+    assert_eq!(t.get("/api/v1/knowledge/search?q=", &viewer).status, 422, "a bad question is refused for what it is");
+}
+
+#[test]
 fn dangerous_administrator_actions_wait_for_a_second_administrator() {
     let t = t();
     t.w.provision("CG-4005", 4, PW);

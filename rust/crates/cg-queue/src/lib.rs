@@ -13,6 +13,7 @@ pub mod explain;
 pub mod flow;
 pub mod guard;
 pub mod model;
+pub mod privacy;
 pub mod reliability;
 pub mod replay;
 pub mod shadow;

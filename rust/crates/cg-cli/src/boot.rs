@@ -250,12 +250,14 @@ pub fn start_workers(q: &QueueStack, stop: Arc<AtomicBool>, env: &HashMap<String
     let cfg = pool_config(env, q.runtime.explain.deadline_seconds, q.runtime.max_retries);
     // a claim unfinished this long with an empty broker is a lost message (never less than two minutes, so a healthy claim is never re-sent)
     let republish_after = env.get("CG_REPUBLISH_AFTER_SECONDS").and_then(|v| v.trim().parse::<f64>().ok()).unwrap_or(900.0).max(120.0);
+    // closed claims older than this many days are erased by the hourly retention job; 0 or unset keeps everything (docs/58)
+    let retention_days = env.get("RETENTION_DAYS").and_then(|v| v.trim().parse::<u32>().ok()).unwrap_or(0);
     std::thread::Builder::new()
         .name("claimguard-worker".into())
         .spawn(move || {
             use cg_api::ops::run_job;
-            let every = [("relay", 1.5), ("deal", 2.0), ("expire", 20.0), ("reconcile", 120.0), ("republish", 300.0)];
-            let mut last = [f64::MIN; 5];
+            let every = [("relay", 1.5), ("deal", 2.0), ("expire", 20.0), ("reconcile", 120.0), ("republish", 300.0), ("retention", 3600.0)];
+            let mut last = [f64::MIN; 6];
             let mono = std::time::Instant::now();
             let alive = std::env::var("CG_WORKER_ALIVE_FILE").ok().filter(|s| !s.is_empty());
             // with a broker the claims are processed by the pool (at most `concurrency` at once); without one, inline in the relay sweep
@@ -294,6 +296,11 @@ pub fn start_workers(q: &QueueStack, stop: Arc<AtomicBool>, env: &HashMap<String
                         "republish" => {
                             if let Some(b) = &broker {
                                 run_job(store, clock, "republish", || flow::republish_lost(store, &**b, clock(), republish_after), |r| r.to_string());
+                            }
+                        }
+                        "retention" => {
+                            if retention_days > 0 {
+                                run_job(store, clock, "retention", || cg_queue::privacy::run_retention(store, clock(), retention_days, 500, false).map(|r| r["claims"].as_u64().unwrap_or(0)).unwrap_or(0), |n| format!("{n} claims erased"));
                             }
                         }
                         _ => {

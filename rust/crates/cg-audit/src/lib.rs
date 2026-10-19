@@ -47,11 +47,11 @@ fn invalid<T>(msg: impl Into<String>) -> Result<T, AuditError> {
 pub const SYSTEM_DECISIONS: [&str; 3] = ["route_to_human_review", "no_findings_for_review", "quarantine_claim"];
 const REVIEW_ACTIONS: [&str; 4] = ["confirm_issue", "dismiss_with_reason", "request_information", "mark_corrected_for_recheck"];
 
-pub const SECURITY_EVENT_TYPES: [&str; 31] = [
+pub const SECURITY_EVENT_TYPES: [&str; 32] = [
     "login_success", "login_failure", "lockout", "logout", "token_rejected", "forbidden", "unmask", "user_created", "user_updated", "user_unlocked", "totp_reset",
     "password_changed", "audit_read", "audit_verify", "decision", "routing_config_changed", "lease_expired", "lease_reclaimed", "claim_dealt", "claim_decided_green",
     "queue_admin", "claim_signoff", "triage_receipt", "approval", "claim_whatif", "claim_rechecked",
-    "batch_created", "batch_quarantined", "batch_decision", "info_request_drafted", "info_request_sent",
+    "batch_created", "batch_quarantined", "batch_decision", "info_request_drafted", "info_request_sent", "privacy_action",
 ];
 
 fn required() -> &'static BTreeMap<&'static str, BTreeSet<&'static str>> {
@@ -102,6 +102,7 @@ fn required() -> &'static BTreeMap<&'static str, BTreeSet<&'static str>> {
             ("batch_decision", &["batch_id", "action", "n", "by"]),
             ("info_request_drafted", &["claim_id", "request_id", "items"]),
             ("info_request_sent", &["badge_id", "claim_id", "request_id", "channel"]),
+            ("privacy_action", &["actor", "action", "claims", "versions"]),
         ];
         rows.iter().map(|(k, fields)| (*k, fields.iter().copied().collect())).collect()
     })

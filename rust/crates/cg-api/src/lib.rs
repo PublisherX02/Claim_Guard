@@ -121,6 +121,8 @@ pub struct Api {
     pub ui: bool,
     /// How many claims one person may unmask per hour (UNMASK_PER_HOUR, default 60).
     pub unmask_per_hour: i64,
+    /// How many rulebook questions one person may ask per minute (ASK_PER_MINUTE, default 30): each one costs an embedding call.
+    pub ask_per_minute: i64,
     pub metrics: Arc<Metrics>,
     probes: Vec<Probe>,
     audit_status: Arc<AuditStatus>,
@@ -360,6 +362,7 @@ impl Api {
             queue: p.queue,
             ui: p.ui,
             unmask_per_hour: std::env::var("UNMASK_PER_HOUR").ok().and_then(|v| v.trim().parse::<i64>().ok()).filter(|n| *n >= 1).unwrap_or(60),
+            ask_per_minute: std::env::var("ASK_PER_MINUTE").ok().and_then(|v| v.trim().parse::<i64>().ok()).filter(|n| *n >= 1).unwrap_or(30),
             metrics,
             probes,
             audit_status,
@@ -789,12 +792,21 @@ impl Api {
 
     /// Ask the rulebook: retrieval with citations over the rules and the payer policies in force. Never touches a claim.
     fn knowledge(&self, req: &ApiRequest) -> R {
-        self.need(req, "claims.view")?;
-        let pr = self.payer()?;
+        let p = self.need(req, "claims.view")?;
         let q = query(req).get("q").cloned().unwrap_or_default();
         if q.trim().is_empty() || q.chars().count() > 300 {
             return Err(ApiError::new(422, "invalid_request").with("detail", json!("ask a question of 1 to 300 characters")));
         }
+        // A question costs an embedding call (a model on a GPU or a CPU), so one person may ask only so many a minute: a signed-in user must not be able
+        // to tie up the embedding service or the server's threads. The count is shared by every server process.
+        let used = self.access.store.bump_counter(&format!("ask|{}", p.badge()), 60, self.now()).map_err(|_| ApiError::new(503, "unavailable"))?;
+        if used > self.ask_per_minute {
+            self.access.note_forbidden(p.badge(), "GET", "/knowledge/search (per-minute limit)");
+            let mut e = ApiError::new(429, "too_many_questions");
+            e.headers.push(("retry-after".into(), "60".into()));
+            return Err(e);
+        }
+        let pr = self.payer()?;
         Ok(ApiResponse::json(200, &pr.ask(q.trim(), 4)))
     }
 

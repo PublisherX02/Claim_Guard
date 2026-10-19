@@ -193,6 +193,12 @@ pub trait QueueStore: Send + Sync {
     fn heartbeat(&self, badge_id: &str, now: f64, expires_at: f64) -> Result<i64>;
     fn expired(&self, now: f64) -> Result<Vec<Doc>>;
     fn claims_for_patient(&self, patient_id: &str) -> Result<Vec<Value>>;
+    /// Subject access: every stored document (every version) of every claim of one patient, decrypted, oldest first.
+    fn docs_for_patient(&self, patient_id: &str) -> Result<Vec<Doc>>;
+    /// Erasure: deletes every version of one claim, its request events and its dead letters. Returns how many versions were deleted. Final.
+    fn erase_claim(&self, claim_id: &str) -> Result<i64>;
+    /// Retention: ids of claims whose newest version was decided before `cutoff` (nothing has happened to it since), oldest first, at most `limit`.
+    fn closed_before(&self, cutoff: f64, limit: usize) -> Result<Vec<String>>;
     // configuration
     fn put_config(&self, doc: &Value, expected_version: i64) -> Result<bool>;
     fn latest_config(&self) -> Result<Option<Value>>;
@@ -461,6 +467,35 @@ impl QueueStore for MemoryQueueStore {
         let mut rows: Vec<&Value> = g.docs.values().filter(|d| d["state"] == "leased" && f(d, &["lease", "expires_at"]) <= now).collect();
         sort_by_time(&mut rows, |d| f(d, &["lease", "expires_at"]));
         Ok(rows.into_iter().cloned().collect())
+    }
+
+    fn docs_for_patient(&self, patient_id: &str) -> Result<Vec<Doc>> {
+        let g = self.lock();
+        Ok(g.docs.values().filter(|d| d["claim"]["patient_id"] == patient_id).cloned().collect())
+    }
+
+    fn erase_claim(&self, claim_id: &str) -> Result<i64> {
+        let mut g = self.lock();
+        let before = g.docs.len();
+        g.docs.retain(|(c, _), _| c != claim_id);
+        let erased = (before - g.docs.len()) as i64;
+        g.request_events.retain(|e| e["claim_id"] != claim_id);
+        g.dead.retain(|(_, d)| d["claim_id"] != claim_id);
+        Ok(erased)
+    }
+
+    fn closed_before(&self, cutoff: f64, limit: usize) -> Result<Vec<String>> {
+        check_number(cutoff, "cutoff")?;
+        let g = self.lock();
+        let mut newest: BTreeMap<&str, &Value> = BTreeMap::new();
+        for ((cid, _), d) in g.docs.iter() {
+            if newest.get(cid.as_str()).map_or(true, |cur| d["version"].as_i64() > cur["version"].as_i64()) {
+                newest.insert(cid.as_str(), d);
+            }
+        }
+        let mut rows: Vec<&Value> = newest.into_values().filter(|d| d["state"] == "decided" && f(d, &["state_at"]) < cutoff).collect();
+        sort_by_time(&mut rows, |d| f(d, &["state_at"]));
+        Ok(rows.into_iter().take(limit).map(|d| s(d, &["claim_id"]).to_string()).collect())
     }
 
     fn claims_for_patient(&self, patient_id: &str) -> Result<Vec<Value>> {

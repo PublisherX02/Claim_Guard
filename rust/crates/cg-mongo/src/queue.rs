@@ -62,6 +62,15 @@ pub struct MongoQueueStore {
 }
 
 impl MongoQueueStore {
+    /// The ids of every claim of one patient. Documents written with encryption carry only a keyed hash of the patient id; older ones carry the id itself.
+    fn patient_claim_ids(&self, patient_id: &str) -> Result<Vec<Bson>> {
+        let filter = match &self.crypt {
+            Some(c) => doc! {"$or": [{"patient_key": c.patient_key(patient_id)}, {"claim.patient_id": patient_id}]},
+            None => doc! {"claim.patient_id": patient_id},
+        };
+        self.claims.distinct("claim_id", filter).run().map_err(unavailable)
+    }
+
     /// Encrypts claim data (see `crypt`) on every write and decrypts it on every read. Documents already stored in plain form stay readable.
     pub fn with_encryption(mut self, crypt: FieldCrypt) -> MongoQueueStore {
         self.crypt = Some(crypt);
@@ -369,6 +378,43 @@ impl QueueStore for MongoQueueStore {
     fn expired(&self, now: f64) -> Result<Vec<Value>> {
         check_number(now, "now")?;
         self.many(self.claims.find(doc! {"state": "leased", "lease.expires_at": {"$lte": now}}).sort(doc! {"lease.expires_at": 1, "claim_id": 1}).run().map_err(unavailable)?)
+    }
+
+    fn docs_for_patient(&self, patient_id: &str) -> Result<Vec<Value>> {
+        let ids = self.patient_claim_ids(patient_id)?;
+        if ids.is_empty() {
+            return Ok(vec![]);
+        }
+        let rows = self.many(self.claims.find(doc! {"claim_id": {"$in": ids}}).sort(doc! {"claim_id": 1, "version": 1}).run().map_err(unavailable)?)?;
+        Ok(rows.into_iter().filter(|d| d["claim"]["patient_id"] == patient_id).collect())
+    }
+
+    fn erase_claim(&self, claim_id: &str) -> Result<i64> {
+        let n = self.claims.delete_many(doc! {"claim_id": claim_id}).run().map_err(unavailable)?.deleted_count as i64;
+        self.request_events.delete_many(doc! {"claim_id": claim_id}).run().map_err(unavailable)?;
+        self.dead.delete_many(doc! {"claim_id": claim_id}).run().map_err(unavailable)?;
+        Ok(n)
+    }
+
+    fn closed_before(&self, cutoff: f64, limit: usize) -> Result<Vec<String>> {
+        check_number(cutoff, "cutoff")?;
+        if limit == 0 {
+            return Ok(vec![]);
+        }
+        // candidates are the decided versions older than the cutoff; a claim counts only if that is also its newest version
+        let rows = self.claims.find(doc! {"state": "decided", "state_at": {"$lt": cutoff}}).projection(doc! {"_id": 0, "claim_id": 1, "version": 1, "state_at": 1}).sort(doc! {"state_at": 1, "claim_id": 1}).run().map_err(unavailable)?;
+        let mut out = vec![];
+        for r in rows {
+            let r = r.map_err(unavailable)?;
+            let (id, ver) = (r.get_str("claim_id").unwrap_or("").to_string(), r.get_i64("version").unwrap_or_else(|_| r.get_i32("version").unwrap_or(0) as i64));
+            if self.latest_versions(&[id.clone()])?.get(&id) == Some(&ver) && !out.contains(&id) {
+                out.push(id);
+                if out.len() >= limit {
+                    break;
+                }
+            }
+        }
+        Ok(out)
     }
 
     fn claims_for_patient(&self, patient_id: &str) -> Result<Vec<Value>> {

@@ -270,7 +270,7 @@ pub fn rotate_fernet_key(args: &[String]) -> i32 {
     }
 }
 
-pub const QUEUE_USAGE: &str = "usage: cg queue --badge CG-4004 [--dev] submit --claims FILE [--process] | reconcile | replay ID [--version N] | rerun --rule-pack HASH [--apply] | deadletters | deadletter-replay ID | verify-deal ID | workload [--skip-lower X] | audit";
+pub const QUEUE_USAGE: &str = "usage: cg queue --badge CG-4004 [--dev] submit --claims FILE [--process] | reconcile | replay ID [--version N] | rerun --rule-pack HASH [--apply] | deadletters | deadletter-replay ID | verify-deal ID | workload [--skip-lower X] | audit | privacy-export PATIENT_ID | privacy-erase PATIENT_ID [--confirm N] | privacy-retention --days N [--apply]";
 
 pub fn queue(args: &[String]) -> i32 {
     let say = |s: &str| println!("{s}");
@@ -278,7 +278,7 @@ pub fn queue(args: &[String]) -> i32 {
         say(QUEUE_USAGE);
         return 2;
     };
-    let Some(ci) = args.iter().position(|a| ["submit", "reconcile", "replay", "rerun", "deadletters", "deadletter-replay", "verify-deal", "workload", "audit", "batches"].contains(&a.as_str())) else {
+    let Some(ci) = args.iter().position(|a| ["submit", "reconcile", "replay", "rerun", "deadletters", "deadletter-replay", "verify-deal", "workload", "audit", "batches", "privacy-export", "privacy-erase", "privacy-retention"].contains(&a.as_str())) else {
         say(QUEUE_USAGE);
         return 2;
     };
@@ -303,7 +303,7 @@ pub fn queue(args: &[String]) -> i32 {
         }
     };
     let apply = has(rest, "--apply");
-    let mutating = matches!(command, "submit" | "deadletter-replay") || (command == "rerun" && apply);
+    let mutating = matches!(command, "submit" | "deadletter-replay" | "privacy-erase") || (command == "privacy-retention" && apply) || (command == "rerun" && apply);
     if AccessService::require(&operator, if mutating { "routing.manage" } else { "queue.view" }).is_err() {
         say("error: this operator may not do that");
         return 2;
@@ -313,7 +313,7 @@ pub fn queue(args: &[String]) -> i32 {
         return 2;
     }
     let (store, now) = (&*q.store, b.clock.clone());
-    let positional = rest.iter().find(|a| !a.starts_with("--") && flag(rest, "--version").as_deref() != Some(a.as_str()) && flag(rest, "--claims").as_deref() != Some(a.as_str()) && flag(rest, "--rule-pack").as_deref() != Some(a.as_str()) && flag(rest, "--skip-lower").as_deref() != Some(a.as_str()));
+    let positional = rest.iter().find(|a| !a.starts_with("--") && flag(rest, "--version").as_deref() != Some(a.as_str()) && flag(rest, "--claims").as_deref() != Some(a.as_str()) && flag(rest, "--rule-pack").as_deref() != Some(a.as_str()) && flag(rest, "--skip-lower").as_deref() != Some(a.as_str()) && flag(rest, "--confirm").as_deref() != Some(a.as_str()) && flag(rest, "--days").as_deref() != Some(a.as_str()));
     let out: Result<i32, QueueError> = (|| {
         match command {
             "replay" => {
@@ -384,6 +384,41 @@ pub fn queue(args: &[String]) -> i32 {
                         say(&sorted(&v.to_json(None)));
                     }
                 }
+                Ok(0)
+            }
+            "privacy-export" => {
+                // subject access: everything held about one patient, printed to the operator's terminal and nowhere else
+                let patient = positional.ok_or_else(|| QueueError::Invalid("privacy-export needs a patient identifier".into()))?;
+                let e = cg_queue::privacy::export_subject(store, patient, now()).map_err(|e| QueueError::Invalid(e.to_string()))?;
+                let _ = b.access.record("privacy_action", json!({"actor": operator.badge(), "action": "export", "claims": e["totals"]["claims"], "versions": e["totals"]["versions"]}));
+                say(&serde_json::to_string_pretty(&e).unwrap_or_default());
+                Ok(0)
+            }
+            "privacy-erase" => {
+                // erasure: without --confirm it only counts; with --confirm N it deletes, and only if N is the number counted
+                let patient = positional.ok_or_else(|| QueueError::Invalid("privacy-erase needs a patient identifier".into()))?;
+                let ids = cg_queue::privacy::claim_ids_of(store, patient).map_err(|e| QueueError::Invalid(e.to_string()))?;
+                let preview = cg_queue::privacy::erase_preview(store, &ids).map_err(|e| QueueError::Invalid(e.to_string()))?;
+                match flag(rest, "--confirm").and_then(|v| v.parse::<usize>().ok()) {
+                    Some(n) if n == ids.len() && n > 0 => {
+                        let r = cg_queue::privacy::erase_claims(store, &ids).map_err(|e| QueueError::Invalid(e.to_string()))?;
+                        let _ = b.access.record("privacy_action", json!({"actor": operator.badge(), "action": "erase", "claims": r["claims_erased"], "versions": r["versions_erased"]}));
+                        say(&sorted(&r));
+                        Ok(0)
+                    }
+                    _ => {
+                        say(&format!("{} claim(s) would be erased, {} version(s) at most. Nothing was deleted. Run again with --confirm {} to delete them for good.", ids.len(), preview["versions_at_most"], ids.len()));
+                        Ok(1)
+                    }
+                }
+            }
+            "privacy-retention" => {
+                let days = flag(rest, "--days").and_then(|v| v.parse::<u32>().ok()).filter(|d| *d > 0).ok_or_else(|| QueueError::Invalid("privacy-retention needs --days N (N > 0)".into()))?;
+                let r = cg_queue::privacy::run_retention(store, now(), days, 10_000, !apply).map_err(|e| QueueError::Invalid(e.to_string()))?;
+                if apply {
+                    let _ = b.access.record("privacy_action", json!({"actor": operator.badge(), "action": "retention", "claims": r["claims"], "versions": r["versions"]}));
+                }
+                say(&sorted(&r));
                 Ok(0)
             }
             "verify-deal" => {

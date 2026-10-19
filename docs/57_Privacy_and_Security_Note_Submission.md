@@ -20,7 +20,7 @@ The companion submission is the *Test Evaluation Report* (`docs/56`): it holds t
 
 Headline evidence (all re-runnable, section 9): **116-check black-box penetration test, all pass**; **400,000 fuzzed requests, 0 server errors, 0 leaks**; **75 deliberate breakages of the security rules, all caught**; a **50-check attack on the deployed stack** that found four real problems (fixed); a red team on a real local model that found and fixed a real weakness in the AI guard; claim data, names and audit logs encrypted at rest; an encrypted backup restored end to end.
 
-Three things the note will not claim: it has **not been run on the target server**, it has **not been tested by an outside party**, and **erasure on request, subject-access export and a retention period are designed but not built** (section 12).
+Three things the note will not claim: it has **not been run on the target server**, it has **not been tested by an outside party**, and **erasure and export run only as server-side operator commands** (no web route and no second-person approval yet; section 12 and `docs/58`).
 
 ---
 
@@ -137,8 +137,8 @@ The mapping against the families of obligation shared by the Saudi PDPL, the UAE
 | Security safeguards | **Built** (TLS 1.2/1.3, HSTS; encryption at rest; two-factor sign-in; revocable sessions; tamper-evident audit; dual control; encrypted backups) |
 | Accuracy and correction | **Built**: a correction is a new version checked from scratch; the old decision stays visible |
 | Breach detection | **Built** (audit chain, mirror and timestamp alarm on any rewrite; the health panel shows it; failed sign-ins and unmask counts are logged); *notification* is a process, not software |
-| Access, correction, deletion and objection by the person | **Not built**: no export of everything held about one person, and no erasure on request. Design: destroy the keyed index entry and the claim's sealed fields for that person (the audit log keeps claim ids only, so the deliberately uneditable log needs no rewriting) |
-| Retention | **Not built** beyond short-lived data that expires by itself; needs the insurer's decision |
+| Access, correction, deletion and objection by the person | **Built as operator commands** (`cg queue privacy-export` and `privacy-erase`, docs/58): export of everything held about one person; erasure of every version of their claims after a count is confirmed; refused while someone is working on the claim; logged. The audit log keeps claim ids only, so the uneditable log needs no rewriting. Not in the web console; backups still hold the data until they age out |
+| Retention | **Built, off by default:** `RETENTION_DAYS` erases claims decided longer ago than that, hourly; the insurer must choose the number (docs/58). Log retention is the insurer's decision |
 | Records of processing, impact assessment, data-protection officer | the documents list what is processed and why; a formal assessment and a named officer belong to the operating organisation |
 
 ---
@@ -261,7 +261,7 @@ The write-ahead rule: if the `ai_request` cannot be written, the run aborts. The
 ### 6.4 What auditability does not give (stated plainly)
 
 - The log is tamper-**evident** against anyone who cannot rewrite the chain, the anchor and the key together. It is not tamper-proof against someone who controls all three.
-- The mirror is immutable only if its volume is (an append-only or object-lock volume). **Retention-locked (WORM) storage and append-only database privileges are not built**; a local file is not immutable and we do not call it that.
+- The mirror is immutable only if its volume is (an append-only or object-lock volume). Append-only files are now enforced by the kernel (`deploy/rust/harden-audit.sh`, `chattr +a`, proved in a container: truncate, overwrite, rename and delete refused; docs/58 section 3), so the application account cannot rewrite history; **root on the host still can, and retention-locked (WORM) storage and an INSERT-only database role are not built**.
 - Off-host backups and controlled exports are manual procedures with scripts.
 - The audit log keeps the badge numbers of the people who acted (needed for accountability); they are encrypted on disk but visible to anyone with the audit permission.
 - The timestamp check is only as good as the CA file the verifier is given; keep it apart from the log writer and choose the authority yourself.
@@ -397,9 +397,9 @@ The decision to rebuild in Rust (`docs/36`, taken 2026-10-09) was driven by memo
 
 1. **Not run on the target server** (RTX 3080, Linux): the host firewall, the machine's own hardening, its Docker daemon and a certificate from a public authority are untested. `docs/40` section 9 is the checklist for that day.
 2. **No outside party has tested it.** The penetration test, the fuzzing and the red team were written and run by us.
-3. **Subject access and erasure are not built.** Designed: erasure by destroying the keyed index entry and the claim's sealed fields for that person; export of everything held about one person. Must be built and tested before a real deployment.
-4. **Retention is not built** beyond short-lived data that expires by itself. The insurer must decide how long claims and logs are kept.
-5. **The logs are tamper-evident, not immutable:** WORM storage, an INSERT-only database role and off-host backups are not built; a live timestamp authority was never contacted.
+3. **Subject access and erasure exist only as server-side operator commands.** Built and tested (memory and MongoDB): export, erasure by confirmed count, refusal while a claim is in work, a log entry. Not built: a web route, a second administrator's approval, erasure from backups.
+4. **Retention is built but off.** `RETENTION_DAYS` is unset by default; the insurer must decide how long claims (and logs, which hold no patient data) are kept.
+5. **The logs are append-only for the application account, not immutable against root:** WORM storage, an INSERT-only database role and off-host backups are not built; a live timestamp authority was never contacted.
 6. **Two-person rules cannot know that two accounts belong to two people**; a lone administrator acts alone (and is logged).
 7. **User records other than the name** (level, permissions, timestamps) are readable in the database; disk or volume encryption is still advised underneath. Key custody (who holds `.env`) is an organisational control.
 8. **A distributed denial of service, floods below the HTTP layer and exhaustion of the database server** are untested; a burst of parallel sign-ins can pass the throttle check before the counts catch up (bounded by concurrency, not by time).
@@ -408,7 +408,7 @@ The decision to rebuild in Rust (`docs/36`, taken 2026-10-09) was driven by memo
 11. **Documents:** hidden text inside a PDF's text layer is read like visible text; real hospital paper, handwriting, stamps and Arabic documents are untested; the reader image's Arabic OCR data is not included.
 12. **Arabic intake:** every label, month name and phrase was written by the assistant and has not been reviewed by a native speaker; a wrong entry can produce a refusal or a field mapped to the wrong English name, but cannot change an amount or an identifier.
 13. **The batch job table lives in memory;** a restart forgets running jobs (sending the batch again is the repair); two API copies behind a load balancer are untested.
-14. **The desktop app is unsigned,** Windows only, and was not run on a clean PC. The Docker image of the embedding sidecar was not rebuilt for the new model (the script runs it on the GPU or CPU).
+14. **The desktop app is unsigned,** Windows only, and was not run on a clean PC. The Docker image of the embedding sidecar was not rebuilt for the new model (the script runs it on the GPU or CPU); its weights are a pickle file, now pinned by SHA-256 in the Dockerfile and loaded with `weights_only=True` (docs/58 section 4), effective at the next build.
 15. **Notification of a breach** to the authority and the people affected is a process, not software; the runbook says what to collect.
 16. **No formal data-protection impact assessment, no named data-protection officer,** no single-sign-on or password-reset story, and no signed data-processing agreement: these belong to the organisation that runs the system.
 17. **The build machine's own disk is almost full** and the health panel reports `disk: down`, correctly: a finding about this laptop, not the product.

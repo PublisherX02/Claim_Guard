@@ -329,4 +329,42 @@ pub fn run(fresh: &dyn Fn() -> Box<dyn QueueStore>) {
     assert!(s.get("{\"$ne\": null}", None).unwrap().is_none());
     assert!(s.inbox("{\"$ne\": null}").unwrap().is_empty());
     assert!(s.get("C1", Some(0)).is_err() && s.get("C1", Some(-1)).is_err());
+
+    // ---- privacy: subject access, erasure and retention
+    let s = fresh();
+    for (id, patient) in [("E1", "PAT-A"), ("E2", "PAT-A"), ("E3", "PAT-B")] {
+        assert!(s.put_triaged(&make_doc(id, 1, &format!("h-{id}"), "A", "decide", 2, patient, NOW, None)).unwrap());
+    }
+    assert!(s.put_triaged(&make_doc("E1", 2, "h-E1-2", "A", "decide", 2, "PAT-A", NOW + 1.0, None)).unwrap(), "a correction is a second version of the same claim");
+    let held = s.docs_for_patient("PAT-A").unwrap();
+    assert_eq!(held.iter().map(|d| format!("{}#{}", d["claim_id"].as_str().unwrap(), d["version"])).collect::<Vec<_>>(), ["E1#1", "E1#2", "E2#1"], "every version of every claim of the patient, and nobody else's");
+    assert!(held.iter().all(|d| d["claim"]["patient_id"] == "PAT-A" && d["results"].is_array()), "the documents are returned readable");
+    assert!(s.docs_for_patient("PAT-NOBODY").unwrap().is_empty() && s.docs_for_patient("{\"$ne\": null}").unwrap().is_empty());
+    s.append_request_event(&json!({"request_id": "R1", "claim_id": "E1", "kind": "sent", "at": NOW})).unwrap();
+    s.append_request_event(&json!({"request_id": "R2", "claim_id": "E3", "kind": "sent", "at": NOW})).unwrap();
+    s.add_dead_letter(&json!({"dead_id": "D-E1", "claim_id": "E1", "reason": "x", "at": NOW})).unwrap();
+    s.add_dead_letter(&json!({"dead_id": "D-E3", "claim_id": "E3", "reason": "x", "at": NOW})).unwrap();
+    assert_eq!(s.erase_claim("E1").unwrap(), 2, "both versions are deleted");
+    assert_eq!(s.erase_claim("E1").unwrap(), 0, "erasing twice is harmless");
+    assert!(s.get("E1", None).unwrap().is_none() && s.get("E1", Some(1)).unwrap().is_none());
+    assert!(s.request_events("E1", 10).unwrap().is_empty() && s.request_events("E3", 10).unwrap().len() == 1, "its request events go with it, another claim's stay");
+    assert_eq!(s.dead_letters(10).unwrap().iter().map(|d| d["dead_id"].as_str().unwrap().to_string()).collect::<Vec<_>>(), ["D-E3"], "its dead letters go with it");
+    assert_eq!(s.docs_for_patient("PAT-A").unwrap().len(), 1, "the patient's other claim is untouched");
+    assert!(s.erase_claim("{\"$ne\": null}").unwrap() == 0 && s.get("E2", None).unwrap().is_some() && s.get("E3", None).unwrap().is_some(), "an operator-shaped id erases nothing");
+    // retention: only a claim whose newest version was decided before the cutoff
+    for id in ["R-old", "R-new", "R-open", "R-v2"] {
+        assert!(s.put_triaged(&make_doc(id, 1, &format!("h-{id}"), "A", "decide", 2, "P9", NOW, None)).unwrap());
+    }
+    let decide = |id: &str, ver: i64, at: f64| {
+        assert!(s.transition(id, ver, "triaged", "explanation_skipped", "system:t", at - 2.0, None, None, None).unwrap().is_some());
+        assert!(s.transition(id, ver, "explanation_skipped", "ready", "system:t", at - 1.0, None, None, None).unwrap().is_some());
+        assert!(s.lease(id, ver, "CG-2002", at - 0.5, at + 100.0).unwrap().is_some());
+        assert!(s.transition(id, ver, "leased", "decided", "CG-2002", at, None, None, Some("CG-2002")).unwrap().is_some());
+    };
+    decide("R-old", 1, NOW + 10.0);
+    decide("R-new", 1, NOW + 1000.0);
+    decide("R-v2", 1, NOW + 10.0);
+    assert!(s.put_triaged(&make_doc("R-v2", 2, "h-R-v2-2", "A", "decide", 2, "P9", NOW + 500.0, None)).unwrap(), "a correction makes a newer, undecided version");
+    assert_eq!(s.closed_before(NOW + 500.0, 10).unwrap(), ["R-old"], "an old decided claim only: not a recent one, not an open one, not one with a newer open version");
+    assert!(s.closed_before(NOW + 500.0, 0).unwrap().is_empty() && s.closed_before(f64::NAN, 10).is_err());
 }
