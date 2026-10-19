@@ -30,7 +30,14 @@ pub(crate) fn has(args: &[String], name: &str) -> bool {
     args.iter().any(|a| a == name)
 }
 
+/// Reads a password or code. With CG_SECRETS_FROM_STDIN=1 each answer is one line of standard input (for scripts and tests that have no terminal;
+/// the value never appears in an argument or in the environment); otherwise it is typed without echo.
 pub(crate) fn secret_prompt(prompt: &str) -> String {
+    if std::env::var("CG_SECRETS_FROM_STDIN").as_deref() == Ok("1") {
+        let mut line = String::new();
+        let _ = std::io::stdin().read_line(&mut line);
+        return line.trim_end_matches(['\r', '\n']).to_string();
+    }
     rpassword::prompt_password(prompt).unwrap_or_default()
 }
 

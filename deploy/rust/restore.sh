@@ -44,6 +44,10 @@ MSYS_NO_PATHCONV=1 docker run --rm -v "${PROJECT}_claimguard_data:/data" -v "${P
 if [ -s "$TMP/ledger.live" ]; then
   MSYS_NO_PATHCONV=1 docker run --rm -v "${PROJECT}_claimguard_data:/data" -v "$HOSTTMP":/in:ro alpine@sha256:294b683cb724975bec92580e1e685676bd4b50bda910ddb8c51d4cabeaec77e6 sh -c 'if [ ! -e /data/erasure_ledger.jsonl ] || [ "$(wc -c < /in/ledger.live)" -gt "$(wc -c < /data/erasure_ledger.jsonl)" ]; then cp /in/ledger.live /data/erasure_ledger.jsonl && chown 65532:65532 /data/erasure_ledger.jsonl; fi'
 fi
-$COMPOSE run --rm --no-deps -T worker cg replay-erasures --data-dir /data || { echo "replaying the erasure ledger FAILED: do not start the system, an erased patient may have come back"; exit 1; }
+# no --data-dir: the image already sets CLAIMGUARD_DATA_DIR=/data (Git Bash on Windows rewrites a bare /data argument into a Windows path, and the replay then found no ledger)
+REPLAY="$($COMPOSE run --rm --no-deps -T worker cg replay-erasures)" || { echo "$REPLAY"; echo "replaying the erasure ledger FAILED: do not start the system, an erased patient may have come back"; exit 1; }
+echo "$REPLAY"
+# fail closed: a ledger with content that the replay did not read is the one way an erased patient comes back unnoticed
+if [ -s "$TMP/ledger.live" ] && ! echo "$REPLAY" | grep -Eq '"ledger_entries":[1-9]'; then echo "the erasure ledger has entries but the replay read none: do not start the system"; exit 1; fi
 $COMPOSE start api worker
 echo "restored from $IN; check the health panel and the audit verification before using the system"

@@ -128,6 +128,15 @@ M = [
     ('wl-time-counts-bulk', 'cg-queue', QUE + 'workload.rs', ' && x["reason"].as_str() != Some(crate::service::BULK_REASON)).filter(|x| x["at"]', ').filter(|x| x["at"]'),
     ('rel-activate-ignores-newer-active', 'cg-queue', QUE + 'reliability.rs', 'if previous.is_some_and(|v| v > version) {', 'if false && previous.is_some_and(|v| v > version) {'),
     ('rel-activate-any-status', 'cg-queue', QUE + 'reliability.rs', 'if doc["status"] != "proposed" {', 'if false {'),
+    ('api-ask-written-limit-off', 'cg-api', API, 'if used > self.ask_generate_per_minute {', 'if false {'),
+    ('api-ask-limit-off', 'cg-api', API, 'if used > self.ask_per_minute {', 'if false {'),
+    ('api-ask-question-length-unchecked', 'cg-api', API, 'q.chars().count() > 300 {', 'q.chars().count() > 300_000 {'),
+    ('api-ask-written-limit-shares-plain-counter', 'cg-api', API, 'format!("askgen|{}", p.badge())', 'format!("ask|{}", p.badge())'),
+    ('kag-write-up-needs-no-citation', 'cg-engine', 'cg-engine/src/kag.rs', 'if cited == 0 {', 'if false {'),
+    ('kag-write-up-sentence-uncited-ok', 'cg-engine', 'cg-engine/src/kag.rs', 'if !cite.is_match(s).unwrap_or(false) {', 'if false {'),
+    ('kag-write-up-cites-missing-fact-ok', 'cg-engine', 'cg-engine/src/kag.rs', 'if n == 0 || n > facts.len() {', 'if false {'),
+    ('kag-write-up-invented-number-ok', 'cg-engine', 'cg-engine/src/kag.rs', 'if !haystack.contains(&m.as_str().to_lowercase()) {', 'if false {'),
+    ('kag-write-up-no-length-cap', 'cg-engine', 'cg-engine/src/kag.rs', 'if t.chars().count() > 1500 {', 'if t.chars().count() > 1_500_000 {'),
 ]
 
 
