@@ -834,6 +834,7 @@ mod tests {
             ("Rule R008 checks it [1]. The highest unit price is 9999 SAR for this service [2].", "9999"),
             ("Rule R008 checks it [1]. Claims are paid within a very short time frame otherwise.", "no citation"),
             ("", "empty"),
+            (&"Rule R008 checks it [1]. ".repeat(70), "too long"),
         ] {
             let e = check_generated(bad, &facts).unwrap_err();
             assert!(e.contains(why), "{bad:?}: {e}");

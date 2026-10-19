@@ -422,6 +422,8 @@ fn rulebook_questions_are_rationed_per_person() {
     let other = t.login("CG-2002");
     assert_eq!(t.get("/api/v1/knowledge/search?q=what%20is%20R003", &other).status, 404, "another person's allowance is their own");
     assert_eq!(t.get("/api/v1/knowledge/search?q=", &viewer).status, 422, "a bad question is refused for what it is");
+    assert_eq!(t.get(&format!("/api/v1/knowledge/search?q={}", "a".repeat(301)), &viewer).status, 422, "a question over 300 characters is refused");
+    assert_ne!(t.get(&format!("/api/v1/knowledge/search?q={}", "a".repeat(300)), &viewer).status, 422, "300 characters is still allowed");
 }
 
 #[test]
