@@ -1,0 +1,532 @@
+{
+ "model": "BAAI/bge-m3 (CPU fp32 sidecar + Rust cosine), threshold 0.485",
+ "product": {
+  "hit3": 0.95,
+  "hit1": 0.85,
+  "near_refused": 0.85,
+  "pure_refused": 1.0,
+  "refusals_naming_a_topic": 17
+ },
+ "experiment": {
+  "hit3": 0.95,
+  "near_refused": 0.85
+ },
+ "device": "cuda",
+ "first_question_seconds": 0.052,
+ "seconds_per_question_p50": 0.046,
+ "seconds_per_question_max": 0.072,
+ "sidecar_resident_mb": 1357,
+ "per_question": {
+  "V01": {
+   "q": "اسم المريض ورقمه مفقودان من الطلب",
+   "status": 200,
+   "answered": true,
+   "sources": [
+    "field attachments[].patient_id",
+    "field patient_id",
+    "field authorizations[].patient_id",
+    "rule R009"
+   ],
+   "mode": "semantic",
+   "out_of_scope": null,
+   "fallback": null
+  },
+  "V02": {
+   "q": "تاريخ العلاج يسبق تاريخ بدء الوثيقة",
+   "status": 200,
+   "answered": true,
+   "sources": [
+    "rule R003",
+    "rule R002",
+    "field coverage.start_date",
+    "rule R009"
+   ],
+   "mode": "semantic",
+   "out_of_scope": null,
+   "fallback": null
+  },
+  "V03": {
+   "q": "نفس العملية مكررة في سطرين",
+   "status": 200,
+   "answered": true,
+   "sources": [
+    "rule R006",
+    "rule R006",
+    "rule R006",
+    "rule R014"
+   ],
+   "mode": "semantic",
+   "out_of_scope": null,
+   "fallback": null
+  },
+  "V04": {
+   "q": "الحساب لا يطابق السعر مضروبا في العدد",
+   "status": 200,
+   "answered": true,
+   "sources": [
+    "rule R007",
+    "rule R013",
+    "rule R015",
+    "rule R012"
+   ],
+   "mode": "semantic",
+   "out_of_scope": null,
+   "fallback": null
+  },
+  "V05": {
+   "q": "رقم الموافقة المسبقة غير مكتوب",
+   "status": 200,
+   "answered": true,
+   "sources": [
+    "rule R008",
+    "rule R009",
+    "rule R009",
+    "rule R010"
+   ],
+   "mode": "semantic",
+   "out_of_scope": null,
+   "fallback": null
+  },
+  "V06": {
+   "q": "الموافقة المسبقة صادرة لمريض آخر",
+   "status": 200,
+   "answered": true,
+   "sources": [
+    "rule R009",
+    "field authorizations[].patient_id",
+    "rule R009",
+    "rule R004"
+   ],
+   "mode": "semantic",
+   "out_of_scope": null,
+   "fallback": null
+  },
+  "V07": {
+   "q": "التقرير الطبي المرفق ما زال مسودة",
+   "status": 200,
+   "answered": true,
+   "sources": [
+    "rule R010",
+    "field attachments[].document_status",
+    "policy EDU-PLUS (table version 0)",
+    "policy EDU-BASIC (table version 0)"
+   ],
+   "mode": "semantic",
+   "out_of_scope": null,
+   "fallback": null
+  },
+  "V08": {
+   "q": "رمز الخدمة المدخل غير معروف",
+   "status": 200,
+   "answered": true,
+   "sources": [
+    "rule R011",
+    "rule R011",
+    "rule R008",
+    "rule R009"
+   ],
+   "mode": "semantic",
+   "out_of_scope": null,
+   "fallback": null
+  },
+  "V09": {
+   "q": "المجموع لا يساوي مجموع الأسطر",
+   "status": 200,
+   "answered": true,
+   "sources": [
+    "rule R012",
+    "rule R012",
+    "rule R012",
+    "rule R004"
+   ],
+   "mode": "semantic",
+   "out_of_scope": null,
+   "fallback": null
+  },
+  "V10": {
+   "q": "تجاوز السعر الأعلى المسموح للخدمة",
+   "status": 200,
+   "answered": true,
+   "sources": [
+    "rule R013",
+    "policy EDU-PLUS (table version 0)",
+    "rule R013",
+    "rule R005"
+   ],
+   "mode": "semantic",
+   "out_of_scope": null,
+   "fallback": null
+  },
+  "V11": {
+   "q": "تم إرسال الطلب بعد فوات المدة",
+   "status": 200,
+   "answered": true,
+   "sources": [
+    "rule R002",
+    "rule R002",
+    "rule R014",
+    "rule R001"
+   ],
+   "mode": "semantic",
+   "out_of_scope": null,
+   "fallback": null
+  },
+  "V12": {
+   "q": "الطلب مكتوب بعملة غير عملة الوثيقة",
+   "status": 200,
+   "answered": true,
+   "sources": [
+    "rule R015",
+    "field currency",
+    "rule R010",
+    "field total_amount"
+   ],
+   "mode": "semantic",
+   "out_of_scope": null,
+   "fallback": null
+  },
+  "V13": {
+   "q": "le numéro de facture est absent",
+   "status": 200,
+   "answered": true,
+   "sources": [
+    "rule R001",
+    "field invoice_number",
+    "rule R001",
+    "rule R011"
+   ],
+   "mode": "semantic",
+   "out_of_scope": null,
+   "fallback": null
+  },
+  "V14": {
+   "q": "la couverture avait expiré avant la date du soin",
+   "status": 200,
+   "answered": true,
+   "sources": [
+    "rule R003",
+    "field coverage.end_date",
+    "rule R003",
+    "rule R003"
+   ],
+   "mode": "semantic",
+   "out_of_scope": null,
+   "fallback": null
+  },
+  "V15": {
+   "q": "l'autorisation concerne un autre patient",
+   "status": 200,
+   "answered": true,
+   "sources": [
+    "rule R009",
+    "field authorizations[].patient_id",
+    "rule R009",
+    "field attachments[].patient_id"
+   ],
+   "mode": "semantic",
+   "out_of_scope": null,
+   "fallback": null
+  },
+  "V16": {
+   "q": "le montant d'une ligne ne correspond pas à quantité fois prix",
+   "status": 200,
+   "answered": true,
+   "sources": [
+    "field lines[].net_amount",
+    "rule R007",
+    "rule R012",
+    "field lines[].unit_price"
+   ],
+   "mode": "semantic",
+   "out_of_scope": null,
+   "fallback": null
+  },
+  "V17": {
+   "q": "la monnaie de la demande diffère de celle du contrat",
+   "status": 200,
+   "answered": true,
+   "sources": [
+    "rule R015",
+    "field currency",
+    "rule R004",
+    "rule R012"
+   ],
+   "mode": "semantic",
+   "out_of_scope": null,
+   "fallback": null
+  },
+  "V18": {
+   "q": "la demande a été envoyée trop tard",
+   "status": 200,
+   "answered": true,
+   "sources": [
+    "rule R014",
+    "rule R002",
+    "rule R002",
+    "rule R010"
+   ],
+   "mode": "semantic",
+   "out_of_scope": null,
+   "fallback": null
+  },
+  "V19": {
+   "q": "ما معنى رقم المستفيد في التغطية",
+   "status": 200,
+   "answered": true,
+   "sources": [
+    "field coverage.beneficiary_patient_id",
+    "field coverage",
+    "rule R004",
+    "field coverage.member_id"
+   ],
+   "mode": "semantic",
+   "out_of_scope": null,
+   "fallback": null
+  },
+  "V20": {
+   "q": "ما هو رقم مقدم الخدمة",
+   "status": 200,
+   "answered": true,
+   "sources": [
+    "field provider_id",
+    "field attachments[].service_code",
+    "field lines[].service_code",
+    "field lines[].service_date"
+   ],
+   "mode": "semantic",
+   "out_of_scope": null,
+   "fallback": null
+  },
+  "W01": {
+   "q": "what is the waiting period for maternity cover",
+   "status": 200,
+   "answered": false,
+   "sources": [],
+   "mode": "semantic",
+   "out_of_scope": "what the insurance covers and waiting periods",
+   "fallback": null
+  },
+  "W02": {
+   "q": "who pays when the patient has two insurers",
+   "status": 200,
+   "answered": false,
+   "sources": [],
+   "mode": "semantic",
+   "out_of_scope": "two insurers and who pays",
+   "fallback": null
+  },
+  "W03": {
+   "q": "how long are medical records kept",
+   "status": 200,
+   "answered": false,
+   "sources": [],
+   "mode": "semantic",
+   "out_of_scope": "records, privacy and accounts",
+   "fallback": null
+  },
+  "W04": {
+   "q": "what is the maximum annual limit of the policy",
+   "status": 200,
+   "answered": true,
+   "sources": [
+    "policy EDU-PLUS (table version 0)",
+    "policy EDU-BASIC (table version 0)",
+    "rule R013",
+    "field lines[].unit_price"
+   ],
+   "mode": "semantic",
+   "out_of_scope": null,
+   "fallback": null
+  },
+  "W05": {
+   "q": "how do I cancel a policy",
+   "status": 200,
+   "answered": false,
+   "sources": [],
+   "mode": "semantic",
+   "out_of_scope": "buying, changing or cancelling a policy",
+   "fallback": null
+  },
+  "W06": {
+   "q": "is cosmetic surgery covered",
+   "status": 200,
+   "answered": false,
+   "sources": [],
+   "mode": "semantic",
+   "out_of_scope": "what the insurance covers and waiting periods",
+   "fallback": null
+  },
+  "W07": {
+   "q": "what is the tax on the invoice",
+   "status": 200,
+   "answered": false,
+   "sources": [],
+   "mode": "semantic",
+   "out_of_scope": "tax and prices",
+   "fallback": null
+  },
+  "W08": {
+   "q": "which documents does a patient need to bring to the clinic",
+   "status": 200,
+   "answered": true,
+   "sources": [
+    "rule R010",
+    "field attachments[].patient_id",
+    "field authorizations[].patient_id",
+    "rule R001"
+   ],
+   "mode": "semantic",
+   "out_of_scope": null,
+   "fallback": null
+  },
+  "W09": {
+   "q": "how do I reset my password",
+   "status": 200,
+   "answered": false,
+   "sources": [],
+   "mode": "semantic",
+   "out_of_scope": "records, privacy and accounts",
+   "fallback": null
+  },
+  "W10": {
+   "q": "who is the data protection officer",
+   "status": 200,
+   "answered": false,
+   "sources": [],
+   "mode": "semantic",
+   "out_of_scope": "contacts and people",
+   "fallback": null
+  },
+  "W11": {
+   "q": "what is the diagnosis code for diabetes",
+   "status": 200,
+   "answered": true,
+   "sources": [
+    "field diagnosis_code",
+    "rule R001",
+    "rule R010",
+    "field patient_id"
+   ],
+   "mode": "semantic",
+   "out_of_scope": null,
+   "fallback": null
+  },
+  "W12": {
+   "q": "how are claims prioritised by the insurer",
+   "status": 200,
+   "answered": false,
+   "sources": [],
+   "mode": "semantic",
+   "out_of_scope": "how the insurer works inside",
+   "fallback": null
+  },
+  "W13": {
+   "q": "كم مدة الانتظار للولادة",
+   "status": 200,
+   "answered": false,
+   "sources": [],
+   "mode": "semantic",
+   "out_of_scope": "what the insurance covers and waiting periods",
+   "fallback": null
+  },
+  "W14": {
+   "q": "من يدفع إذا كان لدى المريض شركتا تأمين",
+   "status": 200,
+   "answered": false,
+   "sources": [],
+   "mode": "semantic",
+   "out_of_scope": "two insurers and who pays",
+   "fallback": null
+  },
+  "W15": {
+   "q": "هل الجراحة التجميلية مغطاة",
+   "status": 200,
+   "answered": false,
+   "sources": [],
+   "mode": "semantic",
+   "out_of_scope": "what the insurance covers and waiting periods",
+   "fallback": null
+  },
+  "W16": {
+   "q": "كيف ألغي الوثيقة",
+   "status": 200,
+   "answered": false,
+   "sources": [],
+   "mode": "semantic",
+   "out_of_scope": "appeals and disputes",
+   "fallback": null
+  },
+  "W17": {
+   "q": "combien de temps faut-il pour être remboursé",
+   "status": 200,
+   "answered": false,
+   "sources": [],
+   "mode": "semantic",
+   "out_of_scope": "payment timing and methods",
+   "fallback": null
+  },
+  "W18": {
+   "q": "l'opération esthétique est-elle couverte",
+   "status": 200,
+   "answered": false,
+   "sources": [],
+   "mode": "semantic",
+   "out_of_scope": "what the insurance covers and waiting periods",
+   "fallback": null
+  },
+  "W19": {
+   "q": "comment annuler le contrat",
+   "status": 200,
+   "answered": false,
+   "sources": [],
+   "mode": "semantic",
+   "out_of_scope": "appeals and disputes",
+   "fallback": null
+  },
+  "W20": {
+   "q": "qui paie si le patient a deux assureurs",
+   "status": 200,
+   "answered": false,
+   "sources": [],
+   "mode": "semantic",
+   "out_of_scope": "two insurers and who pays",
+   "fallback": null
+  },
+  "W21": {
+   "q": "ما هو سعر الذهب اليوم",
+   "status": 200,
+   "answered": false,
+   "sources": [],
+   "mode": "semantic",
+   "out_of_scope": null,
+   "fallback": null
+  },
+  "W22": {
+   "q": "how do I cook rice",
+   "status": 200,
+   "answered": false,
+   "sources": [],
+   "mode": "semantic",
+   "out_of_scope": null,
+   "fallback": null
+  },
+  "W23": {
+   "q": "quelle est la meilleure équipe de football",
+   "status": 200,
+   "answered": false,
+   "sources": [],
+   "mode": "semantic",
+   "out_of_scope": null,
+   "fallback": null
+  },
+  "W24": {
+   "q": "translate hello into german",
+   "status": 200,
+   "answered": false,
+   "sources": [],
+   "mode": "semantic",
+   "out_of_scope": null,
+   "fallback": null
+  }
+ }
+}

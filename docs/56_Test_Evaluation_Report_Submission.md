@@ -217,7 +217,7 @@ AI explanation step, recorded live calls: median **2.86 s**, p95 28.89 s, 117 ca
 | Taking in a batch of 1,000 claims (asynchronous: request answered in 0.06 s) | about 17.5 s on a release build (22 s on a debug build) | docs/53 section 7 |
 | Signed-in inbox request, direct / through nginx / through Caddy | 37 ms / 71 ms / 76 ms (p50) | docs/54 section 6 |
 | Request that does no work, direct / nginx / Caddy | 2.1 ms / 4.7 ms / 4.9 ms (p50) | docs/54 section 6 |
-| Dense rulebook question (bge-m3 sidecar) | the first question after a start can take up to about 107 s on a CPU (every passage is embedded once); a warm-up thread runs at boot | docs/55 |
+| Dense rulebook question (bge-m3 sidecar), measured 2026-10-19 | **GPU** (RTX 4060 laptop, fp16): model load 34 s, all 170 passages embedded once in **1.5 s**, a question embeds in a median **0.05 s** (0.05 to 0.07 s through the whole product route). **CPU** (fp32): model load 13 s, passages 18.9 s, a question 0.11 s. A warm-up thread embeds the passages at start-up | docs/55, `outputs/defense/embed_timing.json`, `rag_product_check_cuda.json` |
 
 **What is not measured:** throughput under load on the target server (RTX 3080, Linux), and any real hospital traffic. Latency numbers are machine-dependent and not deterministic.
 
