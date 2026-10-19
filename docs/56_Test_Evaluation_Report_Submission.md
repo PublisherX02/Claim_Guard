@@ -30,6 +30,7 @@ Three facts that matter for how to read the perfect scores:
 1. The 15 rules are deterministic and were built against the public data. A correct implementation of the rulebook should reach 1.0 there. What the evidence shows is the **absence of errors found**, with upper bounds, not that the system beats an alternative.
 2. The AI never decides. It writes an explanation of a finding the rules already made, and a reply that tries to change a verdict is rejected. The explanation step has its own measurements (sections 8 and 9).
 3. When the system is not sure, it says so (`UNABLE_TO_ASSESS`) and routes the claim to a person. No failing claim became a pass in any test.
+4. **Added since the first version of this report:** "Ask the rulebook" now has a knowledge graph and an answer cache in front of passage search (section 12.5): 57 of 60 connection questions answered against 34 by passage search alone, the graph and the cache answering in about 0 ms, and 0 of 24 off-topic held-out questions taken by the graph. The first run on a real model found a confident wrong-answer failure (the model copying an example query), which was fixed and is reported there.
 
 ---
 
@@ -56,6 +57,7 @@ The project exists twice: the Python reference (the original Phase 1 build) and 
 | Language benchmark (section 7) | a Rust port of the rules compared with five others | the study that led to the Rust decision |
 | AI explanation experiments (section 9), model comparison, architecture comparison | the **Python** pipeline (the explanation step was prototyped in Python and later ported); results are about models and prompts, not the language | |
 | Document reading, retrieval, Arabic intake, batches | the **Rust** build (these features were built in Rust only) | |
+| Knowledge graph and answer cache for "Ask the rulebook" (section 12.5) | the **Rust** build (`cg ask`, the same code the server runs) with Gemma 3 4B through Ollama on the RTX 4060 laptop | built in Rust only; the model is the laptop's, not the server's |
 
 ### 2.3 Three tiers of evidence, never merged into one headline number
 
@@ -218,6 +220,8 @@ AI explanation step, recorded live calls: median **2.86 s**, p95 28.89 s, 117 ca
 | Signed-in inbox request, direct / through nginx / through Caddy | 37 ms / 71 ms / 76 ms (p50) | docs/54 section 6 |
 | Request that does no work, direct / nginx / Caddy | 2.1 ms / 4.7 ms / 4.9 ms (p50) | docs/54 section 6 |
 | Dense rulebook question (bge-m3 sidecar), measured 2026-10-19 | **GPU** (RTX 4060 laptop, fp16): model load 34 s, all 170 passages embedded once in **1.5 s**, a question embeds in a median **0.05 s** (0.05 to 0.07 s through the whole product route). **CPU** (fp32): model load 13 s, passages 18.9 s, a question 0.11 s. A warm-up thread embeds the passages at start-up | docs/55, `outputs/defense/embed_timing.json`, `rag_product_check_cuda.json` |
+
+| "Ask the rulebook" tiers, RTX 4060 laptop, 60 questions (section 12.5) | answer cache about 0 ms; knowledge graph about 0 ms; passage search median 23 to 31 ms; model picking a query about 3.0 s; model writing an answer 3.5 to 7 s | docs/60, `outputs/defense/kag_cag_eval.json` |
 
 **What is not measured:** throughput under load on the target server (RTX 3080, Linux), and any real hospital traffic. Latency numbers are machine-dependent and not deterministic.
 
@@ -501,7 +505,7 @@ The default pipeline (two readers, upscaled) reads **97.4%** of fields correctly
 
 ## 12. Experiments: asking the rulebook (retrieval)
 
-"Ask the rulebook" retrieves and quotes; nothing is generated, so nothing can be invented, and a question the documents cannot answer is refused.
+"Ask the rulebook" retrieves and quotes; by default nothing is generated, so nothing can be invented, and a question the documents cannot answer is refused. Sections 12.1 to 12.4 measure passage search; section 12.5 measures the knowledge graph and the answer cache added in front of it, and the optional model that picks a query or writes the cited facts up (every written sentence is checked against the facts and dropped if it fails).
 
 ### 12.1 Round 0: keyword search
 
@@ -568,6 +572,29 @@ Test: 20 answerable, 20 near-domain, 4 pure off-topic; thresholds chosen on dev 
 **The product reproduces the experiment** (`rust/tools/rag_product_check.py`, real route, sidecar on CPU fp32, Rust cosine): answerable hit@3 0.95, near-domain refused 0.85, off-topic refused 1.00, refusals that name a topic at least 5.
 
 **Not settled:** 20 questions per slice; the author wrote both the test and the features, so wording may overlap; no native Arabic speaker has reviewed the phrases; a CPU-only host needs about 2 GB more memory and a warm-up; the sidecar image was not rebuilt for bge-m3 (the script now uses the GPU when present).
+
+### 12.5 Round three: a knowledge graph (KAG) and an answer cache (CAG) in front of passage search (docs/60)
+
+Passage search quotes one passage at a time and cannot answer questions about how the rulebook's parts connect ("which rules can fire for SVC-IMAGE under EDU-PLUS?"). Two tiers were added in front of it. The **graph** is computed from the rule texts, the payer policies, the service catalogue and the field dictionary; it answers a closed set of 11 query types with cited facts and needs no model. The **cache** keeps answers keyed by the question, the options, the policy-table version and a hash of the rulebook. An optional **model** (Gemma 3 4B through Ollama, `gemma3-ask:4b` with an 8,192-token context) can pick a query for questions the built-in planner does not understand and can write the facts up; its text is shown only if every sentence cites a fact and every id and number occurs in the facts.
+
+**Test.** 60 questions (`experiments/kag_cag/questions.json`): 12 service-and-policy questions, 7 "which rule reads this policy attribute", 8 field-to-rule, 6 rule-to-field, 9 policy values, and providers, comparisons, severity, related rules, a list, and 8 French or Arabic questions. The gold for each is read from the data files or from a hand-made table of which rule reads which attribute (written from the rule texts, tier C); it is not taken from the graph code. A question counts as answered when every gold token (rule id, value, policy id) is in the returned text. RTX 4060 laptop, 8 GB.
+
+| Phase | Answered | Latency (median) |
+|---|---|---|
+| A. passage search only (before this work) | 34 / 60 | 23 ms |
+| B. graph + passage search | **57 / 60** (52 answered by the graph) | graph about 0 ms; passage search 31 ms |
+| B, second ask of the same 60 (answer cache) | 57 / 60 | about 0 ms |
+| C. B + the model picks a query when the planner cannot | 57 / 60 (53 by the graph) | about 3.0 s when the model is asked |
+| D. C + the model writes the answer | 57 / 60; 44 write-ups shown, 15 refused by the check | 3.7 s (graph facts), 7.0 s (passages) |
+| E. D with the whole rulebook (about 3.6k tokens) at the front of every prompt | 57 / 60; 43 shown, 16 refused | 3.5 s, 7.1 s |
+
+By category, the graph moved service-and-policy questions from 0 of 12 to 12 of 12, rule-to-field from 0 of 6 to 6 of 6, comparisons from 0 of 2 to 2 of 2, and the list question from 0 of 1 to 1 of 1. The three misses are the yes/no wording "does EDU-BASIC require an authorization for SVC-LAB", the transitive "which rules depend on R007", and one Arabic question.
+
+**What the model added.** Almost nothing on accuracy: one extra question handled by the graph. Its first version made things worse: on French and Arabic questions it could not understand it kept proposing the same query, "what rule R001 checks", copied from the prompt's example; every identifier existed, so the validator accepted it and the graph answered with confidence. Multilingual accuracy fell from 7 of 8 to 2 of 8 (phase C, 52 of 60 overall). The fix, an identifier in a proposed query must also appear in the question, restored 7 of 8. Written answers are slower than the facts they restate (3.5 to 7 s against 0 ms), and the check refused 15 of 59, so the cited facts remain the product and the write-up is a convenience. The rulebook at the front of the prompt did not change the outcome (43 against 44 shown). The prompt-prefix probe on Ollama (3,588 tokens): the second identical prefix took 275 ms to process against 518 ms the first time, but Ollama still reports the whole prompt as processed, so the large saving expected from a server with real prefix caching (vLLM) is not demonstrated.
+
+**Regression on the held-out sets of 12.4** (20 answerable and 24 off-topic questions in English, French and Arabic; `outputs/defense/kag_cag_regression.json`): the graph took **0 of 20** answerable and **0 of 24** off-topic questions, and the top three passages were unchanged for every answerable one. The first run took one off-topic question ("which documents does a patient need to bring to the clinic") because it shares a word with the rulebook; the planner now needs a policy, insurer or claim word beside a bare attribute word, and a test pins it.
+
+**Not settled.** The 60 questions were written by the same author as the planner, so the 52 answered by the graph are not an out-of-sample figure; the French and Arabic questions and the regression sets are closer to one. The model is Gemma 3 4B on a laptop, not the server's model; the latencies are this laptop's; the cache lives in one process; the rule-to-attribute gold is hand-derived.
 
 ---
 
@@ -656,7 +683,7 @@ The penetration test, the fuzzing, the mutation test, the deployment attack, the
 8. **FHIR loses authorizations by design**, so R009 abstains on that path (F1 0.9745; 66.7% of clean claims get an unnecessary abstention).
 9. **Latency is from one laptop**, one process, warm caches; it is not a load test, and the target server (RTX 3080, Linux) has not been used. The language benchmark's top group cannot be ordered because passes varied by a factor of two on that machine.
 10. **The explanation step is not part of the detection metrics.** Its quality rests on mechanical proxies (useful, next step, value citation), small samples (36 tuning and 12 fresh cases per round), a hosted endpoint that drifts and one provider. Nobody has done the manual 0/1 scoring. Two of the decisions (round two, and the earlier E5) were judgements that overrode the pre-registered rule, and are recorded as such.
-11. **The retrieval test sets are small and author-written.** 20 questions per slice; the same author wrote the test and the features; the Arabic and French are not reviewed by a native speaker.
+11. **The retrieval test sets are small and author-written.** 20 questions per slice; the same author wrote the test and the features; the Arabic and French are not reviewed by a native speaker. The 60 graph questions (section 12.5) were written by the planner's author too, so 52 answered by the graph is not an out-of-sample figure; the model is Gemma 3 4B on a laptop; the answer cache is per process; the prefix-cache saving was measured on Ollama only.
 12. **The learning, routing and workload experiments use simulated reviewers.** No review time has been measured; the real effect of any workload saving is unknown. Confidence routing is archived because it raised senior load.
 13. **The desktop app is unsigned**, Windows only, and was not run on a clean PC. The embedding sidecar image was not rebuilt for bge-m3.
 14. **Not yet run on the target server** and nothing here has run on real hospital traffic.
@@ -685,6 +712,9 @@ HF_HOME=D:/hf_cache python experiments/rag_v2/run.py
 HF_HOME=D:/hf_cache python experiments/rag_v2/run_v3.py --models minilm_multi,e5_base,bge_m3 --rerankers bge_reranker
 python experiments/rag_v2/plot.py && python experiments/rag_v2/plot_v3.py
 HF_HOME=D:/hf_cache python rust/tools/rag_product_check.py
+# knowledge graph + answer cache (needs Ollama with: ollama create gemma3-ask:4b -f experiments/kag_cag/Modelfile)
+python experiments/kag_cag/build_questions.py
+python experiments/kag_cag/run_eval.py && python experiments/kag_cag/run_regression.py
 # Arabic, batches
 python rust/tools/arabic_e2e.py && python rust/tools/batch_e2e.py
 ```
@@ -704,6 +734,7 @@ Accuracy numbers are deterministic (fixed seeds 20260927 and 20261004). Latency 
 | Confidence routing (archived), workload | docs/48, docs/49, docs/50 | `outputs/defense/automatic.json`, `experiments/laya_kaggle/` |
 | Copilot, batches, nginx | docs/51, docs/53, docs/54 | `outputs/defense/` |
 | Rulebook search | docs/52, docs/55 | `experiments/rag_semantic/`, `experiments/rag_v2/`, `outputs/defense/rag_product_check.json` |
+| Knowledge graph and answer cache | docs/60 | `outputs/defense/kag_cag_eval.json`, `outputs/defense/kag_cag_regression.json`, `experiments/kag_cag/` |
 | Arabic intake | docs/55 | `outputs/defense/arabic_e2e.json` |
 
 ---

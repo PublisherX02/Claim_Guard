@@ -13,12 +13,14 @@ The companion submission is the *Test Evaluation Report* (`docs/56`): it holds t
 
 | The note asks for | What we have | Section |
 |---|---|---|
-| **Threat model** | Assets, adversaries, trust boundaries and 25 threats, each with the control that answers it, the evidence, and what remains. Includes the AI-specific threats (OWASP LLM Top 10) and the document-upload path. | 2 |
+| **Threat model** | Assets, adversaries, trust boundaries and 27 threats, each with the control that answers it, the evidence, and what remains. Includes the AI-specific threats (OWASP LLM Top 10) and the document-upload path. | 2 |
 | **Access control** | Badge + password + authenticator code; server-side sessions that can be revoked; cross-site and anti-forgery checks; four clearance levels with per-permission flags enforced on the server, never only by hiding a button; separation of duties (the person who runs the queue cannot decide claims; nobody countersigns their own decision); two-person approval for the most dangerous administrator actions and for payer-rule changes. | 4 |
 | **Least privilege** | For people: four levels, masked identifiers by default, unmasking rationed to 60 claims an hour with a written reason. For software: non-root, read-only containers with all capabilities dropped, a reader with no network, a private network for the database, and the signing key held by the worker alone. For data: the AI never sees a claim value. | 5 |
 | **Auditability** | Hash-chained, encrypted audit logs; a keyed anchor; a second append-only copy that is checked against the live log; an optional outside timestamp; an Ed25519-signed Merkle ledger with single-event proofs; AI requests written **before** the model is called; every decision attributed to the signed-in person; corrections as new versions, never edits. | 6 |
 
 Headline evidence (all re-runnable, section 9): **116-check black-box penetration test, all pass**; **400,000 fuzzed requests, 0 server errors, 0 leaks**; **75 deliberate breakages of the security rules, all caught**; a **50-check attack on the deployed stack** that found four real problems (fixed); a red team on a real local model that found and fixed a real weakness in the AI guard; claim data, names and audit logs encrypted at rest; an encrypted backup restored end to end.
+
+**Added since the first version of this note** (each is in the sections named): a **key per patient** so that erasing a patient also erases them from every backup, with an **erasure ledger** replayed after a restore (3.4, T27, `docs/59`); **subject access, erasure and retention** commands, **append-only enforcement** of the audit files by the kernel, and a per-person limit on rulebook questions (3.4, 6.4, `docs/58`); the embedding model's weights **pinned by SHA-256** (12 item 14); and the **"Ask the rulebook" knowledge graph, answer cache and optional model write-up** with the guards that keep a model out of the answer (T26, 7.1, 8, `docs/60`). The last one found and fixed two real weaknesses in its own first version (7.1).
 
 Three things the note will not claim: it has **not been run on the target server**, it has **not been tested by an outside party**, and **erasure and export run only as server-side operator commands** (no web route and no second-person approval yet; section 12 and `docs/58`).
 
@@ -95,6 +97,8 @@ Nothing in the deployed system calls out to a third party. The one optional outs
 | T23 | Losing everything | one encrypted backup file holding both databases, both logs and the mirror; restore refuses a wrong key, a damaged file or contents that do not match their checksums | 23-check destroy-and-restore test (found two bugs in its own first version) | backups are a manual procedure, not scheduled |
 | T24 | A script injected into the console | strict content-security policy (no inline script, no framing); all untrusted text rendered as text | 19 checks in a real Chrome with payloads planted in 10+ fields | |
 | T25 | A message planted on the broker | each message is checked against the stored claim's hash; a forged one changes nothing; poison input dead-letters after three tries; Redis is on the private network with a password and is not published | 18 broker mutants | someone with the Redis port can still fill the stream |
+| T26 | Abusing "Ask the rulebook" (question flooding; a model steered into a wrong or invented answer; a stale or poisoned cached answer; a question used to reach claim data) | needs `claims.view`; 1 to 300 characters; at most 30 questions a minute per person (`ASK_PER_MINUTE`), counted in the database so every server process shares the count; the graph holds the rulebook only (rules, policy tables, catalogue, field dictionary), never a claim; a model may only **pick one of 11 fixed queries**, every identifier must exist in the graph and be written in the question, extra keys are refused; a written-up answer is shown only if every sentence cites a fact and every rule id, code and number occurs in the facts (the cited facts are always returned); the cache key holds the question, the options, the policy-table version and a hash of the rulebook, and the cache is bounded (512 entries, 24 hours) | unit tests in `cg-engine` (the crate's 30 pass) for the graph, cache, planner and write-up, including a scripted model that proposes invented, copied and malformed queries and writes false, uncited and "not answered" text; held-out regression: 0 of 24 off-topic questions taken by the graph (`docs/60`) | the cache is per process and shared by all users (it holds rulebook answers only, never claim data); a model can still pick a wrong but valid query for a vague question (the facts it returns are real and cited, and a reviewer reads them) |
+| T27 | Getting an erased person back from a backup | each patient's data is encrypted under that patient's own key; erasing destroys the key, so every older backup holds only unreadable text; the keys sit in their own short-retention file; an **erasure ledger** (claim ids, keyed patient hashes, actor, time, per-line SHA-256) is written before deletion and replayed by `cg replay-erasures` after any restore, which keeps the longer live ledger | tests against real MongoDB including the worst case (back up, erase, destroy, restore, replay); key rotation carries patient keys across | the backup scripts were not run end to end through Docker; backups made before the patient keys were switched on must age out (`docs/59`) |
 
 ---
 
@@ -115,7 +119,7 @@ Nothing in the deployed system calls out to a third party. The one optional outs
 ### 3.2 Data minimisation, what changed and the check
 
 - **The AI never sees a claim value.** The language model receives a template with `{value}` and `{line}` placeholders; the values are filled in afterwards and the grounding guard runs on the filled text.
-- **The rulebook search never reads a claim.** "Ask the rulebook" retrieves a quoted passage from the 15 rules and the payer policies; the embedding sidecar sees only passage text and the reviewer's question.
+- **The rulebook search never reads a claim.** "Ask the rulebook" has three tiers (`docs/60`): a cache of earlier answers, a **knowledge graph built from the rule texts, the payer policies, the service catalogue and the field dictionary**, and passage search. None of them is given a claim. The embedding sidecar and the optional local language model see only the reviewer's typed question and rulebook text; a reviewer who types an identifier into the question sends it to the local model and embedder, which run on the hospital's own machine (the question is not written to the audit logs).
 - **The copilot uses no model.** Summaries and correction suggestions are built by code from the engine's findings and the claim's own values; every sentence names the rule and the claim paths it rests on.
 - **Uploaded documents are not stored by the server.** The preview returns the draft to the browser; only a confirmed claim reaches the queue, with a note that names the file by its hash. The security log records the file's hash, size and outcome, never its content.
 - **Logs are scanned for identifiers.** After a real decision and a real deal, the security and review logs and the dead letters contain none of the claim's real identifiers (`tests/test_data_minimization.py`, memory and MongoDB stores).
@@ -202,6 +206,8 @@ The penetration test runs every role against 12 read routes and 3 write routes a
 | **MongoDB and Redis** | accept the API and the worker | be reached from the proxy, from the internet, or without a password |
 | **Embedding sidecar** | embed text on request with a bearer token; model pinned at a fixed revision, runs offline (`HF_HUB_OFFLINE=1`) | see a claim; make an outbound call |
 | **The language model** | add words to an explanation | set a status, a rule id, a citation or the review flag |
+| **The model behind "Ask the rulebook"** (optional, `ASK_LLM_PROVIDER`; local Ollama or vLLM) | name one of 11 fixed graph queries for a question, and write the cited facts up in a few sentences | see a claim; run any query outside the 11; show text that cites no fact or names an id or number the facts do not hold |
+| **The knowledge graph and the answer cache** | answer from files already in the rulebook | read a claim, call out, or answer from a policy table that is no longer in force |
 
 The deployment attack (section 9.4) verifies the container rows by attacking the running stack.
 
@@ -285,6 +291,20 @@ The write-ahead rule: if the `ai_request` cannot be written, the run aborts. The
 
 **Still open, recorded as such:** approval wording in non-English Latin text (French, Spanish) and in Base64 passes the text guards. It cannot change any status or flag, but a reviewer could read it, which is one reason a person reviews every claim.
 
+### 7.1 The model in "Ask the rulebook" (added; `docs/60`)
+
+The same rule applies: **the model never supplies a fact.** "Ask the rulebook" answers from a knowledge graph computed from the rule, policy and catalogue files (each answer is a list of facts with its source), from a cache, or from passage search. An optional local model (Gemma 3 4B on a laptop, the server's model in production) has two jobs and neither can add content:
+
+1. **Choosing a query** for a question the built-in keyword planner does not understand (French, Arabic, loose wording). The proposal must be JSON naming one of 11 fixed operations; unknown operations, extra keys, unknown or invented identifiers and out-of-range values are refused and the question falls through to passage search. A proposal that names a rule, service, policy or provider that the question never mentions is refused too.
+2. **Writing the facts up** in two to five sentences. The text is shown only if every sentence ends with a citation `[n]` to a fact, every rule id, service code, policy id and number in it occurs in the facts, and it does not say the facts are insufficient; otherwise it is dropped, the reason is returned, and the cited facts are shown alone. A cached written answer does not call the model again.
+
+**Two real weaknesses were found by measuring it on the real model and fixed:**
+
+- **A confident wrong answer.** On the first run on Gemma 3 4B, French and Arabic questions it could not understand all came back as the same query, "what rule R001 checks", copied from an example. Every identifier existed, so the validator accepted it, and the graph answered with confidence. Accuracy on those eight multilingual questions fell from 7 of 8 to 2 of 8. Fix: an identifier in a proposed query must also appear in the question. After the fix, those questions fall through to passage search and 7 of 8 are answered again. A test pins it.
+- **An off-topic question taken by the graph.** The held-out regression found "which documents does a patient need to bring to the clinic" answered from the policy tables, because it shares a word with the rulebook. The built-in planner now needs a policy, insurer or claim word beside a bare attribute word. The regression after the fix: 0 of 24 off-topic and 0 of 20 answerable held-out questions taken by the graph, and the top three passages unchanged for every answerable question.
+
+What this does not remove: a vague question can still be mapped to a valid but unintended query. Its answer is made of real, cited facts, so the harm is a reviewer reading an irrelevant fact, not a false one.
+
 **Where the AI is *not* used:** the reviewer copilot, what-if and correct-and-recheck, the batch audit sample, the requests for information and the fills are all produced by code from the engine's findings, with no model.
 
 ---
@@ -298,6 +318,7 @@ The write-ahead rule: if the `ai_request` cannot be written, the run aborts. The
 | The ledger | read: `audit.view`; sign: the worker only | silent edit or truncation | section 6 | 8 unit tests, 14 end-to-end checks |
 | The live-update stream | signed-in users with the right permission | leaking data through the stream; connection exhaustion | the stream carries no claim data; per-address and total limits; a revoked session ends it | 21 black-box checks |
 | Batch intake (`/api/v1/queue/submit`, asynchronous) | level 4 for polling a job; the submit route has its own body cap (4 MB) | exhausting the server; a poisoned batch | at most 2 batches run at once (a third gets 409), the last 20 finished jobs kept; audit sample and quarantine | `batch_e2e.py` |
+| `GET /api/v1/knowledge/search?q=..&generate=1` ("Ask the rulebook": cache, knowledge graph, passage search, optional written answer) | anyone with `claims.view`; 30 questions a minute each | flooding; a model steered into a wrong or invented answer; a stale cached answer; a question used to reach claim data | question 1 to 300 characters; per-person limit shared across processes; the graph holds no claim; model queries limited to 11 fixed operations with identifiers that exist and are named in the question; written text checked against its facts; cache key includes the policy-table version and a rulebook hash | engine unit tests; held-out regression 0 of 24 off-topic taken (`docs/60`) |
 | The embedding sidecar | the API only (bearer token) | leaking data; fetching a model from outside | sees only rulebook passage text and the question; pinned revision; offline; no outbound call | `rag_product_check.py` |
 | The proxy | the internet | unfair traffic; spoofing the client address | TLS 1.2/1.3 and HSTS; header 10 s, body 30 s; body caps per path; the stream unbuffered; `X-Forwarded-For` **overwritten** (not appended) so a client cannot choose its own address and escape the throttle | `nginx_proxy_test.py`, 22 of 22 |
 
@@ -365,6 +386,7 @@ The stack was brought up and attacked: TLS 1.0 and 1.1 refused, TLS 1.3 with HTT
 | nginx in front | 22 of 22; found and fixed a real fault |
 | Batch intake | 1,000 claims accepted in 0.06 s (request) and about 17.5 s (batch); a level 3 user cannot read the job (403); an unknown job is 404 |
 | Broker | a forged message changes nothing; poison input dead-letters after three tries; credentials never appear in an error text; an independent read-only review found five issues, all fixed with tests |
+| "Ask the rulebook" graph, cache and model (`experiments/kag_cag/`) | 60 questions on a real model (Gemma 3 4B, RTX 4060 laptop): the graph answers 52 with no model, 57 of 60 in all; written answers: 44 shown, 15 refused by the check; **two real weaknesses found and fixed** (7.1); held-out regression 0 of 24 off-topic and 0 of 20 answerable questions taken by the graph |
 | Arabic intake | refusals of Hijri and ambiguous dates, unknown fields, duplicate fields and hidden characters in identifiers; 8 of 8 end to end |
 | Python-era audit (OWASP Top 10 for LLM applications and OWASP Top 10, `docs/20`) | fixed: rule-fact injection, unbounded prompt size, log forging, a forgeable audit anchor, silent replays (a resubmitted claim id is now logged and routed to a human even if clean), defects outside the 15 rules (advisory events); 0 high from `bandit` |
 
@@ -411,7 +433,8 @@ The decision to rebuild in Rust (`docs/36`, taken 2026-10-09) was driven by memo
 14. **The desktop app is unsigned,** Windows only, and was not run on a clean PC. The Docker image of the embedding sidecar was not rebuilt for the new model (the script runs it on the GPU or CPU); its weights are a pickle file, now pinned by SHA-256 in the Dockerfile and loaded with `weights_only=True` (docs/58 section 4), effective at the next build.
 15. **Notification of a breach** to the authority and the people affected is a process, not software; the runbook says what to collect.
 16. **No formal data-protection impact assessment, no named data-protection officer,** no single-sign-on or password-reset story, and no signed data-processing agreement: these belong to the organisation that runs the system.
-17. **The build machine's own disk is almost full** and the health panel reports `disk: down`, correctly: a finding about this laptop, not the product.
+17. **The build machine's own disk** was almost full earlier and the health panel reported `disk: down`, correctly: a finding about this laptop, not the product. Cleaned on 2026-10-19 (33 GB free on C:; models live on the flash drive).
+18. **"Ask the rulebook":** the 60 test questions were written by the planner's author, so 52 answers by the graph are not an out-of-sample figure; the model is Gemma 3 4B on a laptop, not the server's model; the answer cache is per process and is not shared by two API copies; the model's written answers were refused 15 times in 59 (the check is strict by design); the prompt-prefix cache was measured only on Ollama (275 ms against 518 ms) and not on vLLM.
 
 ---
 
@@ -431,6 +454,7 @@ python rust/tools/backup_restore_test.py                # 23 checks
 python rust/tools/nginx_proxy_test.py                   # 22 checks
 python rust/tools/audit_guard_demo.py                   # edits a log row and watches the alarm
 python rust/tools/arabic_e2e.py && python rust/tools/batch_e2e.py
+python experiments/kag_cag/run_eval.py && python experiments/kag_cag/run_regression.py   # graph, cache and model: 60 questions + held-out regression
 cargo audit; pip-audit -r requirements.txt              # dependency scans
 python scripts/verify_audit.py --log <log> --require-key   # Python-era audit verification
 ```
@@ -442,6 +466,9 @@ python scripts/verify_audit.py --log <log> --require-key   # Python-era audit ve
 | Audit log design | `docs/16` |
 | Security results of the Rust build (four rounds, the broker) | `docs/39` |
 | Data protection against Middle East laws | `docs/41` |
+| Erasure, subject access, retention, append-only logs | `docs/58` |
+| Erasure from backups: a key per patient and the erasure ledger | `docs/59` |
+| "Ask the rulebook": knowledge graph, answer cache, model write-up | `docs/60` |
 | Operations runbook, key rotation, backup, incident playbooks | `docs/40` |
 | Ledger, document intake, payer rules, live updates | `docs/45`, `docs/44` |
 | Batches, audit sample, quarantine | `docs/53` |
