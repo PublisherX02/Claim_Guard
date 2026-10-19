@@ -10,7 +10,7 @@ pinned revision and the process runs with HF_HUB_OFFLINE=1.
 The vectors must be exactly what the experiment measured: sentence-transformers, `encode(..., normalize_embeddings=True)`. The refusal threshold in the server
 (EMBEDDER_THRESHOLD, 0.485) was chosen on those vectors (BAAI/bge-m3, max 256 tokens, docs/55); a different model, runtime or pooling needs its own threshold and a new run of rust/tools/rag_parity.py.
 
-Environment: EMBED_TOKEN (required), EMBED_MODEL (default BAAI/bge-m3; the earlier sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2 needs threshold 0.415), EMBED_DEVICE (default cpu),
+Environment: EMBED_TOKEN (required), EMBED_MODEL (default BAAI/bge-m3; the earlier sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2 needs threshold 0.415), EMBED_DEVICE (default auto: the GPU in half precision when torch sees one, else cpu; cpu / cuda force it),
 EMBED_HOST (127.0.0.1), EMBED_PORT (8091).
 """
 import hmac
@@ -21,7 +21,7 @@ import sys
 import threading
 
 MODEL_ID = os.environ.get('EMBED_MODEL', 'BAAI/bge-m3')
-DEVICE = os.environ.get('EMBED_DEVICE', 'cpu')
+DEVICE = os.environ.get('EMBED_DEVICE', 'auto')
 MAX_TEXTS, MAX_CHARS, MAX_BODY = 128, 2000, 512 * 1024
 TOKEN = os.environ.get('EMBED_TOKEN', '')
 LOCK = threading.Lock()          # one encode at a time: the model is not thread-safe and the box is small
@@ -31,7 +31,13 @@ MODEL = None
 def load():
     global MODEL
     from sentence_transformers import SentenceTransformer
-    MODEL = SentenceTransformer(MODEL_ID, device=DEVICE)
+    device = DEVICE
+    if device == 'auto':
+        import torch
+        device = 'cuda' if torch.cuda.is_available() else 'cpu'
+    MODEL = SentenceTransformer(MODEL_ID, device=device)
+    if device.startswith('cuda'):
+        MODEL.half()                    # the experiment (docs/55) ran fp16 on a GPU; the 0.485 threshold was chosen on those vectors
     MODEL.max_seq_length = 256          # what the experiment measured; passages and questions are short
     return MODEL
 
