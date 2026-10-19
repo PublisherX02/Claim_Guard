@@ -1,0 +1,712 @@
+[
+ {
+  "id": "K001",
+  "cat": "service_rules",
+  "q": "Which rules can fire for SVC-CONSULT under EDU-BASIC?",
+  "gold": [
+   "R011",
+   "R013"
+  ],
+  "lang": "en",
+  "needs_model": false
+ },
+ {
+  "id": "K002",
+  "cat": "service_rules",
+  "q": "What do I need to watch for when a claim bills SVC-CONSULT to policy EDU-PLUS?",
+  "gold": [
+   "R011",
+   "R013"
+  ],
+  "lang": "en",
+  "needs_model": false
+ },
+ {
+  "id": "K003",
+  "cat": "service_rules",
+  "q": "What do I need to watch for when a claim bills SVC-DENTAL to policy EDU-BASIC?",
+  "gold": [
+   "R010",
+   "R011",
+   "R013"
+  ],
+  "lang": "en",
+  "needs_model": false
+ },
+ {
+  "id": "K004",
+  "cat": "service_rules",
+  "q": "If a claim has a SVC-DENTAL line on EDU-PLUS, which checks apply to it?",
+  "gold": [
+   "R010",
+   "R011",
+   "R013"
+  ],
+  "lang": "en",
+  "needs_model": false
+ },
+ {
+  "id": "K005",
+  "cat": "service_rules",
+  "q": "If a claim has a SVC-IMAGE line on EDU-BASIC, which checks apply to it?",
+  "gold": [
+   "R008",
+   "R009",
+   "R010",
+   "R011",
+   "R013"
+  ],
+  "lang": "en",
+  "needs_model": false
+ },
+ {
+  "id": "K006",
+  "cat": "service_rules",
+  "q": "Which rules can fire for SVC-IMAGE under EDU-PLUS?",
+  "gold": [
+   "R008",
+   "R009",
+   "R010",
+   "R011",
+   "R013"
+  ],
+  "lang": "en",
+  "needs_model": false
+ },
+ {
+  "id": "K007",
+  "cat": "service_rules",
+  "q": "Which rules can fire for SVC-LAB under EDU-BASIC?",
+  "gold": [
+   "R011",
+   "R013"
+  ],
+  "lang": "en",
+  "needs_model": false
+ },
+ {
+  "id": "K008",
+  "cat": "service_rules",
+  "q": "What do I need to watch for when a claim bills SVC-LAB to policy EDU-PLUS?",
+  "gold": [
+   "R011",
+   "R013"
+  ],
+  "lang": "en",
+  "needs_model": false
+ },
+ {
+  "id": "K009",
+  "cat": "service_rules",
+  "q": "What do I need to watch for when a claim bills SVC-PHARM to policy EDU-BASIC?",
+  "gold": [
+   "R011",
+   "R013"
+  ],
+  "lang": "en",
+  "needs_model": false
+ },
+ {
+  "id": "K010",
+  "cat": "service_rules",
+  "q": "If a claim has a SVC-PHARM line on EDU-PLUS, which checks apply to it?",
+  "gold": [
+   "R011",
+   "R013"
+  ],
+  "lang": "en",
+  "needs_model": false
+ },
+ {
+  "id": "K011",
+  "cat": "service_rules",
+  "q": "If a claim has a SVC-THERAPY line on EDU-BASIC, which checks apply to it?",
+  "gold": [
+   "R008",
+   "R009",
+   "R011",
+   "R013"
+  ],
+  "lang": "en",
+  "needs_model": false
+ },
+ {
+  "id": "K012",
+  "cat": "service_rules",
+  "q": "Which rules can fire for SVC-THERAPY under EDU-PLUS?",
+  "gold": [
+   "R008",
+   "R009",
+   "R011",
+   "R013"
+  ],
+  "lang": "en",
+  "needs_model": false
+ },
+ {
+  "id": "K013",
+  "cat": "attr_rules",
+  "q": "Which rule checks that the provider is in the insurer network?",
+  "gold": [
+   "R005"
+  ],
+  "lang": "en",
+  "needs_model": false
+ },
+ {
+  "id": "K014",
+  "cat": "attr_rules",
+  "q": "Which rules look at whether a service needs prior authorization?",
+  "gold": [
+   "R008",
+   "R009"
+  ],
+  "lang": "en",
+  "needs_model": false
+ },
+ {
+  "id": "K015",
+  "cat": "attr_rules",
+  "q": "Which rule makes sure the required supporting document is attached?",
+  "gold": [
+   "R010"
+  ],
+  "lang": "en",
+  "needs_model": false
+ },
+ {
+  "id": "K016",
+  "cat": "attr_rules",
+  "q": "Which rule enforces the maximum price per unit?",
+  "gold": [
+   "R013"
+  ],
+  "lang": "en",
+  "needs_model": false
+ },
+ {
+  "id": "K017",
+  "cat": "attr_rules",
+  "q": "Which rule limits how many units can be on one line?",
+  "gold": [
+   "R013"
+  ],
+  "lang": "en",
+  "needs_model": false
+ },
+ {
+  "id": "K018",
+  "cat": "attr_rules",
+  "q": "Which rule enforces the submission deadline in days?",
+  "gold": [
+   "R014"
+  ],
+  "lang": "en",
+  "needs_model": false
+ },
+ {
+  "id": "K019",
+  "cat": "attr_rules",
+  "q": "Which rule compares the claim currency with the policy?",
+  "gold": [
+   "R015"
+  ],
+  "lang": "en",
+  "needs_model": false
+ },
+ {
+  "id": "K020",
+  "cat": "field_rules",
+  "q": "Which rules use the service date of a line?",
+  "gold": [
+   "R001",
+   "R002",
+   "R003",
+   "R006",
+   "R009",
+   "R010",
+   "R014"
+  ],
+  "lang": "en",
+  "needs_model": false
+ },
+ {
+  "id": "K021",
+  "cat": "field_rules",
+  "q": "Which rules read the invoice number field?",
+  "gold": [
+   "R001"
+  ],
+  "lang": "en",
+  "needs_model": false
+ },
+ {
+  "id": "K022",
+  "cat": "field_rules",
+  "q": "Which rules depend on the currency field of a claim?",
+  "gold": [
+   "R015"
+  ],
+  "lang": "en",
+  "needs_model": false
+ },
+ {
+  "id": "K023",
+  "cat": "field_rules",
+  "q": "Which rules read coverage.status?",
+  "gold": [
+   "R003"
+  ],
+  "lang": "en",
+  "needs_model": false
+ },
+ {
+  "id": "K024",
+  "cat": "field_rules",
+  "q": "Which rules read the provider_id field?",
+  "gold": [
+   "R005"
+  ],
+  "lang": "en",
+  "needs_model": false
+ },
+ {
+  "id": "K025",
+  "cat": "field_rules",
+  "q": "Which rules look at the total_amount?",
+  "gold": [
+   "R012"
+  ],
+  "lang": "en",
+  "needs_model": false
+ },
+ {
+  "id": "K026",
+  "cat": "field_rules",
+  "q": "Which rules read the modifier on a line?",
+  "gold": [
+   "R006"
+  ],
+  "lang": "en",
+  "needs_model": false
+ },
+ {
+  "id": "K027",
+  "cat": "field_rules",
+  "q": "Which rules use the attachment type?",
+  "gold": [
+   "R010"
+  ],
+  "lang": "en",
+  "needs_model": false
+ },
+ {
+  "id": "K028",
+  "cat": "rule_fields",
+  "q": "What claim data does rule R003 look at?",
+  "gold": [
+   "coverage",
+   "coverage.end_date",
+   "coverage.start_date",
+   "coverage.status",
+   "lines[].service_date"
+  ],
+  "lang": "en",
+  "needs_model": false
+ },
+ {
+  "id": "K029",
+  "cat": "rule_fields",
+  "q": "Which fields does R004 compare?",
+  "gold": [
+   "coverage",
+   "coverage.beneficiary_patient_id",
+   "coverage.member_id",
+   "member_id",
+   "patient_id"
+  ],
+  "lang": "en",
+  "needs_model": false
+ },
+ {
+  "id": "K030",
+  "cat": "rule_fields",
+  "q": "Which fields does rule R010 read?",
+  "gold": [
+   "attachments",
+   "attachments[].document_status",
+   "attachments[].patient_id",
+   "attachments[].service_code",
+   "attachments[].service_date",
+   "attachments[].type",
+   "lines",
+   "lines[].service_code",
+   "lines[].service_date",
+   "patient_id",
+   "policy_id"
+  ],
+  "lang": "en",
+  "needs_model": false
+ },
+ {
+  "id": "K031",
+  "cat": "rule_fields",
+  "q": "What inputs does R012 use?",
+  "gold": [
+   "lines",
+   "lines[].net_amount",
+   "total_amount"
+  ],
+  "lang": "en",
+  "needs_model": false
+ },
+ {
+  "id": "K032",
+  "cat": "rule_fields",
+  "q": "Which fields does R014 read?",
+  "gold": [
+   "lines",
+   "lines[].service_date",
+   "policy_id",
+   "submission_date"
+  ],
+  "lang": "en",
+  "needs_model": false
+ },
+ {
+  "id": "K033",
+  "cat": "rule_fields",
+  "q": "What data does R009 read?",
+  "gold": [
+   "authorizations",
+   "authorizations[].authorization_id",
+   "authorizations[].max_quantity",
+   "authorizations[].patient_id",
+   "authorizations[].service_code",
+   "authorizations[].status",
+   "authorizations[].valid_from",
+   "authorizations[].valid_to",
+   "lines",
+   "lines[].authorization_id",
+   "lines[].quantity",
+   "lines[].service_date",
+   "patient_id"
+  ],
+  "lang": "en",
+  "needs_model": false
+ },
+ {
+  "id": "K034",
+  "cat": "policy_value",
+  "q": "What is the highest unit price the policy EDU-BASIC allows for SVC-THERAPY?",
+  "gold": [
+   "450",
+   "EDU-BASIC"
+  ],
+  "lang": "en",
+  "needs_model": false
+ },
+ {
+  "id": "K035",
+  "cat": "policy_value",
+  "q": "How many units of SVC-LAB can be billed on one line under EDU-PLUS?",
+  "gold": [
+   "3",
+   "EDU-PLUS"
+  ],
+  "lang": "en",
+  "needs_model": false
+ },
+ {
+  "id": "K036",
+  "cat": "policy_value",
+  "q": "What document must support a SVC-IMAGE line under EDU-BASIC?",
+  "gold": [
+   "imaging-report",
+   "EDU-BASIC"
+  ],
+  "lang": "en",
+  "needs_model": false
+ },
+ {
+  "id": "K037",
+  "cat": "policy_value",
+  "q": "What is the price ceiling for SVC-DENTAL on policy EDU-PLUS?",
+  "gold": [
+   "800",
+   "EDU-PLUS"
+  ],
+  "lang": "en",
+  "needs_model": false
+ },
+ {
+  "id": "K038",
+  "cat": "policy_value",
+  "q": "What is the quantity limit per line for SVC-PHARM under EDU-BASIC?",
+  "gold": [
+   "10",
+   "EDU-BASIC"
+  ],
+  "lang": "en",
+  "needs_model": false
+ },
+ {
+  "id": "K039",
+  "cat": "policy_value",
+  "q": "Which supporting document does policy EDU-BASIC require for SVC-DENTAL?",
+  "gold": [
+   "service-note",
+   "EDU-BASIC"
+  ],
+  "lang": "en",
+  "needs_model": false
+ },
+ {
+  "id": "K040",
+  "cat": "policy_value",
+  "q": "How many days after the service can a claim be submitted under EDU-BASIC?",
+  "gold": [
+   "30",
+   "EDU-BASIC"
+  ],
+  "lang": "en",
+  "needs_model": false
+ },
+ {
+  "id": "K041",
+  "cat": "policy_value",
+  "q": "How many days after the service can a claim be submitted under EDU-PLUS?",
+  "gold": [
+   "60",
+   "EDU-PLUS"
+  ],
+  "lang": "en",
+  "needs_model": false
+ },
+ {
+  "id": "K042",
+  "cat": "policy_value",
+  "q": "Does policy EDU-BASIC require an authorization for SVC-LAB?",
+  "gold": [
+   "EDU-BASIC",
+   "SVC-LAB",
+   "does not need"
+  ],
+  "lang": "en",
+  "needs_model": false
+ },
+ {
+  "id": "K043",
+  "cat": "provider",
+  "q": "Which policies allow provider EDU-PROV-02?",
+  "gold": [
+   "EDU-BASIC",
+   "EDU-PLUS",
+   "R005"
+  ],
+  "lang": "en",
+  "needs_model": false
+ },
+ {
+  "id": "K044",
+  "cat": "provider",
+  "q": "Is EDU-PROV-03 in the network of EDU-PLUS, and which rule checks it?",
+  "gold": [
+   "EDU-PLUS",
+   "R005"
+  ],
+  "lang": "en",
+  "needs_model": false
+ },
+ {
+  "id": "K045",
+  "cat": "compare",
+  "q": "How do policies EDU-BASIC and EDU-PLUS differ?",
+  "gold": [
+   "30",
+   "60",
+   "submission_window_days"
+  ],
+  "lang": "en",
+  "needs_model": false
+ },
+ {
+  "id": "K046",
+  "cat": "compare",
+  "q": "What is different between the EDU-BASIC and EDU-PLUS policies?",
+  "gold": [
+   "30",
+   "60"
+  ],
+  "lang": "en",
+  "needs_model": false
+ },
+ {
+  "id": "K047",
+  "cat": "severity",
+  "q": "Which rules have medium severity?",
+  "gold": [
+   "R006",
+   "R010",
+   "R013",
+   "R014"
+  ],
+  "lang": "en",
+  "needs_model": false
+ },
+ {
+  "id": "K048",
+  "cat": "severity",
+  "q": "List the rules with high severity.",
+  "gold": [
+   "R001",
+   "R002",
+   "R003",
+   "R004",
+   "R005",
+   "R007",
+   "R008",
+   "R009",
+   "R011",
+   "R012",
+   "R015"
+  ],
+  "lang": "en",
+  "needs_model": false
+ },
+ {
+  "id": "K049",
+  "cat": "related",
+  "q": "How are R008 and R009 related?",
+  "gold": [
+   "R008",
+   "R009"
+  ],
+  "lang": "en",
+  "needs_model": false
+ },
+ {
+  "id": "K050",
+  "cat": "related",
+  "q": "Which rules depend on R007?",
+  "gold": [
+   "R007",
+   "R012"
+  ],
+  "lang": "en",
+  "needs_model": false
+ },
+ {
+  "id": "K051",
+  "cat": "related",
+  "q": "Which other rules work together with R014?",
+  "gold": [
+   "R014",
+   "R002"
+  ],
+  "lang": "en",
+  "needs_model": false
+ },
+ {
+  "id": "K052",
+  "cat": "list",
+  "q": "List all the service codes in the catalogue.",
+  "gold": [
+   "SVC-CONSULT",
+   "SVC-DENTAL",
+   "SVC-IMAGE",
+   "SVC-LAB",
+   "SVC-PHARM",
+   "SVC-THERAPY"
+  ],
+  "lang": "en",
+  "needs_model": false
+ },
+ {
+  "id": "K053",
+  "cat": "multilingual",
+  "q": "Quelles règles dépendent de l'autorisation préalable d'un service ?",
+  "gold": [
+   "R008",
+   "R009"
+  ],
+  "lang": "fr",
+  "needs_model": true
+ },
+ {
+  "id": "K054",
+  "cat": "multilingual",
+  "q": "Quelle règle vérifie que le prestataire fait partie du réseau ?",
+  "gold": [
+   "R005"
+  ],
+  "lang": "fr",
+  "needs_model": true
+ },
+ {
+  "id": "K055",
+  "cat": "multilingual",
+  "q": "Quelle règle contrôle le délai de soumission d'un dossier ?",
+  "gold": [
+   "R014"
+  ],
+  "lang": "fr",
+  "needs_model": true
+ },
+ {
+  "id": "K056",
+  "cat": "multilingual",
+  "q": "Quelles règles s’appliquent à SVC-IMAGE avec la politique EDU-PLUS ?",
+  "gold": [
+   "R008",
+   "R009",
+   "R010",
+   "R011",
+   "R013"
+  ],
+  "lang": "fr",
+  "needs_model": false
+ },
+ {
+  "id": "K057",
+  "cat": "multilingual",
+  "q": "ما هي القاعدة التي تتحقق من أن مقدم الخدمة ضمن الشبكة؟",
+  "gold": [
+   "R005"
+  ],
+  "lang": "ar",
+  "needs_model": true
+ },
+ {
+  "id": "K058",
+  "cat": "multilingual",
+  "q": "أي قاعدة تتحقق من وجود المستند الداعم المطلوب؟",
+  "gold": [
+   "R010"
+  ],
+  "lang": "ar",
+  "needs_model": true
+ },
+ {
+  "id": "K059",
+  "cat": "multilingual",
+  "q": "أي القواعد تعتمد على التفويض المسبق للخدمة؟",
+  "gold": [
+   "R008",
+   "R009"
+  ],
+  "lang": "ar",
+  "needs_model": true
+ },
+ {
+  "id": "K060",
+  "cat": "multilingual",
+  "q": "ما هو الحد الأقصى لسعر الوحدة للخدمة SVC-THERAPY في السياسة EDU-BASIC؟",
+  "gold": [
+   "450",
+   "EDU-BASIC"
+  ],
+  "lang": "ar",
+  "needs_model": false
+ }
+]

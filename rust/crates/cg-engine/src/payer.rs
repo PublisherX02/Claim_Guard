@@ -9,6 +9,8 @@
 //! receipt covers the table, so a claim re-submitted after a change is judged again and the receipt says under which version.
 //! Version 0 is the table shipped in `rules/policies.json`. A rollback is a new version with an old table.
 
+use crate::cag::AnswerCache;
+use crate::kag::{check_generated, Fact, Graph};
 use crate::Engine;
 use cg_audit::AuditLog;
 use cg_core::config::Config;
@@ -49,8 +51,30 @@ pub struct PayerRules {
     state: Mutex<State>,
     /// the question index, rebuilt when the table version changes
     index: Mutex<Option<(u64, Arc<crate::rag::Index>)>>,
+    providers_json: Value,
+    diagnoses_json: Value,
+    /// the knowledge graph (docs/60), rebuilt when the table version changes
+    graph: Mutex<Option<(u64, Arc<Graph>)>>,
+    /// answers already given (docs/60): the fast path
+    answers: AnswerCache,
+    /// a language model for the questions that need one: proposing a graph query, and writing up an answer from its facts. Off unless `set_llm` is called.
+    llm: Mutex<Option<Llm>>,
     /// meaning-based search (docs/52): the embedder, its refusal threshold, and the passage vectors per table version. Off unless `set_embedder` is called.
     dense: Mutex<Dense>,
+}
+
+/// A language model behind a plain text interface (the OpenAI-compatible endpoint of vLLM or Ollama, wired in `cg-cli`). Tests use a stub.
+pub trait Completer: Send + Sync {
+    fn complete(&self, prompt: &str, timeout_secs: f64) -> Result<String, String>;
+    fn model(&self) -> String;
+}
+
+#[derive(Clone)]
+struct Llm {
+    c: Arc<dyn Completer>,
+    /// put the whole rulebook first in the prompt, so a server that caches prompt prefixes computes it once (docs/60)
+    prefix: bool,
+    timeout: f64,
 }
 
 /// How long to leave the embedding sidecar alone after it failed, so a dead sidecar costs one failed call in this many seconds, not one per question.
@@ -125,7 +149,9 @@ impl PayerRules {
         let services_json = read_json(&root.join("rules/services.json"))?;
         let rules_json = read_json(&root.join("rules/rules.json"))?;
         let services = services_json.as_object().map(|m| m.keys().cloned().collect()).unwrap_or_default();
-        let p = PayerRules { engine, log_path: data_dir.join("payer_rules.jsonl"), shipped: shipped.clone(), services, rules_json, services_json, state: Mutex::new(State { version: 0, policies: shipped, rows_seen: 0 }), index: Mutex::new(None), dense: Mutex::new(Dense::default()) };
+        let providers_json = read_json(&root.join("rules/providers.json")).unwrap_or_else(|_| json!([]));
+        let diagnoses_json = read_json(&root.join("rules/diagnoses.json")).unwrap_or_else(|_| json!([]));
+        let p = PayerRules { engine, log_path: data_dir.join("payer_rules.jsonl"), shipped: shipped.clone(), services, rules_json, services_json, providers_json, diagnoses_json, graph: Mutex::new(None), answers: AnswerCache::new(512, std::time::Duration::from_secs(24 * 3600)), llm: Mutex::new(None), state: Mutex::new(State { version: 0, policies: shipped, rows_seen: 0 }), index: Mutex::new(None), dense: Mutex::new(Dense::default()) };
         p.refresh()?;
         Ok(p)
     }
@@ -210,6 +236,51 @@ impl PayerRules {
             out["fallback"] = json!(format!("The meaning-based search is not available ({why}); this is the keyword search."));
         }
         out
+    }
+
+    /// Turn on the language model for "Ask the rulebook" (docs/60). `rulebook_prefix`: put the whole rulebook first in every prompt.
+    pub fn set_llm(&self, c: Arc<dyn Completer>, rulebook_prefix: bool, timeout_secs: f64) {
+        *self.llm.lock().unwrap_or_else(|e| e.into_inner()) = Some(Llm { c, prefix: rulebook_prefix, timeout: timeout_secs.clamp(1.0, 600.0) });
+        self.answers.clear();
+    }
+
+    pub fn llm_model(&self) -> Option<String> {
+        self.llm.lock().unwrap_or_else(|e| e.into_inner()).as_ref().map(|l| l.c.model())
+    }
+
+    /// (entries, hits, misses) of the answer cache.
+    pub fn cache_stats(&self) -> (usize, u64, u64) {
+        self.answers.stats()
+    }
+
+    /// The knowledge graph for the table in force.
+    pub fn graph(&self) -> Arc<Graph> {
+        let (version, policies) = {
+            let st = self.state.lock().unwrap_or_else(|e| e.into_inner());
+            (st.version, st.policies.clone())
+        };
+        self.graph_for(version, &policies)
+    }
+
+    fn graph_for(&self, version: u64, policies: &Value) -> Arc<Graph> {
+        let mut g = self.graph.lock().unwrap_or_else(|e| e.into_inner());
+        match &*g {
+            Some((v, gr)) if *v == version => gr.clone(),
+            _ => {
+                let gr = Arc::new(Graph::build(&self.rules_json, policies, &self.services_json, &self.providers_json, &self.diagnoses_json, cg_core::localize::glossary_json(), version));
+                *g = Some((version, gr.clone()));
+                gr
+            }
+        }
+    }
+
+    /// The whole rulebook as one stable text (the front of a prompt).
+    pub fn rulebook_context(&self) -> String {
+        let (version, policies) = {
+            let st = self.state.lock().unwrap_or_else(|e| e.into_inner());
+            (st.version, st.policies.clone())
+        };
+        crate::cag::rulebook_context(&self.rules_json, &policies, &self.services_json, cg_core::localize::glossary_json(), version)
     }
 
     /// Turn on meaning-based search for "Ask the rulebook". `threshold` is the lowest cosine at which the closest passage still counts as an answer.
@@ -405,6 +476,142 @@ pub fn parse(text: &str) -> Result<Value, String> {
         Value::Object(m) => Value::Object(m.into_iter().collect::<Map<_, _>>()),
         other => other,
     })
+}
+
+/// Questions worth a model's help in turning into a graph query: they name something of the rulebook, or are not written in English.
+fn domain_hint(q: &str) -> bool {
+    let l = q.to_lowercase();
+    cg_core::localize::has_arabic_script(q)
+        || ["rule", "polic", "service", "provider", "authoriz", "authoris", "network", "price", "quantity", "document", "window", "deadline", "currency", "severity", "field", "svc-", "edu-", "règle", "regle", "politique", "autorisation", "prestataire", "délai", "delai", "plafond"].iter().any(|w| l.contains(w))
+}
+
+fn first_json_object(text: &str) -> Option<Value> {
+    let start = text.find('{')?;
+    let end = text.rfind('}')?;
+    serde_json::from_str(text.get(start..=end)?).ok()
+}
+
+impl PayerRules {
+    fn plan_with_model(&self, graph: &Graph, llm: &Llm, question: &str) -> Option<crate::kag::Query> {
+        let prompt = format!(
+            "You turn a question about a health-insurance claims rulebook into ONE JSON query for a knowledge graph. The question may be in English, French or Arabic. Reply with the JSON object only. If no operation can answer the question (it is about something other than this rulebook), reply {{\"op\":\"none\"}}.\n\n{}\n\nQuestion: {question}\nJSON:",
+            graph.planner_catalogue()
+        );
+        let reply = llm.c.complete(&prompt, llm.timeout).ok()?;
+        let v = first_json_object(&reply)?;
+        if v["op"] == "none" {
+            return None;
+        }
+        let q = graph.query_from_json(&v).ok()?;
+        // an identifier the model puts in the query must be one the question names; a small model otherwise falls back on an example (measured: R001)
+        let lower = question.to_lowercase();
+        let named = crate::kag::Graph::query_json(&q)
+            .as_object()?
+            .iter()
+            .filter(|(k, _)| ["rule", "service", "policy", "provider", "a", "b"].contains(&k.as_str()))
+            .all(|(_, id)| id.as_str().is_some_and(|s| lower.contains(&s.to_lowercase())));
+        named.then_some(q)
+    }
+
+    /// Asks the model to write the facts up as a short answer. The text is returned only if `check_generated` accepts it.
+    fn write_up(&self, llm: &Llm, question: &str, facts: &[Fact]) -> Result<String, String> {
+        let numbered = facts.iter().enumerate().map(|(i, f)| format!("[{}] {} (source: {})", i + 1, f.text, f.source)).collect::<Vec<_>>().join("\n");
+        let prefix = if llm.prefix { format!("{}\n\n", self.rulebook_context()) } else { String::new() };
+        let prompt = format!(
+            "{prefix}You answer a question about the rulebook using ONLY the numbered facts below.\nRules: write two to five short sentences. End every sentence with the number of the fact it comes from in square brackets, like [2]. Do not state any rule id, service code, amount or number that is not in the facts. If the facts do not answer the question, reply exactly: NOT ANSWERED.\n\nFacts:\n{numbered}\n\nQuestion: {question}\nAnswer:"
+        );
+        let text = llm.c.complete(&prompt, llm.timeout)?;
+        let text = text.trim().to_string();
+        if text.to_uppercase().contains("NOT ANSWERED") {
+            return Err("the model says the facts do not answer the question".into());
+        }
+        check_generated(&text, facts)?;
+        Ok(text)
+    }
+
+    /// "Ask the rulebook" with three tiers (docs/60): a question asked before is answered from the cache; a question about how the rulebook's parts
+    /// connect is answered from the knowledge graph (facts computed from the rule, policy and field files, each cited); anything else goes to passage
+    /// search as before. With `generate` and a model configured, the facts or passages are also written up as a short answer, which is shown only if
+    /// every sentence cites a fact and every identifier and number in it occurs in the facts; the quoted facts are always returned beside it.
+    pub fn ask_routed(&self, question: &str, k: usize, generate: bool) -> Value {
+        let t0 = std::time::Instant::now();
+        let ms = |t: std::time::Instant| (t.elapsed().as_secs_f64() * 1000.0).round() as u64;
+        let (version, policies) = {
+            let st = self.state.lock().unwrap_or_else(|e| e.into_inner());
+            (st.version, st.policies.clone())
+        };
+        let llm = self.llm.lock().unwrap_or_else(|e| e.into_inner()).clone();
+        let writer = if generate { llm.clone() } else { None };
+        let options = match &writer {
+            Some(l) => format!("generate:{}:{}", l.c.model(), l.prefix),
+            None => String::new(),
+        };
+        let key = AnswerCache::key(question, &options, version, &self.engine.rulebook_hash());
+        if let Some(mut hit) = self.answers.get(&key) {
+            hit["cached"] = json!(true);
+            hit["latency_ms"] = json!(ms(t0));
+            return hit;
+        }
+        let graph = self.graph_for(version, &policies);
+        let mut timing = Map::new();
+        let tp = std::time::Instant::now();
+        let mut planner = "rules";
+        let mut query = graph.plan(question);
+        if query.is_none() && domain_hint(question) {
+            if let Some(l) = &llm {
+                query = self.plan_with_model(&graph, l, question);
+                planner = "model";
+            }
+        }
+        timing.insert("plan".into(), json!(ms(tp)));
+        let mut cacheable = true;
+        let tq = std::time::Instant::now();
+        let graph_facts = query.as_ref().map(|q| graph.run(q)).unwrap_or_default();
+        let (mut out, facts): (Value, Vec<Fact>) = if let (Some(q), false) = (&query, graph_facts.is_empty()) {
+            timing.insert("graph".into(), json!(ms(tq)));
+            let mut o = json!({"question": question, "answered": true, "tier": "graph", "planner": planner, "understood_as": Graph::describe(q), "query": Graph::query_json(q),
+                "facts": graph_facts.iter().map(Fact::to_json).collect::<Vec<_>>(), "answer": Graph::answer_text(&graph_facts), "table_version": version,
+                "note": "Computed from the rulebook files by walking the connections between rules, fields and policies; every line cites where it comes from. Nothing here is generated."});
+            if planner == "model" {
+                o["note"] = json!("A language model chose which question to put to the knowledge graph (it cannot change the facts); the facts are computed from the rulebook files and each cites where it comes from.");
+            }
+            (o, graph_facts)
+        } else {
+            let mut o = self.ask(question, k);
+            timing.insert("search".into(), json!(ms(tq)));
+            o["tier"] = json!("vector");
+            if o.get("fallback").is_some() {
+                cacheable = false; // the meaning-based search was down: ask again next time
+            }
+            let facts = o["results"].as_array().into_iter().flatten().map(|r| Fact::new(r["text"].as_str().unwrap_or(""), r["source"].as_str().unwrap_or(""))).collect();
+            (o, facts)
+        };
+        if let (Some(l), false) = (&writer, facts.is_empty()) {
+            let tw = std::time::Instant::now();
+            match self.write_up(l, question, &facts) {
+                Ok(text) => {
+                    out["written"] = json!(text);
+                    out["written_by"] = json!(l.c.model());
+                    out["note"] = json!(format!("{} The short answer under \"written\" was written by {} from the numbered facts and checked: every sentence cites a fact and every identifier and number in it is in the facts. The quoted facts are the answer of record.", out["note"].as_str().unwrap_or(""), l.c.model()));
+                }
+                Err(why) => {
+                    out["written_refused"] = json!(why);
+                    // a refusal by the check is a result; a model that could not be reached is not, and is retried
+                    if why.contains("timed out") || why.contains("Transport") || why.contains("HTTP") || why.contains("connect") {
+                        cacheable = false;
+                    }
+                }
+            }
+            timing.insert("write".into(), json!(ms(tw)));
+        }
+        out["cached"] = json!(false);
+        out["timing_ms"] = Value::Object(timing);
+        out["latency_ms"] = json!(ms(t0));
+        if cacheable {
+            self.answers.put(key, out.clone());
+        }
+        out
+    }
 }
 
 #[cfg(test)]
@@ -634,5 +841,123 @@ mod tests {
         // a policy passage names its table version, so the new version's passages are new texts; the rule passages are unchanged and come from the cache
         assert!(used > 1 && used < first, "the new version's policy passages (and the question) are embedded, the rules are not: {used} of {first}");
         assert_eq!(r["mode"], "semantic");
+    }
+
+    /// A model that answers from a script, and counts how often it is called.
+    struct Script {
+        plan: Mutex<String>,
+        write: Mutex<String>,
+        calls: std::sync::atomic::AtomicUsize,
+        prompts: Mutex<Vec<String>>,
+    }
+
+    impl Script {
+        fn new(plan: &str, write: &str) -> Arc<Script> {
+            Arc::new(Script { plan: Mutex::new(plan.into()), write: Mutex::new(write.into()), calls: Default::default(), prompts: Mutex::new(vec![]) })
+        }
+    }
+
+    impl Completer for Script {
+        fn complete(&self, prompt: &str, _: f64) -> Result<String, String> {
+            self.calls.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+            self.prompts.lock().unwrap().push(prompt.to_string());
+            Ok(if prompt.contains("JSON:") { self.plan.lock().unwrap().clone() } else { self.write.lock().unwrap().clone() })
+        }
+        fn model(&self) -> String {
+            "script".into()
+        }
+    }
+
+    #[test]
+    fn a_connection_question_is_answered_from_the_graph_without_any_model_and_then_from_the_cache() {
+        let dir = tempfile::tempdir().unwrap();
+        let (_e, p) = open(dir.path());
+        let a = p.ask_routed("Which rules can fire for SVC-IMAGE under EDU-BASIC?", 4, false);
+        assert_eq!((a["tier"].as_str(), a["planner"].as_str(), a["cached"].as_bool()), (Some("graph"), Some("rules"), Some(false)));
+        let text = a["answer"].as_str().unwrap();
+        assert!(text.contains("R008") && text.contains("R009") && text.contains("[policy EDU-BASIC (table version 0)]"), "{text}");
+        assert!(a.get("written").is_none(), "nothing is written without a model");
+        let b = p.ask_routed("which rules can fire for svc-image under edu-basic", 4, false);
+        assert_eq!((b["cached"].as_bool(), b["answer"].clone()), (Some(true), a["answer"].clone()), "the same question in other clothes is served from memory");
+        let (entries, hits, _) = p.cache_stats();
+        assert_eq!((entries, hits), (1, 1));
+        // approving a new table makes the old answer unreachable
+        let mut pol = p.current()["policies"].clone();
+        pol["EDU-BASIC"]["max_unit_price"]["SVC-IMAGE"] = json!(2500);
+        p.apply(&pol, "CG-3001", None, "raise the imaging ceiling after the amendment").unwrap();
+        let c = p.ask_routed("which rules can fire for SVC-IMAGE under EDU-BASIC", 4, false);
+        assert_eq!(c["cached"], false);
+        assert!(c["answer"].as_str().unwrap().contains("2500") && !c["answer"].as_str().unwrap().contains("2200 "), "the answer follows the table in force");
+        // a question the graph does not understand goes to passage search (keyword here: no embedder)
+        let d = p.ask_routed("what happens if the invoice number is missing", 4, false);
+        assert_eq!((d["tier"].as_str(), d["mode"].as_str()), (Some("vector"), Some("keyword")));
+        // off-topic questions that share a word with the rulebook ("clinic", "documents") stay with passage search (found by the held-out regression)
+        assert_eq!(p.ask_routed("which documents does a patient need to bring to the clinic", 4, false)["tier"], "vector");
+    }
+
+    #[test]
+    fn a_model_may_pick_the_query_but_only_from_what_exists_and_it_cannot_change_a_fact() {
+        let dir = tempfile::tempdir().unwrap();
+        let (_e, p) = open(dir.path());
+        // a question the built-in planner does not understand, in French
+        let q = "Quelles règles s'appliquent à une prestation d'imagerie SVC-IMAGE avec la politique EDU-PLUS ?";
+        assert_eq!(p.ask_routed(q, 4, false)["tier"], "graph", "the identifiers alone are enough here");
+        let q2 = "Quelle règle surveille le réseau de prestataires ?";
+        let s = Script::new(r#"{"op":"rules_consulting","attr":"allowed_providers"}"#, "");
+        p.set_llm(s.clone(), false, 5.0);
+        let r = p.ask_routed(q2, 4, false);
+        assert_eq!((r["tier"].as_str(), r["planner"].as_str()), (Some("graph"), Some("model")), "{r}");
+        assert!(r["answer"].as_str().unwrap().contains("R005"));
+        // an invented service is refused and the question falls through to passage search
+        *s.plan.lock().unwrap() = r#"{"op":"service_rules","service":"SVC-MADE-UP"}"#.into();
+        let r = p.ask_routed("Quelle règle surveille les prestataires inventés ?", 4, false);
+        assert_eq!(r["tier"], "vector");
+        // a real rule the question never names (the model copying an example) is refused too
+        *s.plan.lock().unwrap() = r#"{"op":"rule_info","rule":"R001"}"#.into();
+        assert_eq!(p.ask_routed("Quelle règle surveille les écarts de dates ?", 4, false)["tier"], "vector");
+        // "none" and rubbish do the same
+        for (i, bad) in ["{\"op\":\"none\"}", "I think you want rule R005", "{\"op\":"].iter().enumerate() {
+            *s.plan.lock().unwrap() = bad.to_string();
+            assert_eq!(p.ask_routed(&format!("Quelle règle surveille le réseau numéro {i} ?"), 4, false)["tier"], "vector", "{bad}");
+        }
+    }
+
+    #[test]
+    fn a_written_answer_is_shown_only_if_it_passes_the_check_and_the_facts_are_always_there() {
+        let dir = tempfile::tempdir().unwrap();
+        let (_e, p) = open(dir.path());
+        let good = "Policy EDU-BASIC requires an authorization reference for SVC-IMAGE [2]. Rule R008 checks that the reference is present [3].";
+        let s = Script::new("", good);
+        p.set_llm(s.clone(), true, 5.0);
+        let q = "which rules can fire for SVC-IMAGE under EDU-BASIC";
+        let r = p.ask_routed(q, 4, true);
+        let facts = r["facts"].as_array().unwrap().len();
+        assert!(facts >= 4, "{facts}");
+        let rr = r["written_refused"].clone();
+        assert!(r.get("written").is_some(), "good text is shown: {rr}");
+        assert_eq!(r["written_by"], "script");
+        assert!(r["answer"].as_str().unwrap().contains("R008"), "the cited facts are returned beside it");
+        // with the rulebook prefix switched on the prompt starts with the whole rulebook, the same bytes every time
+        let prompts = s.prompts.lock().unwrap().clone();
+        assert!(prompts[0].starts_with("RULEBOOK (the only source") && prompts[0].contains("== PAYER POLICIES"));
+        // generation is part of the cache key: the plain answer is a different entry
+        let calls = s.calls.load(std::sync::atomic::Ordering::SeqCst);
+        assert_eq!(p.ask_routed(q, 4, true)["cached"], true);
+        assert_eq!(s.calls.load(std::sync::atomic::Ordering::SeqCst), calls, "a cached written answer does not call the model again");
+        assert!(p.ask_routed(q, 4, false).get("written").is_none());
+        // text that invents a number, cites nothing or says the facts are not enough is refused, not shown, and the facts remain
+        for (bad, why) in [
+            ("Policy EDU-BASIC caps SVC-IMAGE at 9999 SAR [2].", "9999"),
+            ("Rule R008 checks it, and R012 too, [1].", "R012"),
+            ("The rule applies to this service in general terms.", "cites no fact"),
+            ("NOT ANSWERED", "do not answer"),
+        ] {
+            *s.write.lock().unwrap() = bad.into();
+            p.set_llm(s.clone(), false, 5.0);
+            let r = p.ask_routed(q, 4, true);
+            assert!(r.get("written").is_none(), "{bad}");
+            assert!(r["written_refused"].as_str().unwrap().contains(why), "{bad}: {}", r["written_refused"]);
+            assert!(r["answer"].as_str().unwrap().contains("R008"), "the facts are still there");
+        }
     }
 }

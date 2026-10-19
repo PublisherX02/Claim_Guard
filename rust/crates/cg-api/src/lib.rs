@@ -807,7 +807,9 @@ impl Api {
             return Err(e);
         }
         let pr = self.payer()?;
-        Ok(ApiResponse::json(200, &pr.ask(q.trim(), 4)))
+        // generate=1 asks for a short written answer on top of the cited facts (needs a model; a request without one just gets the facts)
+        let generate = matches!(query(req).get("generate").map(String::as_str), Some("1" | "true"));
+        Ok(ApiResponse::json(200, &pr.ask_routed(q.trim(), 4, generate)))
     }
 
     fn payer_get(&self, req: &ApiRequest) -> R {

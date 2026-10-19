@@ -190,6 +190,9 @@ pub fn boot(o: &Options) -> Result<Boot, String> {
             let _ = warm.ask("warm up", 1);
         });
     }
+    if let Some((llm, prefix, timeout)) = crate::ask_llm::from_env(&env)? {
+        payer.set_llm(llm, prefix, timeout); // graph queries proposed by a model, and short written answers checked against their facts (docs/60)
+    }
     {
         // an approved change of the payer rules is carried out here; other processes (the worker, the API) notice it within seconds
         let pr = payer.clone();
