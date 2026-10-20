@@ -2,7 +2,7 @@
 
 **Submission document: threat model, access control, least privilege and auditability, with everything else we built that bears on privacy and security.**
 
-Team project for the CSTAM-VELODOC challenge (mentor: Dr. Wael Hilali). Note date: 2026-10-19. Branch `rust-rewrite`.
+Team project for the CSTAM-VELODOC challenge (mentor: Dr. Wael Hilali). Note date: 2026-10-20. Branch `rust-rewrite`.
 The companion submission is the *Test Evaluation Report* (`docs/56`): it holds the detection metrics, F1, false-positive rate, latency and the experiments. **This note holds the security and privacy material and does not repeat those numbers.**
 
 **Scope and honesty.** All data in this repository is synthetic: no real patient, member, provider or payer exists in it. Having no real personal data is not a compliance assessment for a future healthcare product, and nothing here is legal advice (the law binds the organisation that runs the system, not the software). Every "built" below has a test, a script or a file you can run; every "not built" is listed in section 12. The system exists twice: the Python reference (Phase 1) and the Rust rebuild that the server and the desktop app run. This note describes the **Rust build** unless it says otherwise, and uses the Python-era audit (`docs/20`, `docs/32`) where it still applies.
@@ -172,6 +172,7 @@ Rules that make the table real:
 - **Separation of duties.** Whoever runs the system cannot approve its claims. A high-severity finding needs two different seniors. A person never countersigns their own decision. A conflict-of-interest list bars a reviewer from a named patient.
 - **The decision is attributed to the session,** never to a field the client sends, and bound to a lease the person currently holds.
 - **No existence leak:** a claim leased to someone else answers 404, the same as a claim that does not exist.
+- **Reading a patient's other claims is a deliberate, logged act.** The "Patient history" button (`GET /work/claims/{id}/history`, docs/61) needs the decide permission **and** the lease on the claim; every use is written to the security log as `patient_history_viewed` (badge, claim, number of rows). A row holds claim id, date, provider, total, state and the flagged rule ids: no patient identifier, notes or line detail. Probed by hand: holder 200, other reviewer 404, administrator and viewer 403, no session 401. The history is read from the same indexed lookup that the cross-claim rules already use (by the keyed hash of the patient id when encryption is on).
 
 ### 4.3 Two-person control
 
@@ -235,7 +236,7 @@ One chain per log; every row is `{sequence, recorded_at, previous_hash, event, h
 | `system_decision` | system | `route_to_human_review`, `no_findings_for_review` or `quarantine_claim`; the system **cannot** record an approval or a denial |
 | `confirm_issue` / `dismiss_with_reason` / `request_information` / `mark_corrected_for_recheck` | the signed-in person | actor, reason, original status, timestamp |
 | `recheck_run` | system | links the prior run and the new run and both input hashes |
-| security events | system | logins, lock-outs, unmasks, decisions, deals, approvals, refused requests, routing changes, document imports (hash, size, outcome), what-if runs; the vocabulary is closed and a field named like a secret is refused |
+| security events | system | logins, lock-outs, unmasks, decisions, deals, approvals, refused requests, routing changes, document imports (hash, size, outcome), what-if runs, **patient history views** (badge, claim, number of rows); the vocabulary is closed and a field named like a secret is refused |
 
 The write-ahead rule: if the `ai_request` cannot be written, the run aborts. The model is never called for something the log does not know about.
 
@@ -447,6 +448,7 @@ The decision to rebuild in Rust (`docs/36`, taken 2026-10-09) was driven by memo
 17. **The build machine's own disk** was almost full earlier and the health panel reported `disk: down`, correctly: a finding about this laptop, not the product. Cleaned on 2026-10-19 (33 GB free on C:; models live on the flash drive).
 18. **"Ask the rulebook":** the 60 test questions were written by the planner's author, so 52 answers by the graph are not an out-of-sample figure; the model is Gemma 3 4B on a laptop, not the server's model; the answer cache is per process and is not shared by two API copies; the model's written answers were refused 15 times in 59 (the check is strict by design); the prompt-prefix cache was measured only on Ollama (275 ms against 518 ms) and not on vLLM.
 19. **The restore and erasure tests ran on Docker Desktop for Windows (Git Bash), not on the Linux target.** The path fault above shows the two differ; the Linux server needs its own run of `backup_restore_test.py`.
+20. **The history route and its audit event were added after the final pass** and are not in the penetration test or the mutation harness. Their access rules were probed by hand (section 4.2) and by cargo tests (`service_flow`: refused for another reviewer and for an administrator, logged, no identifier in the reply); the 125 checks and 102 mutants were not re-run. The history rules E104 to E106 compare per patient only.
 
 ---
 

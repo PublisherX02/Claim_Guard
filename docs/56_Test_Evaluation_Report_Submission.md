@@ -2,7 +2,7 @@
 
 **Submission document: detection metrics, F1 score, false-positive rate, latency and limitations, with every experiment and every graph produced during the project.**
 
-Team project for the CSTAM-VELODOC challenge (mentor: Dr. Wael Hilali). Report date: 2026-10-19. Branch `rust-rewrite`.
+Team project for the CSTAM-VELODOC challenge (mentor: Dr. Wael Hilali). Report date: 2026-10-20. Branch `rust-rewrite`.
 All claims, codes, prices and payer rules are **synthetic**. Nothing here has been measured on real hospital data, real payers or real reviewers.
 
 ## How to read this report
@@ -655,11 +655,23 @@ Deterministic summaries and correction suggestions (no model), a dry run that sh
 
 Batches of up to 1,000 claims with a random 5% audit sample and quarantine of the whole batch when a sampled green claim is wrong; requests for missing information written by the system, with the officer confirming only the send; copilot fills the officer confirms; asynchronous intake with progress. **Not delivered anywhere:** the system has no outgoing channel; the mentor may have meant the patient, not the provider (open question).
 
+### 14.7 History checks E104 to E106 and the patient history view (docs/61)
+
+Three advisory rules compare a claim with the patient's earlier claims: E104 invoice number reused (high), E105 more than 3 claims in 7 days (medium), E106 same service and date at another provider (medium). They add to E101 to E103 and read the same single history lookup, so they add no database read. A claim that an advisory check flagged is never cleared or audit-drawn by the system; it always goes to a person. The reviewer sees a notice naming the checks and can open the patient's other claims (holder only, logged).
+
+**What was tested.** Each rule fails and passes on constructed histories with its boundary cases (exactly three claims in the window; seven and eight days back; same provider; other date), and a missing history gives UNABLE_TO_ASSESS, never PASS. The pack pinned for E001 to E103 is unchanged (the new rules live in a separate file). Cargo tests, each crate run on its own, all pass: `cg-engine` extensions 8, `cg-queue` unit 128, `cg-queue` service flow 35 (copy of a claim carries E101 and E104; the history view returns the other claim, leaks no identifier, is logged, is refused to another reviewer and to an administrator), `cg-audit` 23, `cg-api` api_flow 20.
+
+**Checked by hand on the release build.** A repeat of an earlier claim (same lines, same invoice) shows E101, E103 and E104; a same-day, same-service claim at another provider shows E106; the notice and the history table render in a browser (this found and fixed a script syntax error that blanked the console).
+
+**What this does not show.** It was run on a 10-claim demo batch, not on a measured set: there is no labelled repeat-claim data, so there is **no precision or recall figure** for E104 to E106. An advisory flag does not change a claim's lane or score, so a repeat that is otherwise clean still shows as lane green; the protection is the notice and the rule that the system never decides it. E104 compares per patient and provider, so reuse of one invoice number across different patients is not caught. No model was trained: there is no labelled fraud data in this claim format.
+
 ---
 
 ## 15. Security and privacy testing
 
 The penetration test, the fuzzing, the mutation test, the deployment attack, the real-model red team, the browser attack, the flood and timing tests, the backup test and the dependency scans are reported in the separate **Privacy and Security Note** (`docs/57`), which also holds the threat model, the access-control and least-privilege design and the audit design. They are not repeated here.
+
+**The history route (added after the final pass).** `GET /work/claims/{id}/history` was probed by hand on the running server: the holder gets 200 with the other claims; another reviewer 404; an administrator and a viewer 403; no session 401; an unknown claim 404; the answer contains no patient or member identifier. The 125-check penetration test and the mutation harness were **not re-run** after this route and the new audit event were added, so the figures below do not cover them.
 
 **Numbers from the final pass (details in `docs/57` section 9.7).** Penetration test **125 of 125** (nine new checks on the rulebook route); mutation harness **102 breakages**, the nine added for the rulebook route all caught (two needed a new test first); backup and restore **35 of 35**, which now includes erasing a person after a backup, restoring the older backup and checking the person stays erased. That last test found a real fault in `restore.sh` (a replay that read no ledger and still reported success), now fixed and made to fail closed. Deployment structural tests: 49 pass.
 
@@ -690,7 +702,7 @@ The penetration test, the fuzzing, the mutation test, the deployment attack, the
 12. **The learning, routing and workload experiments use simulated reviewers.** No review time has been measured; the real effect of any workload saving is unknown. Confidence routing is archived because it raised senior load.
 13. **The desktop app is unsigned**, Windows only, and was not run on a clean PC. The embedding sidecar image was not rebuilt for bge-m3.
 14. **Not yet run on the target server** and nothing here has run on real hospital traffic. This includes the backup, erasure and restore test, which ran under Git Bash on Windows (and there found a path fault that Linux would not show), and the vLLM serving of the explanation model, which was never benchmarked: every model-speed figure here is Ollama on the RTX 4060 laptop.
-15. **Nothing here measures review quality or decisions** by real people; the advisory extension rules (E001 to E103) are outside the official score.
+15. **Nothing here measures review quality or decisions** by real people; the advisory extension rules (E001 to E106) are outside the official score, and E104 to E106 have no measured precision or recall (section 14.7).
 
 ---
 

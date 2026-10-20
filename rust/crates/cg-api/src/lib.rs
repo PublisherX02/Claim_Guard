@@ -568,6 +568,7 @@ impl Api {
             ["work", "claims", id, "findings", rule, "decision"] if self.queue.is_some() => if m == "POST" { self.work_decide(req, id, rule) } else { Err(wrong()) },
             ["work", "claims", id, "verify"] if self.queue.is_some() => if m == "POST" { self.work_verify(req, id) } else { Err(wrong()) },
             ["work", "claims", id, "info-request"] if self.queue.is_some() => if m == "POST" { self.work_info_request(req, id) } else { Err(wrong()) },
+            ["work", "claims", id, "history"] if self.queue.is_some() => if m == "GET" { self.work_history(req, id) } else { Err(wrong()) },
             ["work", "claims", id, "whatif"] if self.queue.is_some() => if m == "POST" { self.work_whatif(req, id) } else { Err(wrong()) },
             ["work", "claims", id, "recheck"] if self.queue.is_some() => if m == "POST" { self.work_recheck(req, id) } else { Err(wrong()) },
             ["work", "bulk-confirm"] if self.queue.is_some() => if m == "POST" { self.work_bulk_confirm(req) } else { Err(wrong()) },
@@ -1101,6 +1102,11 @@ impl Api {
             .filter(|b: &BulkBody| b.rule_id.len() <= 10 && (1..=25).contains(&b.claim_ids.len()) && b.claim_ids.iter().all(|c| !c.is_empty() && c.len() <= 64))
             .ok_or_else(invalid)?;
         self.queue()?.bulk_confirm(&p, &b.rule_id, &b.claim_ids).map(|v| ApiResponse::json(200, &v)).map_err(|e| self.qerr(e, req, &p))
+    }
+
+    fn work_history(&self, req: &ApiRequest, id: &str) -> R {
+        let p = self.need(req, "claims.decide")?;
+        self.queue()?.patient_history(&p, id).map(|v| ApiResponse::json(200, &v)).map_err(|e| self.qerr(e, req, &p))
     }
 
     fn work_whatif(&self, req: &ApiRequest, id: &str) -> R {

@@ -45,6 +45,11 @@ struct Q {
 }
 
 fn q() -> Q {
+    q_with_history(true)
+}
+
+/// `history` false leaves the advisory (history) checks out of intake: for tests that submit copies of one claim on purpose and are not about repeats.
+fn q_with_history(history: bool) -> Q {
     let w = world();
     for (badge, level) in [("CG-4004", 4), ("CG-2002", 2), ("CG-2003", 2), ("CG-3003", 3), ("CG-3004", 3), ("CG-3005", 3), ("CG-1001", 1)] {
         w.provision(badge, level, PW);
@@ -56,7 +61,7 @@ fn q() -> Q {
     let review_log = Arc::new(AuditLog::open(w.dir.path().join("review.jsonl")).unwrap());
     let queue = Arc::new(QueueService::new(store.clone(), dispatcher.clone(), w.svc.clone(), w.svc.log.clone(), review_log, clock.clone()));
     let e = engine();
-    let intake = Arc::new(Intake { store: store.clone(), engine: engine_fn(e.clone()), log: w.svc.log.clone(), clock: clock.clone(), rule_pack_hash: cg_queue::flow::fixed_hash(e.pack.hash()), engine_version: e.code_hash(), advisory: Some(cg_queue::flow::advisory_fn(Arc::new(cg_engine::extensions::Extensions::load(&root()).unwrap()), store.clone())) });
+    let intake = Arc::new(Intake { store: store.clone(), engine: engine_fn(e.clone()), log: w.svc.log.clone(), clock: clock.clone(), rule_pack_hash: cg_queue::flow::fixed_hash(e.pack.hash()), engine_version: e.code_hash(), advisory: history.then(|| cg_queue::flow::advisory_fn(Arc::new(cg_engine::extensions::Extensions::load(&root()).unwrap()), store.clone())) });
     queue.set_intake(intake.clone());
     queue.set_rules({ let e = e.clone(); Arc::new(move || e.cfg()) });
     let sc = store.clone();
@@ -389,11 +394,37 @@ fn advisory_results_are_stored_with_the_claim_and_see_earlier_claims() {
     q.intake.submit(&again).unwrap();
     let doc = q.store.get("CG-REPEAT-0001", None).unwrap().unwrap();
     let adv = doc["advisory"].as_array().unwrap();
-    assert_eq!(adv.len(), 8);
+    assert_eq!(adv.len(), 11);
     let e101 = adv.iter().find(|a| a["rule_id"] == "E101").unwrap();
     assert_eq!(e101["status"], "FAIL", "the same lines were billed on an earlier claim");
+    let e104 = adv.iter().find(|a| a["rule_id"] == "E104").unwrap();
+    assert_eq!(e104["status"], "FAIL", "the copy carries the earlier claim's invoice number");
     let original = q.store.get(first["claim_id"].as_str().unwrap(), None).unwrap().unwrap();
     assert_ne!(original["advisory"].as_array().unwrap().iter().find(|a| a["rule_id"] == "E101").unwrap()["status"], "FAIL", "a claim has no earlier claim of its own");
+}
+
+#[test]
+fn the_holder_can_ask_for_the_patients_other_claims_and_it_is_logged_and_leaks_nothing() {
+    let q = q();
+    let id = q.ready("medium");
+    q.lease_to(&id, "CG-2002");
+    let mine = q.store.get(&id, None).unwrap().unwrap()["claim"].clone();
+    let patient = mine["patient_id"].as_str().unwrap().to_string();
+    let mut other = mine.clone();
+    other["claim_id"] = json!("CG-HISTORY-0001");
+    other["submission_date"] = json!("2001-01-01");
+    q.intake.submit(&other).unwrap();
+
+    let h = q.queue.patient_history(&q.p("CG-2002"), &id).unwrap();
+    assert_eq!((h["count"].as_i64(), h["shown"].as_i64()), (Some(1), Some(1)), "this claim itself is not listed");
+    assert_eq!(h["claims"][0]["claim_id"], "CG-HISTORY-0001");
+    assert_eq!(h["claims"][0]["provider_id"], mine["provider_id"]);
+    assert!(!h.to_string().contains(&patient), "no patient identifier in a history row");
+    assert!(q.security_kinds().contains(&"patient_history_viewed".to_string()));
+
+    // only the person who holds the claim may ask, and only a role that decides
+    assert!(q.queue.patient_history(&q.p("CG-2003"), &id).is_err());
+    assert!(matches!(q.queue.patient_history(&q.p("CG-4004"), &id), Err(QueueError::Forbidden(_))));
 }
 
 #[test]
@@ -770,7 +801,8 @@ fn green_copies(q: &Q, n: usize) -> Vec<Value> {
 }
 
 fn batch_world(green: usize) -> (Q, String, Vec<String>) {
-    let q = q();
+    // the green claims are copies of one claim, so they repeat each other; these tests are about the audit sample, not about repeats
+    let q = q_with_history(false);
     let admin = q.p("CG-4004");
     let mut set = serde_json::Map::new();
     set.insert("auto_clear_green".into(), json!(true));

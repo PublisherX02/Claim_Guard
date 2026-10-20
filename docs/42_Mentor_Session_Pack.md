@@ -72,7 +72,7 @@ Have ready, in case of questions: `docs/39` (security results), `docs/40` (opera
 2. **Task queue:** he named Celery or ARQ (Python). The system is now Rust, and the queue is built on Redis Streams with consumer groups, acknowledgement after work, retries, dead letters and an outbox in the database. Is that acceptable in place of Celery or ARQ?
 3. **May a trained model influence routing** (who reviews what, in what order), never the verdict?
 4. **May green claims ever skip a human?** (Today every claim goes to a person.)
-5. **"More than 15 rules":** which kinds? We built eight extension rules (E001 to E005, E101 to E103) and kept them apart from the official fifteen.
+5. **"More than 15 rules":** which kinds? We built eight extension rules (E001 to E005, E101 to E103), plus three history checks in the Rust build (E104 to E106, docs/61), and kept them apart from the official fifteen.
 6. **Is an open model under 15B on premises mandatory?** (gemma3:4b today.)
 7. **Retention and erasure:** what retention period would the insurer expect, and is erasure on request in scope for the demo?
 8. **Kubernetes:** is a written, tested set of manifests enough, or does he expect to see it running on a cluster?

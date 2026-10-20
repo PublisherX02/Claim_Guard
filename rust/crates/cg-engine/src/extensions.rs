@@ -20,7 +20,7 @@ use std::panic::{catch_unwind, AssertUnwindSafe};
 use std::path::{Path, PathBuf};
 
 const OUTCOMES: [(&str, &str); 4] = [("FAIL", "/{rid}:FAIL:/"), ("PASS", "\"{rid}:OK\""), ("UNABLE_TO_ASSESS", "\"{rid}:UNKNOWN\""), ("NOT_APPLICABLE", "\"{rid}:NA\"")];
-pub const RULE_IDS: [&str; 8] = ["E001", "E002", "E003", "E004", "E005", "E101", "E102", "E103"];
+pub const RULE_IDS: [&str; 11] = ["E001", "E002", "E003", "E004", "E005", "E101", "E102", "E103", "E104", "E105", "E106"];
 const NO_HISTORY: &str = "Claim history is not available, so earlier claims could not be checked.";
 const NO_PARTY: &str = "The claim has no readable patient, provider or submission date, so earlier claims could not be matched or ordered.";
 
@@ -143,6 +143,10 @@ pub struct Rule {
 pub struct Catalogue {
     raw: Value,
     rules: Vec<Rule>,
+    /// E104 to E106 (`rules/extensions/history_rules.json`), kept out of `rules` so the pinned pack for the first eight does not change.
+    history_rules: Vec<Rule>,
+    /// E105: more than `max_claims` claims (this one included) within `window_days` days.
+    velocity: (i64, usize),
     limits: BTreeMap<String, BigDecimal>,
 }
 
@@ -159,19 +163,39 @@ impl Catalogue {
             .iter()
             .filter_map(|(k, v)| Num::from_json(&v["max_quantity"]).map(|n| (k.clone(), n.to_decimal())))
             .collect();
-        let rules = raw["rules"]
-            .as_array()
-            .ok_or_else(|| ExtError::Catalogue("no rules".into()))?
-            .iter()
-            .map(|r| Rule { id: text(&r["rule_id"]).into(), severity: text(&r["severity"]).into(), version: text(&r["version"]).into(), source: text(&r["source"]).into(), corrective_action: text(&r["corrective_action"]).into() })
-            .collect();
-        Ok(Catalogue { raw, rules, limits })
+        let parse = |v: &Value| -> Result<Vec<Rule>, ExtError> {
+            Ok(v["rules"]
+                .as_array()
+                .ok_or_else(|| ExtError::Catalogue("no rules".into()))?
+                .iter()
+                .map(|r| Rule { id: text(&r["rule_id"]).into(), severity: text(&r["severity"]).into(), version: text(&r["version"]).into(), source: text(&r["source"]).into(), corrective_action: text(&r["corrective_action"]).into() })
+                .collect())
+        };
+        let rules = parse(&raw)?;
+        let history = read(root.join("rules/extensions/history_rules.json"))?;
+        let history_rules = parse(&history)?;
+        let velocity = (history["velocity"]["window_days"].as_i64().filter(|n| *n > 0).unwrap_or(7), history["velocity"]["max_claims"].as_u64().filter(|n| *n > 0).unwrap_or(3) as usize);
+        Ok(Catalogue { raw, rules, history_rules, velocity, limits })
     }
 
     /// `extension_rules.pack_source`
     pub fn pack_source(&self) -> String {
+        Self::blocks(&self.rules)
+    }
+
+    /// The pack source for E104 to E106 alone.
+    pub fn history_pack_source(&self) -> String {
+        Self::blocks(&self.history_rules)
+    }
+
+    /// Everything the server scans: the pinned eight and the three history checks, in one pack so the scanner is built once.
+    fn full_pack_source(&self) -> String {
+        format!("{}\n{}", self.pack_source(), self.history_pack_source())
+    }
+
+    fn blocks(rules: &[Rule]) -> String {
         let mut blocks = vec![];
-        for r in &self.rules {
+        for r in rules {
             for (outcome, pattern) in OUTCOMES {
                 blocks.push(format!(
                     "rule {id}_{lo} {{\n  meta:\n    rule_id = \"{id}\"\n    outcome = \"{outcome}\"\n    severity = \"{sev}\"\n    rule_version = \"{ver}\"\n  strings:\n    $m = {pat}\n  condition:\n    $m\n}}\n",
@@ -639,8 +663,90 @@ fn e103(view: &Value, cat: &Catalogue, h: &Hist) -> Result<Details, String> {
     Ok(ok("E103", "Daily totals across claims stay within each service limit."))
 }
 
+// ---- E104, E105, E106 (history checks beyond the pinned pack) ---------------------------------------------------------------------------
+fn norm_invoice(s: &str) -> String {
+    s.trim().to_ascii_uppercase()
+}
+
+fn e104(view: &Value, _cat: &Catalogue, h: &Hist) -> Result<Details, String> {
+    let Some(invoice) = view.get("invoice_number").and_then(Value::as_str).map(norm_invoice).filter(|s| !s.is_empty()) else {
+        return Ok(na("E104", "The claim has no invoice number."));
+    };
+    if !h.present() {
+        return Ok(unknown("E104", NO_HISTORY));
+    }
+    let Some(provider) = party(view) else { return Ok(unknown("E104", NO_PARTY)) };
+    let reused = h.views(view)?.iter().any(|prev| prev.get("provider_id").and_then(Value::as_str) == Some(provider) && prev.get("invoice_number").and_then(Value::as_str).map(norm_invoice).as_deref() == Some(invoice.as_str()));
+    if reused {
+        return Ok(Details { facts: vec!["E104:FAIL:0".into()], evidence_paths: vec!["/invoice_number".into(), "/provider_id".into()], line_ids: vec![], message: "An earlier claim of this patient and provider carries the same invoice number.".into() });
+    }
+    Ok(ok("E104", "No earlier claim of this patient and provider carries this invoice number."))
+}
+
+fn e105(view: &Value, cat: &Catalogue, h: &Hist) -> Result<Details, String> {
+    if !h.present() {
+        return Ok(unknown("E105", NO_HISTORY));
+    }
+    let (window, max) = cat.velocity;
+    let (patient, today) = (view.get("patient_id").and_then(Value::as_str).filter(|s| !s.is_empty()), view.get("submission_date").and_then(Value::as_str).and_then(Day::parse));
+    let (Some(_), Some(today)) = (patient, today) else { return Ok(unknown("E105", NO_PARTY)) };
+    let recent = h.views(view)?.iter().filter_map(|prev| prev.get("submission_date").and_then(Value::as_str).and_then(Day::parse)).filter(|d| (0..=window).contains(&today.days_since(d))).count();
+    if recent + 1 > max {
+        return Ok(Details {
+            facts: vec!["E105:FAIL:0".into()],
+            evidence_paths: vec!["/submission_date".into(), "/patient_id".into()],
+            line_ids: vec![],
+            message: format!("This patient has {} claims within {window} days including this one; the check flags more than {max}.", recent + 1),
+        });
+    }
+    Ok(ok("E105", "The number of claims from this patient in the recent window is within the limit."))
+}
+
+fn e106(view: &Value, _cat: &Catalogue, h: &Hist) -> Result<Details, String> {
+    if lines(view).is_empty() {
+        return Ok(na("E106", "The claim has no lines."));
+    }
+    if !h.present() {
+        return Ok(unknown("E106", NO_HISTORY));
+    }
+    let Some(provider) = party(view) else { return Ok(unknown("E106", NO_PARTY)) };
+    let mut elsewhere = BTreeSet::new();
+    for prev in h.views(view)? {
+        if prev.get("provider_id").and_then(Value::as_str).is_some_and(|p| !p.is_empty() && p != provider) {
+            for (_, r) in lines(&prev) {
+                if let (Some(code), Some(day)) = (sget(r, "service_code").filter(|c| !c.is_empty()), day_of(r, "service_date")) {
+                    elsewhere.insert((code.to_string(), day));
+                }
+            }
+        }
+    }
+    let (mut facts, mut paths, mut ids, mut unreadable) = (vec![], vec![], vec![], false);
+    for (i, row) in lines(view) {
+        match (sget(row, "service_code").filter(|c| !c.is_empty()), day_of(row, "service_date")) {
+            (Some(code), Some(day)) => {
+                if elsewhere.contains(&(code.to_string(), day)) {
+                    facts.push(format!("E106:FAIL:{i}"));
+                    paths.extend(line_paths(i, &["service_code", "service_date"]));
+                    ids.extend(line_id(row));
+                }
+            }
+            _ => unreadable = true,
+        }
+    }
+    if unreadable {
+        facts.push("E106:UNKNOWN".into());
+    }
+    if facts.iter().any(|f| f.starts_with("E106:FAIL:")) {
+        return Ok(Details { facts, evidence_paths: paths, line_ids: ids, message: "The same service on the same date was billed for this patient by a different provider on an earlier claim.".into() });
+    }
+    if unreadable {
+        return Ok(Details { facts, evidence_paths: vec!["/claim_id".into()], line_ids: vec![], message: "A line has an unreadable service or date, so it could not be compared with other providers' claims.".into() });
+    }
+    Ok(ok("E106", "No line repeats a service on the same date billed by another provider."))
+}
+
 type DetailFn = fn(&Value, &Catalogue, &Hist) -> Result<Details, String>;
-const DETAIL_FUNCS: [(&str, DetailFn); 8] = [("E001", e001), ("E002", e002), ("E003", e003), ("E004", e004), ("E005", e005), ("E101", e101), ("E102", e102), ("E103", e103)];
+const DETAIL_FUNCS: [(&str, DetailFn); 11] = [("E001", e001), ("E002", e002), ("E003", e003), ("E004", e004), ("E005", e005), ("E101", e101), ("E102", e102), ("E103", e103), ("E104", e104), ("E105", e105), ("E106", e106)];
 
 // ---- assembly ------------------------------------------------------------------------------------------------------------------------
 pub struct Extensions {
@@ -648,16 +754,23 @@ pub struct Extensions {
     pack: Pack,
 }
 
+const HISTORY_IDS: [&str; 3] = ["E104", "E105", "E106"];
+
 impl Extensions {
     pub fn load(root: &Path) -> Result<Extensions, ExtError> {
         let cat = Catalogue::load(root)?;
-        let pack = Pack::from_source(cat.pack_source(), root.join("rules/extensions/catalogue.json"))?;
+        let pack = Pack::from_source(cat.full_pack_source(), root.join("rules/extensions/catalogue.json"))?;
         Ok(Extensions { cat, pack })
     }
 
-    /// `extension_rules.pack_hash`: sha256 of the generated pack source.
+    /// `extension_rules.pack_hash`: sha256 of the generated pack source (E001 to E103; the Python build computes the same).
     pub fn pack_hash(&self) -> String {
         hex::encode(Sha256::digest(self.cat.pack_source().as_bytes()))
+    }
+
+    /// sha256 of the generated pack source for E104 to E106.
+    pub fn history_pack_hash(&self) -> String {
+        hex::encode(Sha256::digest(self.cat.history_pack_source().as_bytes()))
     }
 
     fn evidence(claim: &Value, paths: &[String]) -> Vec<Value> {
@@ -669,7 +782,7 @@ impl Extensions {
         out
     }
 
-    /// The eight advisory results for one claim. Never panics for an object claim: a failure inside one rule makes that rule
+    /// The eleven advisory results for one claim. Never panics for an object claim: a failure inside one rule makes that rule
     /// UNABLE_TO_ASSESS and is appended to `tool_errors`.
     pub fn evaluate(&self, claim: &Value, history: Option<&dyn History>, tool_errors: &mut Vec<String>) -> Result<Vec<Value>, ExtError> {
         let view = clean_view(claim);
@@ -692,11 +805,11 @@ impl Extensions {
             }
         }
         let matched = self.pack.scan(&blob)?;
-        let phash = self.pack_hash();
+        let (phash, hhash) = (self.pack_hash(), self.history_pack_hash());
         let claim_id = claim.get("claim_id").filter(|v| v.is_string()).cloned().unwrap_or_else(|| json!(""));
         let mut results = vec![];
         for (rid, outcome) in details {
-            let def = self.cat.rules.iter().find(|r| r.id == rid).ok_or_else(|| ExtError::OutOfSync(rid.into()))?;
+            let def = self.cat.rules.iter().chain(self.cat.history_rules.iter()).find(|r| r.id == rid).ok_or_else(|| ExtError::OutOfSync(rid.into()))?;
             let (status, d) = match outcome {
                 Err(_) => ("UNABLE_TO_ASSESS", Details { facts: vec![], evidence_paths: vec!["/claim_id".into()], line_ids: vec![], message: "An internal error prevented this check; it is treated as unable to assess.".into() }),
                 Ok(d) => {
@@ -710,7 +823,7 @@ impl Extensions {
                 "affected_line_ids": d.line_ids, "evidence": Self::evidence(claim, &d.evidence_paths), "rule_source": def.source,
                 "explanation": d.message, "corrective_action": if flagged { def.corrective_action.clone() } else { String::new() },
                 "confidence": null, "confidence_kind": "not_probabilistic", "requires_human_review": flagged,
-                "method": "deterministic", "review_status": "unreviewed", "rule_family": "extension", "advisory": true, "pack_hash": phash,
+                "method": "deterministic", "review_status": "unreviewed", "rule_family": "extension", "advisory": true, "pack_hash": if HISTORY_IDS.contains(&rid) { &hhash } else { &phash },
             }));
         }
         Ok(results)
@@ -741,8 +854,81 @@ mod tests {
         let r = ext.evaluate(&claim, None, &mut vec![]).unwrap();
         let st = |id: &str| r.iter().find(|x| x["rule_id"] == id).unwrap()["status"].as_str().unwrap().to_string();
         assert_eq!((st("E101").as_str(), st("E102").as_str()), ("UNABLE_TO_ASSESS", "UNABLE_TO_ASSESS"));
-        assert_eq!(r.len(), 8);
+        assert_eq!(r.len(), 11);
         assert!(r.iter().all(|x| x["advisory"] == true && x["rule_family"] == "extension"));
+    }
+
+    fn claim(id: &str, provider: &str, date: &str, invoice: &str, line_service: &str, line_date: &str) -> Value {
+        json!({"claim_id": id, "patient_id": "P", "provider_id": provider, "submission_date": date, "invoice_number": invoice, "diagnosis_code": "DX-EDU-01",
+            "lines": [{"line_id": "L1", "service_code": line_service, "service_date": line_date, "quantity": 1, "net_amount": 10}]})
+    }
+
+    fn statuses(c: &Value, earlier: Vec<Value>) -> BTreeMap<String, String> {
+        let ext = Extensions::load(&root()).unwrap();
+        let mut all = earlier;
+        all.push(c.clone());
+        let history = InMemoryHistory::new(&all);
+        ext.evaluate(c, Some(&history), &mut vec![]).unwrap().iter().map(|x| (x["rule_id"].as_str().unwrap().to_string(), x["status"].as_str().unwrap().to_string())).collect()
+    }
+
+    #[test]
+    fn the_pinned_pack_for_the_first_eight_is_untouched_by_the_history_rules() {
+        let ext = Extensions::load(&root()).unwrap();
+        assert!(!ext.cat.pack_source().contains("E104"));
+        assert!(ext.cat.history_pack_source().contains("E106"));
+        assert_ne!(ext.history_pack_hash(), ext.pack_hash());
+    }
+
+    #[test]
+    fn e104_flags_an_invoice_number_used_again_by_the_same_provider_only() {
+        let first = claim("C1", "V1", "2026-03-01", "INV-77", "SVC-EDU-01", "2026-02-20");
+        // same invoice, different content, a later claim id: flagged (case and spaces do not hide it)
+        let again = claim("C2", "V1", "2026-03-09", " inv-77 ", "SVC-EDU-02", "2026-03-05");
+        assert_eq!(statuses(&again, vec![first.clone()])["E104"], "FAIL");
+        // another provider may use the same number; a different number is fine
+        assert_eq!(statuses(&claim("C2", "V2", "2026-03-09", "INV-77", "SVC-EDU-02", "2026-03-05"), vec![first.clone()])["E104"], "PASS");
+        assert_eq!(statuses(&claim("C2", "V1", "2026-03-09", "INV-78", "SVC-EDU-02", "2026-03-05"), vec![first.clone()])["E104"], "PASS");
+        // the earlier claim is not flagged by the later one
+        assert_eq!(statuses(&first, vec![again])["E104"], "PASS");
+        // no invoice number: not applicable, never a pass
+        assert_eq!(statuses(&claim("C2", "V1", "2026-03-09", "", "SVC-EDU-02", "2026-03-05"), vec![first])["E104"], "NOT_APPLICABLE");
+    }
+
+    #[test]
+    fn e105_flags_more_than_three_claims_in_seven_days_and_not_exactly_three() {
+        let mk = |n: usize, day: &str| claim(&format!("C{n}"), "V1", day, &format!("INV-{n}"), "SVC-EDU-01", "2026-02-20");
+        let earlier = vec![mk(1, "2026-03-03"), mk(2, "2026-03-05")];
+        // this is the third in the window: allowed
+        assert_eq!(statuses(&mk(3, "2026-03-09"), earlier.clone())["E105"], "PASS");
+        // the fourth: flagged
+        let mut four = earlier.clone();
+        four.push(mk(3, "2026-03-08"));
+        assert_eq!(statuses(&mk(4, "2026-03-09"), four.clone())["E105"], "FAIL");
+        // an earlier claim exactly seven days before still counts, eight days before does not
+        assert_eq!(statuses(&mk(9, "2026-03-10"), vec![mk(1, "2026-03-03"), mk(2, "2026-03-09"), mk(3, "2026-03-09")])["E105"], "FAIL");
+        assert_eq!(statuses(&mk(9, "2026-03-11"), vec![mk(1, "2026-03-03"), mk(2, "2026-03-09"), mk(3, "2026-03-09")])["E105"], "PASS");
+    }
+
+    #[test]
+    fn e106_flags_the_same_service_and_date_at_another_provider_but_not_the_same_provider() {
+        let first = claim("C1", "V1", "2026-03-01", "INV-1", "SVC-EDU-01", "2026-02-20");
+        assert_eq!(statuses(&claim("C2", "V2", "2026-03-09", "INV-2", "SVC-EDU-01", "2026-02-20"), vec![first.clone()])["E106"], "FAIL");
+        // a different date or service is fine
+        assert_eq!(statuses(&claim("C2", "V2", "2026-03-09", "INV-2", "SVC-EDU-01", "2026-02-21"), vec![first.clone()])["E106"], "PASS");
+        assert_eq!(statuses(&claim("C2", "V2", "2026-03-09", "INV-2", "SVC-EDU-02", "2026-02-20"), vec![first.clone()])["E106"], "PASS");
+        // the same provider is E101's business, not E106's
+        let same = statuses(&claim("C2", "V1", "2026-03-09", "INV-2", "SVC-EDU-01", "2026-02-20"), vec![first]);
+        assert_eq!((same["E106"].as_str(), same["E101"].as_str()), ("PASS", "FAIL"));
+    }
+
+    #[test]
+    fn the_history_rules_are_unable_not_pass_without_history() {
+        let ext = Extensions::load(&root()).unwrap();
+        let c = claim("C2", "V2", "2026-03-09", "INV-2", "SVC-EDU-01", "2026-02-20");
+        let r = ext.evaluate(&c, None, &mut vec![]).unwrap();
+        for id in ["E104", "E105", "E106"] {
+            assert_eq!(r.iter().find(|x| x["rule_id"] == id).unwrap()["status"], "UNABLE_TO_ASSESS", "{id}");
+        }
     }
 
     #[test]

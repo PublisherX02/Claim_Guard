@@ -34,6 +34,8 @@ pub const RESOLVING: [&str; 2] = ["confirm_issue", "dismiss_with_reason"];
 pub const GREEN_ACTIONS: [&str; 2] = ["verify_clear", "escalate"];
 const ACTIONS: [&str; 4] = ["confirm_issue", "dismiss_with_reason", "request_information", "mark_corrected_for_recheck"];
 const LOG_VALUE_CHARS: usize = 400;
+/// How many of a patient's other claims the history view lists.
+const HISTORY_ROWS: usize = 50;
 pub const MAX_SUBMIT: usize = 25;
 /// One submission is one batch (docs/53).
 pub const MAX_SUBMIT_CLAIMS: usize = crate::batch::MAX_BATCH;
@@ -321,6 +323,43 @@ impl QueueService {
     pub fn next(&self, principal: &Principal) -> R<Option<Value>> {
         let perms = self.require(principal, "claims.decide")?;
         self.dispatcher.next_for(principal.badge()).map(|d| self.view(&perms, &d)).transpose()
+    }
+
+    /// The patient's other claims, one summary row each (newest first, at most `HISTORY_ROWS`), for the person who holds this claim. It is a
+    /// read of other claims, so it is a button not a default, only the holder may ask, and each use is written to the security log. A row
+    /// carries no patient identifier, no notes and no line detail: the claim id, dates, provider, total, state and which rules were flagged.
+    pub fn patient_history(&self, principal: &Principal, claim_id: &str) -> R<Value> {
+        self.require(principal, "claims.decide")?;
+        let doc = self.mine(principal, claim_id, self.now())?;
+        let patient = doc["claim"]["patient_id"].as_str().unwrap_or("");
+        let mut latest: BTreeMap<String, Value> = BTreeMap::new();
+        if !patient.is_empty() {
+            for d in self.store.docs_for_patient(patient).map_err(store_err)? {
+                let id = d["claim_id"].as_str().unwrap_or("").to_string();
+                if id.is_empty() || id == claim_id {
+                    continue;
+                }
+                if latest.get(&id).map_or(true, |cur| d["version"].as_i64() > cur["version"].as_i64()) {
+                    latest.insert(id, d);
+                }
+            }
+        }
+        let flagged = |v: &Value| -> Vec<Value> {
+            v.as_array().into_iter().flatten().filter(|r| matches!(r["status"].as_str(), Some("FAIL") | Some("UNABLE_TO_ASSESS"))).map(|r| r["rule_id"].clone()).collect()
+        };
+        let mut rows: Vec<Value> = latest
+            .values()
+            .map(|d| {
+                json!({"claim_id": d["claim_id"], "version": d["version"], "submission_date": d["claim"]["submission_date"], "provider_id": d["claim"]["provider_id"],
+                    "total_amount": d["claim"]["total_amount"], "currency": d["claim"]["currency"], "state": d["state"], "lane": d["receipt"]["lane"],
+                    "flagged": flagged(&d["results"]), "advisory_flagged": flagged(&d["advisory"])})
+            })
+            .collect();
+        rows.sort_by(|a, b| b["submission_date"].as_str().cmp(&a["submission_date"].as_str()).then_with(|| b["claim_id"].as_str().cmp(&a["claim_id"].as_str())));
+        let total = rows.len();
+        rows.truncate(HISTORY_ROWS);
+        self.access.record("patient_history_viewed", json!({"badge_id": principal.badge(), "claim_id": claim_id, "n": rows.len()}))?;
+        Ok(json!({"claim_id": claim_id, "count": total, "shown": rows.len(), "claims": rows}))
     }
 
     pub fn heartbeat(&self, principal: &Principal) -> R<i64> {
