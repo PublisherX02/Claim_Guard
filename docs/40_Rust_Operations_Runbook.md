@@ -5,9 +5,12 @@ For the person who runs the server. Everything here was exercised on this laptop
 ## 1. Install
 
 ```
-bash deploy/rust/install.sh <address-or-domain> internal|public [ai]
+bash deploy/rust/install.sh <address-or-domain> internal|public [ai] [docs] [search]
 ```
+- The options can be combined in any order: `ai` hosts the explanation model (section 12), `docs` adds the document reader, and `search` adds "Ask the rulebook" by meaning (the bge-m3 embedding service on the CPU, about 2.3 GB, 4 GB of memory; it writes `EMBEDDER_URL`, `EMBEDDER_TOKEN` and `EMBEDDER_THRESHOLD=0.485` to `.env` and starts the `search` profile). Without `search` the graph, the answer cache and keyword search still answer. To have a model write the cited answers as well, set `ASK_LLM_PROVIDER=vllm` (and see "With Ask the rulebook" in section 12).
 - Needs Linux with Docker and the compose plugin, and `openssl`. `internal` is for an address or internal name (a certificate from the proxy's own authority; browsers warn until you trust it); `public` is for a real domain with ports 80 and 443 reachable (a Let's Encrypt certificate). `ai` downloads the model once and hosts it with vLLM, then checks it with `cg model-check` (section 12).
+- **An `.env` written by an older `install.sh`** lacks `VLLM_API_KEY`, `DOCUMENT_READER_TOKEN` and `EMBEDDER_TOKEN`, which `docker compose` needs even for services you do not run (it reads the whole file). Add them (any long random value; `openssl rand -base64 48 | tr -d '
+=' | tr '+/' '-_'`) or the stack will not start. A new `.env` gets all of them.
 - It writes `.env` with freshly generated secrets **only if `.env` does not exist** (mode 600), builds and starts the stack, waits for health, and asks you to create the first administrator (level 4). You choose the password; the authenticator seed is shown once.
 - Only the proxy publishes ports (80, 443). The database and cache sit on a network with no route to the internet.
 - Set `CG_SSH_FROM=<your address>/32` when you run the script and it also installs the host firewall (section 10). Without it the script says so and the server relies on Docker alone.
