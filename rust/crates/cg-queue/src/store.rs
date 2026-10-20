@@ -19,7 +19,7 @@ pub type Result<T> = std::result::Result<T, StoreError>;
 
 pub const SETTABLE: [&str; 10] = ["lease", "decided_by", "shadow", "explanation", "enqueue_pending", "escalated", "signoff", "auto_cleared", "auto_requested", "decisions"];
 pub const DEALABLE: [&str; 2] = ["ready", "awaiting_countersign"];
-const HISTORY_FIELDS: [&str; 9] = ["claim_id", "patient_id", "provider_id", "submission_date", "lines", "authorizations", "notes", "diagnosis_code", "attachments"];
+const HISTORY_FIELDS: [&str; 10] = ["claim_id", "patient_id", "provider_id", "submission_date", "invoice_number", "lines", "authorizations", "notes", "diagnosis_code", "attachments"];
 
 pub fn invalid<T>(m: impl Into<String>) -> Result<T> {
     Err(StoreError::Invalid(m.into()))

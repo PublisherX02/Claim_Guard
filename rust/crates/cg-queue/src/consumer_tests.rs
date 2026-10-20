@@ -455,6 +455,31 @@ fn with_auto_clear_on_the_system_decides_green_claims_and_only_the_audit_sample_
 }
 
 #[test]
+fn a_green_claim_that_an_advisory_check_flagged_is_never_cleared_by_the_system() {
+    let w = world(probe(1, false));
+    set_config(&w.store, true, 1);
+    let ids: Vec<String> = (0..60).map(|i| {
+        let id = format!("IA{i}");
+        let mut d = doc(&id);
+        d["results"] = Value::Array(triage::rule_ids().into_iter().map(|r| json!({"rule_id": r, "status": "PASS", "severity": "medium", "affected_line_ids": [], "evidence": []})).collect());
+        d["receipt"]["lane"] = json!("green");
+        // half carry a failed advisory check (a repeat of an earlier claim), half a passed one
+        d["advisory"] = json!([{"rule_id": "E101", "status": if i % 2 == 0 { "FAIL" } else { "PASS" }}]);
+        assert!(w.store.put_triaged(&d).unwrap());
+        id
+    }).collect();
+    run_all(&w, &ids);
+    for (i, id) in ids.iter().enumerate() {
+        let state = state_of(&w.store, id);
+        if i % 2 == 0 {
+            assert_eq!(state, "ready", "{id}: a flagged repeat goes to a person even though the audit sample is only 1%");
+        }
+    }
+    let cleared = ids.iter().enumerate().filter(|(i, id)| i % 2 == 1 && state_of(&w.store, id) == "decided").count();
+    assert!(cleared >= 20, "advisory-clean claims are still cleared as before (got {cleared} of 30)");
+}
+
+#[test]
 fn an_audit_percent_of_100_sends_every_green_claim_to_a_person() {
     let w = world(probe(1, false));
     set_config(&w.store, true, 100);
