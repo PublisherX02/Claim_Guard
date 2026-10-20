@@ -4,6 +4,7 @@
 #   bash deploy/rust/install.sh 203.0.113.10 internal          # an IP address or internal name: private-CA certificate
 #   HF_TOKEN=hf_... bash deploy/rust/install.sh 203.0.113.10 internal ai   # also host google/gemma-3-4b-it on this machine (vLLM) for the AI explanation drafts
 #   bash deploy/rust/install.sh 203.0.113.10 internal ai docs  # also the document reader: import claims from PDFs and photographs (docs/45)
+#   bash deploy/rust/install.sh 203.0.113.10 internal search    # also "Ask the rulebook" by meaning (bge-m3 embedding service on the CPU, image about 2.3 GB). The options ai, docs and search can be combined in any order
 #   CG_SSH_FROM=203.0.113.7/32 bash deploy/rust/install.sh ...    # also set up the host firewall: SSH only from that address, web 80/443 for all
 #   (the model is overridable: CG_MODEL=<huggingface repository> bash deploy/rust/install.sh ... ai. Gemma is gated: accept its licence on
 #    huggingface.co and pass a read token as HF_TOKEN. A vision model for the reader: CG_VLM_MODEL=<huggingface repository> ... ai docs. docs/40 section 12)
@@ -14,9 +15,10 @@ cd "$(dirname "$0")/../.."
 
 SITE="${1:?usage: install.sh <domain-or-address> <public|internal>}"
 MODE="${2:?usage: install.sh <domain-or-address> <public|internal>}"
-AI="${3:-}"
-DOCS="${4:-}"
-[ "$AI" = "docs" ] && { AI=""; DOCS="docs"; }
+AI=""; DOCS=""; SEARCH=""
+for opt in "${@:3}"; do
+  case "$opt" in ai) AI=ai ;; docs) DOCS=docs ;; search) SEARCH=search ;; *) echo "unknown option '$opt' (use ai, docs and/or search)"; exit 2 ;; esac
+done
 MODEL="${CG_MODEL:-google/gemma-3-4b-it}"
 case "$MODE" in public) CADDYFILE=Caddyfile.public ;; internal) CADDYFILE=Caddyfile.internal ;; *) echo "mode must be public or internal"; exit 2 ;; esac
 command -v docker >/dev/null || { echo "docker is not installed"; exit 1; }
@@ -41,21 +43,26 @@ else
     echo "MONGO_ROOT_USER=claimguard"
     echo "MONGO_ROOT_PASSWORD=$(openssl rand -hex 24)"
     echo "REDIS_PASSWORD=$(openssl rand -hex 24)"
+    # docker compose reads every service in the file even when its profile is off, and these three are required there: generate them always (unused ones are harmless)
+    echo "VLLM_API_KEY=$VLLM_KEY"            # the model server refuses a request without it
+    echo "DOCUMENT_READER_TOKEN=$(secret)"
+    echo "EMBEDDER_TOKEN=$(secret)"
     if [ "$AI" = "ai" ]; then
       echo "QUEUE_AI_PROVIDER=vllm"
       echo "VLLM_MODEL=$MODEL"
-      echo "VLLM_API_KEY=$VLLM_KEY"        # the model server refuses a request without it
+    fi
+    if [ "$SEARCH" = "search" ]; then   # "Ask the rulebook" by meaning (docs/52, docs/55); without it the keyword search answers
+      echo "EMBEDDER_URL=http://embed:8091"
+      echo "EMBEDDER_THRESHOLD=0.485"      # the value measured for bge-m3 (docs/55); another model needs its own
     fi
     if [ "$DOCS" = "docs" ]; then
       echo "DOCUMENT_READER_URL=http://reader:8090"
-      echo "DOCUMENT_READER_TOKEN=$(secret)"
       echo "DOCUMENT_READER_ENGINE=auto"
       echo "DOCUMENT_READER_LANGS=eng"
       if [ -n "${CG_VLM_MODEL:-}" ]; then   # the second reader: a vision model served by its own vLLM (docs/45); without it documents are read with Tesseract only
         echo "VLLM_VLM_MODEL=$CG_VLM_MODEL"
         echo "VLM_BASE_URL=http://vllm-vision:8000/v1"
         echo "VLM_MODEL=$CG_VLM_MODEL"
-        [ "$AI" = "ai" ] || echo "VLLM_API_KEY=$VLLM_KEY"
       fi
     fi
   } > .env
@@ -70,11 +77,15 @@ if command -v nvidia-smi >/dev/null && nvidia-smi >/dev/null 2>&1 && docker info
 else
   { [ "$AI" = "ai" ] || [ "$DOCS" = "docs" ]; } && echo "WARNING: no NVIDIA GPU / container toolkit detected: the models will run on the CPU (slow). Install nvidia-container-toolkit, then re-run."
 fi
-VLM_IN_ENV="$(grep '^VLLM_VLM_MODEL=' .env 2>/dev/null | cut -d= -f2-)"
+VLM_IN_ENV="$(grep '^VLLM_VLM_MODEL=' .env 2>/dev/null | cut -d= -f2- || true)"   # no match is normal (no vision model): without `|| true`, set -e -o pipefail ends the script here
 if [ "$DOCS" = "docs" ]; then
   COMPOSE="$COMPOSE --profile documents"
   [ -n "$VLM_IN_ENV" ] && COMPOSE="$COMPOSE --profile vision"   # the vision reader has its own vLLM server (one model per server)
   grep -q '^DOCUMENT_READER_URL=.' .env || { echo "documents requested but .env has no DOCUMENT_READER_URL / DOCUMENT_READER_TOKEN: add them (see deploy/env.production.example), then re-run"; exit 1; }
+fi
+if [ "$SEARCH" = "search" ]; then
+  COMPOSE="$COMPOSE --profile search"
+  grep -q '^EMBEDDER_URL=.' .env && grep -q '^EMBEDDER_TOKEN=.' .env || { echo "search requested but .env has no EMBEDDER_URL / EMBEDDER_TOKEN: add them (see deploy/env.production.example), then re-run"; exit 1; }
 fi
 if [ "$AI" = "ai" ]; then
   COMPOSE="$COMPOSE --profile ai"

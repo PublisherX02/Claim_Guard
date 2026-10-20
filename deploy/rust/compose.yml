@@ -239,7 +239,7 @@ services:
       HF_HOME: /models/hf
       HF_HUB_OFFLINE: "1"
       VLLM_API_KEY: ${VLLM_API_KEY:?set VLLM_API_KEY in .env (install.sh generates one)}
-      VLLM_VLM_MODEL: ${VLLM_VLM_MODEL:?set VLLM_VLM_MODEL in .env (the Hugging Face repository of the vision model)}
+      VLLM_VLM_MODEL: ${VLLM_VLM_MODEL:-}   # set by install.sh ... docs with CG_VLM_MODEL; only used when the vision profile is on (compose reads every service, so it cannot be required here)
       VLLM_VLM_MAX_LEN: ${VLLM_VLM_MAX_LEN:-4096}
       VLLM_VLM_GPU_UTIL: ${VLLM_VLM_GPU_UTIL:-0.30}   # 0.55 + 0.30 leaves 15% of the card free; the two must not add up to more than 1
       VLLM_VLM_EXTRA_ARGS: ${VLLM_VLM_EXTRA_ARGS:- }
