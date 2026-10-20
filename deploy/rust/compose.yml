@@ -31,6 +31,20 @@ x-app: &app
     VLLM_API_KEY: ${VLLM_API_KEY:-}                   # the key the server was started with
     FEATHERLESS_API_KEY: ${FEATHERLESS_API_KEY:-}
     TRUSTED_PROXY_IPS: ${TRUSTED_PROXY_IPS:-*}
+    # privacy (docs/58, docs/59): a key per patient (the default; false keeps one master key and nothing can be shredded), and how many days
+    # a decided claim is kept (0 = keep everything; the worker erases older ones hourly). ASK_PER_MINUTE rations "Ask the rulebook" per person.
+    CG_PATIENT_KEYS: ${CG_PATIENT_KEYS:-true}
+    RETENTION_DAYS: ${RETENTION_DAYS:-0}
+    ASK_PER_MINUTE: ${ASK_PER_MINUTE:-30}
+    ASK_GENERATE_PER_MINUTE: ${ASK_GENERATE_PER_MINUTE:-6}   # of those, how many may ask for a written answer: each holds the model for seconds
+    # "Ask the rulebook" with a model (docs/60): vllm lets the on-premises model (VLLM_BASE_URL, VLLM_MODEL, VLLM_API_KEY above) pick one of 11 fixed graph
+    # queries for a question the keyword planner does not understand and write the cited facts up (shown only if every sentence cites a fact and every
+    # id and number is in the facts). Empty: the graph, the cache and passage search answer without a model. ASK_LLM_PREFIX=1 puts the whole rulebook
+    # (about 3,600 tokens) first in every prompt: set VLLM_MAX_LEN to 8192 or more before using it.
+    ASK_LLM_PROVIDER: ${ASK_LLM_PROVIDER:-}
+    ASK_LLM_PREFIX: ${ASK_LLM_PREFIX:-}
+    ASK_LLM_TIMEOUT: ${ASK_LLM_TIMEOUT:-60}
+    ASK_LLM_MAX_TOKENS: ${ASK_LLM_MAX_TOKENS:-400}
     # audit protection (docs/39): a second, append-only copy of both logs on its own volume (only the worker mounts it), and an optional
     # RFC 3161 timestamp authority; the API reads these two only to know which checks the health panel should expect
     AUDIT_MIRROR_DIR: ${AUDIT_MIRROR_DIR:-/mirror}
@@ -196,7 +210,7 @@ services:
       HF_HUB_OFFLINE: "1"      # the weights were fetched once by vllm-fetch; this container has no route out and never asks the internet
       VLLM_API_KEY: ${VLLM_API_KEY:?set VLLM_API_KEY in .env (install.sh generates one)}
       VLLM_MODEL: ${VLLM_MODEL:-google/gemma-3-4b-it}
-      VLLM_MAX_LEN: ${VLLM_MAX_LEN:-2048}           # an explanation prompt is about 600 tokens and the answer at most 500
+      VLLM_MAX_LEN: ${VLLM_MAX_LEN:-2048}           # an explanation prompt is about 600 tokens and the answer at most 500; with ASK_LLM_PREFIX=1 use 8192 (the rulebook prefix is about 3,600)
       VLLM_GPU_UTIL: ${VLLM_GPU_UTIL:-0.55}         # the share of the card's memory this server may take (the vision server below takes its own)
       VLLM_MAX_SEQS: ${CG_WORKER_CONCURRENCY:-4}    # sequences decoded together: the same number as the worker's pool
       VLLM_EXTRA_ARGS: ${VLLM_EXTRA_ARGS:---quantization fp8}   # weight-only FP8 (an RTX 3080 is Ampere): halves the weights to fit the 10 GB card; set it to a space for a card with room

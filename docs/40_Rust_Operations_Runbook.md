@@ -35,6 +35,10 @@ bash deploy/rust/install.sh <address-or-domain> internal|public [ai]
 | `AUDIT_VERIFY_SECONDS` | how often both log chains are verified | 3600 |
 | `TSA_URL`, `TSA_CA_FILE`, `AUDIT_WITNESS_SECONDS` | an outside RFC 3161 timestamp of each log anchor | off, 3600 |
 | `UNMASK_PER_HOUR` | how many claims one person may unmask per hour | 60 |
+| `CG_PATIENT_KEYS` | a key per patient: erasing a person destroys their key, so older backups can no longer be read for them (docs/59). After a restore run `cg replay-erasures` | true |
+| `RETENTION_DAYS` | days a decided claim is kept before the worker erases it; 0 keeps everything, the insurer decides (docs/58) | 0 |
+| `ASK_PER_MINUTE`, `ASK_GENERATE_PER_MINUTE` | rulebook questions per person per minute, and how many of those may ask for a written answer (each holds the model for several seconds) | 30, 6 |
+| `ASK_LLM_PROVIDER=vllm`, `ASK_LLM_PREFIX`, `ASK_LLM_TIMEOUT`, `ASK_LLM_MAX_TOKENS` | lets the on-premises model pick one of 11 fixed graph queries and write the cited facts up (docs/60); empty = graph, cache and passage search only. `ASK_LLM_PREFIX=1` needs `VLLM_MAX_LEN=8192` | empty, empty, 60, 400 |
 | `CG_ENCRYPT_AT_REST=false` | turns encryption of claim data, names and audit logs **off** (do not) | on |
 | `TOKEN_TTL_SECONDS`, `MAX_FAILED_LOGINS`, `LOCKOUT_SECONDS`, `BCRYPT_ROUNDS` | session length (3600), failures before an account locks (5), lock time (900), password hash cost (12) | as shown |
 | (no setting) | the server takes the client address from the last hop of `X-Forwarded-For`; that is safe only because nothing but the proxy can reach the API's port, which the network layout guarantees | |
@@ -52,7 +56,7 @@ bash deploy/rust/install.sh <address-or-domain> internal|public [ai]
 
 Keep a copy of `.env` somewhere other than the server and other than the backups. **The backups do not contain these secrets** and are useless without them.
 
-## 4. Backup and restore (tested: `python rust/tools/backup_restore_test.py`, 23 checks)
+## 4. Backup and restore (tested: `python rust/tools/backup_restore_test.py`, 35 checks, including erasing a patient, restoring an older backup and proving the ledger replay removes them again)
 
 ```
 openssl rand -base64 48 > /root/claimguard-backup.key ; chmod 600 /root/claimguard-backup.key     # once; keep a copy elsewhere
@@ -63,6 +67,14 @@ BACKUP_KEY_FILE=/root/claimguard-backup.key bash deploy/rust/restore.sh /srv/bac
 - Restore refuses a wrong key, a damaged file and a file whose contents do not match their checksums; it replaces the two application databases and the log volumes, restarts the API and worker, and fails loudly if any document does not restore. Use the same `.env`.
 - The test destroys every volume, restores, and checks that the same people sign in with the same passwords and authenticator seeds, the same claims are in the same states and readable, and the audit chains verify.
 - Schedule it (cron), copy the files off the machine, and **practise a restore** on a spare machine every quarter. A backup that has never been restored is a hope.
+
+- **The patient keys are a second file.** `backup.sh` writes `<backup>.keys` (own checksum) beside the data backup. Delete each `.keys` file after a short time (30 days suggested) and keep data backups as long as needed: once the last `.keys` file holding a person's key is gone, that person is unreadable in every older data backup (docs/59). A data backup without its `.keys` file cannot be read, so keep each pair for at least the short period.
+- **After every restore the erasure ledger is replayed** (`restore.sh` does it): erasures made since the backup are applied again. By hand: `cg replay-erasures` (safe to repeat).
+
+### 4a. Privacy requests (docs/58, docs/59)
+
+Operator commands only (no web route yet): `cg queue privacy-export PATIENT_ID` (needs `queue.view`), `cg queue privacy-erase PATIENT_ID` (counts only), then `cg queue privacy-erase PATIENT_ID --confirm N` with the number just counted (needs `routing.manage`; final; a claim being worked on refuses the whole request). `cg queue privacy-retention --days N` is a dry run, `--apply` deletes. Each action writes a `privacy_action` event.
+
 
 ## 5. Rotating the data key (tested against real MongoDB)
 
@@ -192,6 +204,8 @@ Against a local demo server (`cg serve --demo`), it signs in as each demo role i
 2. `nvidia-smi`: the card's memory in use is about the share you set; if the server died at start with an out-of-memory or "no available memory for the cache blocks" error, lower `VLLM_GPU_UTIL` or `VLLM_MAX_LEN` in `.env` (or raise them if the vision server is off) and `docker compose ... up -d vllm`.
 3. `docker compose ... exec worker cg model-check`: asks the model for the template of each of the 15 rules and reports how many came back in the required shape and how long each took. Exit 0 only if all 15 were accepted.
 4. The health panel's AI line says which model the worker uses and whether the breaker is closed.
+
+**With "Ask the rulebook" (docs/60).** The same server can write the cited answers: set `ASK_LLM_PROVIDER=vllm` on the API. The prompt prefix (the whole rulebook, about 3,600 tokens) does not fit the default `VLLM_MAX_LEN=2048`; with `ASK_LLM_PREFIX=1` set `VLLM_MAX_LEN=8192` and lower `VLLM_GPU_UTIL` if the card is short of memory. vLLM's current engine caches a shared prefix by default; the saving has NOT been measured on this server.
 
 **What has and has not been verified.** Verified: the Rust client against a fake OpenAI-compatible server (the key as a bearer token, the served model name, the error classes), the environment selection, `docker compose config` on the whole file with every profile, the structural tests of the compose and Kubernetes files, that the chosen image tag exists and its digest. **Not verified: no vLLM server has been started in this build, on any GPU.** The FP8 path on an RTX 3080, the memory split between the two servers, the start time, the throughput and the quality of the drafts are all unmeasured. Every earlier figure for this step (accepted drafts, latency, `docs/25`, README) was measured through Ollama with a 4-bit build of the same model and has **not** been repeated through vLLM: run `cg model-check`, `rust/tools/model_redteam.py` (`VLLM_API_KEY=... python rust/tools/model_redteam.py`) and the explanation benchmark on the real server before quoting a number.
 

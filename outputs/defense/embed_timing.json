@@ -1,0 +1,28 @@
+{
+ "cuda": {
+  "passages": 170,
+  "model_load_s": 34.1,
+  "embed_all_passages_cold_s": 1.5,
+  "single_question_s": [
+   0.089,
+   0.028,
+   0.052,
+   0.046,
+   0.056
+  ],
+  "single_question_median_s": 0.052
+ },
+ "cpu": {
+  "passages": 170,
+  "model_load_s": 13.2,
+  "embed_all_passages_cold_s": 18.91,
+  "single_question_s": [
+   0.11,
+   0.121,
+   0.102,
+   0.119,
+   0.1
+  ],
+  "single_question_median_s": 0.11
+ }
+}

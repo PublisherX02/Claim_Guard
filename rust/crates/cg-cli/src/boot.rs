@@ -103,6 +103,22 @@ pub fn queue_db_name(settings: &Settings, env: &HashMap<String, String>) -> Stri
     env.get("QUEUE_DB").map(|s| s.trim().to_string()).filter(|s| !s.is_empty()).unwrap_or_else(|| format!("{}_queue", settings.mongo_db))
 }
 
+/// The database that holds the wrapped per-patient keys: KEYS_DB, or the queue database's name plus `_keys`. A database of its own so the
+/// backup script can dump it to a separate file with a short retention (docs/59).
+pub fn keys_db_name(settings: &Settings, env: &HashMap<String, String>) -> String {
+    env.get("KEYS_DB").map(|s| s.trim().to_string()).filter(|s| !s.is_empty()).unwrap_or_else(|| format!("{}_keys", queue_db_name(settings, env)))
+}
+
+/// A key per patient is the default; CG_PATIENT_KEYS=false keeps the single master key (nothing can then be shredded).
+pub fn patient_keys_enabled(env: &HashMap<String, String>) -> bool {
+    env.get("CG_PATIENT_KEYS").map(|v| v.trim().to_lowercase()).as_deref() != Some("false")
+}
+
+/// The erasure ledger: next to the audit logs, so the append-only hardening and the log backups cover it.
+pub fn ledger_path(data_dir: &Path) -> PathBuf {
+    data_dir.join("erasure_ledger.jsonl")
+}
+
 fn build_stores(settings: &Settings, env: &HashMap<String, String>, dev: bool, queue: bool) -> Result<(Arc<dyn UserStore>, Option<Arc<dyn QueueStore>>), String> {
     let down = || "the database cannot be reached".to_string();
     if let Some(uri) = &settings.mongo_uri {
@@ -115,11 +131,14 @@ fn build_stores(settings: &Settings, env: &HashMap<String, String>, dev: bool, q
         users.ensure_indexes().map_err(|e| format!("{} (users: {e})", down()))?;
         let q: Option<Arc<dyn QueueStore>> = if queue {
             let db = queue_db_name(settings, env);
-            let mut qs = cg_mongo::MongoQueueStore::new(client, &db);
+            let mut qs = cg_mongo::MongoQueueStore::new(client.clone(), &db);
             // Claim data is encrypted before it reaches the database unless this is switched off on purpose (CG_ENCRYPT_AT_REST=false).
             // The key is DATA_KEY if given, otherwise derived from FERNET_KEY, so no deployment is left unprotected by a missing setting.
             if env.get("CG_ENCRYPT_AT_REST").map(|v| v.trim().to_lowercase()).as_deref() != Some("false") {
-                let crypt = cg_mongo::crypt::FieldCrypt::new(&settings.fernet_key, env.get("DATA_KEY").map(String::as_str)).map_err(|e| format!("configuration error: {}", e.0))?;
+                let mut crypt = cg_mongo::crypt::FieldCrypt::new(&settings.fernet_key, env.get("DATA_KEY").map(String::as_str)).map_err(|e| format!("configuration error: {}", e.0))?;
+                if patient_keys_enabled(env) {
+                    crypt = crypt.with_patient_keys(Arc::new(cg_mongo::MongoKeyStore::new(client, &keys_db_name(settings, env))));
+                }
                 qs = qs.with_encryption(crypt);
             }
             qs.ensure_indexes().map_err(|e| format!("{} (queue: {e})", down()))?;
@@ -170,6 +189,9 @@ pub fn boot(o: &Options) -> Result<Boot, String> {
         std::thread::spawn(move || {
             let _ = warm.ask("warm up", 1);
         });
+    }
+    if let Some((llm, prefix, timeout)) = crate::ask_llm::from_env(&env)? {
+        payer.set_llm(llm, prefix, timeout); // graph queries proposed by a model, and short written answers checked against their facts (docs/60)
     }
     {
         // an approved change of the payer rules is carried out here; other processes (the worker, the API) notice it within seconds
@@ -245,17 +267,20 @@ pub fn pool_config(env: &HashMap<String, String>, deadline_seconds: f64, max_att
 /// What the Celery worker and its scheduler do in production, on a thread: publish the outbox (processing runs inline), deal claims into
 /// inboxes, return lapsed leases and reconcile. The same functions and stores; only the clock tick is different. Exactly one instance
 /// should run against a database.
-pub fn start_workers(q: &QueueStack, stop: Arc<AtomicBool>, env: &HashMap<String, String>) -> std::thread::JoinHandle<()> {
+pub fn start_workers(q: &QueueStack, stop: Arc<AtomicBool>, env: &HashMap<String, String>, data_dir: &Path) -> std::thread::JoinHandle<()> {
+    let ledger = cg_queue::erasure_ledger::Ledger::open(ledger_path(data_dir));
     let (rt, dispatcher, broker) = (q.runtime.clone(), q.dispatcher.clone(), q.broker.clone());
     let cfg = pool_config(env, q.runtime.explain.deadline_seconds, q.runtime.max_retries);
     // a claim unfinished this long with an empty broker is a lost message (never less than two minutes, so a healthy claim is never re-sent)
     let republish_after = env.get("CG_REPUBLISH_AFTER_SECONDS").and_then(|v| v.trim().parse::<f64>().ok()).unwrap_or(900.0).max(120.0);
+    // closed claims older than this many days are erased by the hourly retention job; 0 or unset keeps everything (docs/58)
+    let retention_days = env.get("RETENTION_DAYS").and_then(|v| v.trim().parse::<u32>().ok()).unwrap_or(0);
     std::thread::Builder::new()
         .name("claimguard-worker".into())
         .spawn(move || {
             use cg_api::ops::run_job;
-            let every = [("relay", 1.5), ("deal", 2.0), ("expire", 20.0), ("reconcile", 120.0), ("republish", 300.0)];
-            let mut last = [f64::MIN; 5];
+            let every = [("relay", 1.5), ("deal", 2.0), ("expire", 20.0), ("reconcile", 120.0), ("republish", 300.0), ("retention", 3600.0)];
+            let mut last = [f64::MIN; 6];
             let mono = std::time::Instant::now();
             let alive = std::env::var("CG_WORKER_ALIVE_FILE").ok().filter(|s| !s.is_empty());
             // with a broker the claims are processed by the pool (at most `concurrency` at once); without one, inline in the relay sweep
@@ -294,6 +319,11 @@ pub fn start_workers(q: &QueueStack, stop: Arc<AtomicBool>, env: &HashMap<String
                         "republish" => {
                             if let Some(b) = &broker {
                                 run_job(store, clock, "republish", || flow::republish_lost(store, &**b, clock(), republish_after), |r| r.to_string());
+                            }
+                        }
+                        "retention" => {
+                            if retention_days > 0 {
+                                run_job(store, clock, "retention", || cg_queue::privacy::run_retention(store, &ledger, "system:worker", clock(), retention_days, 500, false).map(|r| r["claims"].as_u64().unwrap_or(0)).unwrap_or(0), |n| format!("{n} claims erased"));
                             }
                         }
                         _ => {

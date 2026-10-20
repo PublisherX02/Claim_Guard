@@ -452,12 +452,18 @@ pub(crate) fn audit_draw() -> f64 {
     (OsRng.next_u64() % 10_000) as f64 / 100.0
 }
 
+/// An advisory check (docs/61: a repeat of an earlier claim, a reused invoice number, ...) failed. The official rules did not flag the claim, so
+/// it is still green, but the system must not decide it: a person looks at it.
+fn advisory_failed(doc: &Value) -> bool {
+    doc["advisory"].as_array().is_some_and(|a| a.iter().any(|r| r["status"] == "FAIL"))
+}
+
 /// Where a green claim goes. By default to a person (`ready`). With `auto_clear_green` on, the system decides it (`system:auto-clear`) unless the
-/// random audit sample (`audit_percent`) sends it to a person, which is how the miss rate is measured. A claim that is not both clean and intact
-/// is never cleared by the system, whatever the receipt says.
+/// random audit sample (`audit_percent`) sends it to a person, which is how the miss rate is measured. A claim that is not both clean and intact,
+/// or that an advisory check flagged, is never cleared by the system, whatever the receipt says.
 fn green_path(store: &dyn QueueStore, doc: &Value, claim_id: &str, version: i64, now: f64) -> &'static str {
     let cfg = routing_config(store);
-    if !cfg.auto_clear_green || triage::degraded(&doc["results"]) || !triage::flagged(&doc["results"]).is_empty() {
+    if !cfg.auto_clear_green || triage::degraded(&doc["results"]) || !triage::flagged(&doc["results"]).is_empty() || advisory_failed(doc) {
         return make_ready(store, claim_id, version, "triaged", now, "green");
     }
     // a claim of a batch was sampled (or not) when the batch came in: an exact share of the batch (batch.rs). A claim on its own is drawn by chance.

@@ -12,6 +12,8 @@ use serde_json::{json, Value};
 use std::io::{BufRead, BufReader, Write};
 use std::path::PathBuf;
 
+mod ask_cmd;
+mod ask_llm;
 mod embedder;
 mod boot;
 mod ingest_cmd;
@@ -46,6 +48,9 @@ fn main() {
         Some("rotate-key") => std::process::exit(tools::rotate_key(&args[2..])),
         Some("rotate-fernet-key") => std::process::exit(tools::rotate_fernet_key(&args[2..])),
         Some("queue") => std::process::exit(tools::queue(&args[2..])),
+        Some("ask") => std::process::exit(ask_cmd::run(&args[2..])),
+        Some("replay-erasures") => std::process::exit(tools::replay_erasures(&args[2..])),
+        Some("adopt-patient-keys") => std::process::exit(tools::adopt_patient_keys(&args[2..])),
         Some("serve") =>std::process::exit(serve::run(&args[2..])),
         _ => {
             eprintln!("usage: cg evaluate <claims.jsonl> [--root DIR] | cg audit-verify <log> [--strict] | cg audit-append <log> <events.jsonl> [--review]");

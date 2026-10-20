@@ -25,6 +25,7 @@ import pentest  # noqa: E402
 
 CG = str(ROOT / 'rust' / 'target' / 'release' / 'cg.exe')
 EXP = ROOT / 'experiments' / 'rag_v2'
+DEVICE = os.environ.get('CHECK_DEVICE', 'cpu')     # cpu (the original check) or cuda: the sidecar's EMBED_DEVICE
 PORT, EPORT = 8499, 8099
 pentest.PORT = PORT
 pentest.raw.__defaults__ = (180, True)   # the first question embeds every passage on a CPU: that takes a while
@@ -59,11 +60,11 @@ def main():
     for f in data.iterdir():
         if f.is_file():
             f.unlink()
-    env_s = dict(os.environ, EMBED_TOKEN=token, EMBED_PORT=str(EPORT), EMBED_DEVICE='cpu', HF_HUB_OFFLINE='1', PYTHONIOENCODING='utf-8')
+    env_s = dict(os.environ, EMBED_TOKEN=token, EMBED_PORT=str(EPORT), EMBED_DEVICE=DEVICE, HF_HUB_OFFLINE='1', PYTHONIOENCODING='utf-8')
     side = subprocess.Popen([sys.executable, str(ROOT / 'deploy' / 'embed' / 'service.py')], env=env_s, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
     srv = None
     try:
-        check('the embedding sidecar starts (bge-m3, CPU, offline)', wait('http://127.0.0.1:%d/health' % EPORT, {'Authorization': 'Bearer ' + token}))
+        check('the embedding sidecar starts (bge-m3, %s, offline)' % DEVICE, wait('http://127.0.0.1:%d/health' % EPORT, {'Authorization': 'Bearer ' + token}))
         req = urllib.request.Request('http://127.0.0.1:%d/health' % EPORT, headers={'Authorization': 'Bearer ' + token})
         h = json.loads(urllib.request.urlopen(req, timeout=10).read())
         check('the sidecar reports bge-m3 with 1024 dimensions', h.get('model') == 'BAAI/bge-m3' and h.get('dim') == 1024, h)
@@ -110,12 +111,12 @@ def main():
         st, _, body = rev.call('GET', '/api/v1/knowledge/search?q=' + urllib.parse.quote('highest unit price for SVC-LAB'))
         check('with the sidecar down the answer is the labelled keyword search', st == 200 and body.get('mode') == 'keyword' and body.get('answered'), (st, str(body)[:200]))
         report = {'model': 'BAAI/bge-m3 (CPU fp32 sidecar + Rust cosine), threshold 0.485', 'product': {'hit3': hit3, 'hit1': hit1, 'near_refused': near_ref, 'pure_refused': pure_ref, 'refusals_naming_a_topic': named},
-                  'experiment': {'hit3': e['answerable (20)']['hit3'], 'near_refused': e['near-domain refused (20)']['refused']}, 'seconds_per_question_p50': round(sorted(lat)[len(lat) // 2], 3), 'seconds_per_question_max': round(max(lat), 3), 'sidecar_resident_mb': rss_mb,
+                  'experiment': {'hit3': e['answerable (20)']['hit3'], 'near_refused': e['near-domain refused (20)']['refused']}, 'device': DEVICE, 'first_question_seconds': round(lat[0], 3), 'seconds_per_question_p50': round(sorted(lat)[len(lat) // 2], 3), 'seconds_per_question_max': round(max(lat), 3), 'sidecar_resident_mb': rss_mb,
                   'per_question': {r['id']: {'q': r['q'], **got[r['id']]} for r in rows}}
-        out = ROOT / 'outputs' / 'defense' / 'rag_product_check.json'
+        out = ROOT / 'outputs' / 'defense' / ('rag_product_check.json' if DEVICE == 'cpu' else 'rag_product_check_%s.json' % DEVICE)
         out.parent.mkdir(parents=True, exist_ok=True)
         out.write_text(json.dumps(report, indent=1, ensure_ascii=False), encoding='utf-8')
-        print('\nlatency per question: p50 %.2f s, max %.2f s; wrote %s' % (report['seconds_per_question_p50'], report['seconds_per_question_max'], out))
+        print('\nlatency per question: first %.2f s, p50 %.2f s, max %.2f s; wrote %s' % (report['first_question_seconds'], report['seconds_per_question_p50'], report['seconds_per_question_max'], out))
     finally:
         for p in (srv, side):
             if p and p.poll() is None:

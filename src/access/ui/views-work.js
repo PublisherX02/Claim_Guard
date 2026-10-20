@@ -243,7 +243,13 @@
     if (ctx.mode === 'work' && view.can_correct && CG.fixPanel) fix = CG.fixPanel(view, ctx, refresh);
     if (ctx.mode === 'work' && view.copilot && CG.copilotPanel) root.appendChild(CG.copilotPanel(view.copilot, fix ? fix.tryEdits : null));
     if (ctx.mode === 'work' && view.info_request && CG.infoRequestCard) root.appendChild(CG.infoRequestCard(view, ctx, refresh));
+    var advFlagged = (view.advisory || []).filter(function (f) { return f.status === 'FAIL'; });
+    if (ctx.mode === 'work' && advFlagged.length) {
+      root.appendChild(h('div', { class: 'notice warn' }, h('b', { text: 'Compared with this patient’s earlier claims: ' }),
+        advFlagged.map(function (f) { return f.rule_id + ' (' + f.explanation + ')'; }).join(' '), ' These are advisory checks: they inform your decision and change nothing.'));
+    }
     root.appendChild(claimSummary(view.claim));
+    if (ctx.mode === 'work') root.appendChild(historyCard(ctx));
     if (fix) root.appendChild(fix);
     if (ctx.mode === 'work' && view.allowed_actions && view.allowed_actions.indexOf('verify_clear') >= 0) root.appendChild(greenActions(view, ctx, refresh));
 
@@ -260,11 +266,36 @@
     }
     if (view.advisory && view.advisory.length) {
       var adv = view.advisory.filter(function (f) { return f.status === 'FAIL' || f.status === 'UNABLE_TO_ASSESS'; });
-      root.appendChild(h('details', { class: 'card' }, h('summary', { text: 'Advisory checks (extra rules, for information only): ' + adv.length + ' flagged' }),
+      var advBox = h('details', { class: 'card' }, h('summary', { text: 'Advisory checks (extra rules, for information only): ' + adv.length + ' flagged' }),
         adv.length ? CG.table([{ label: 'Rule', get: function (f) { return f.rule_id; } }, { label: 'Status', get: function (f) { return CG.chip(f.status); } },
-          { label: 'Why', get: function (f) { return f.explanation; } }], adv) : h('p', { class: 'muted', text: 'Nothing flagged.' })));
+          { label: 'Why', get: function (f) { return f.explanation; } }], adv) : h('p', { class: 'muted', text: 'Nothing flagged.' }));
+      if (adv.length) advBox.open = true;
+      root.appendChild(advBox);
     }
   };
+
+  // The patient's other claims, asked for on purpose: reading them is logged and only the holder of the claim may. No patient identifier is shown.
+  function historyCard(ctx) {
+    var out = h('div', { class: 'stack' });
+    var btn = h('button', { class: 'btn', type: 'button', text: 'Show this patient’s other claims' });
+    btn.addEventListener('click', function () {
+      btn.disabled = true;
+      CG.api('GET', '/work/claims/' + encodeURIComponent(ctx.id) + '/history').then(function (r) {
+        CG.clear(out);
+        if (!r.claims.length) { out.appendChild(h('p', { class: 'muted', text: 'This patient has no other claim on record.' })); return; }
+        out.appendChild(CG.table([
+          { label: 'Claim', get: function (c) { return h('span', { class: 'mono', text: c.claim_id }); } },
+          { label: 'Submitted', get: function (c) { return c.submission_date || '-'; } },
+          { label: 'Provider', get: function (c) { return c.provider_id || '-'; } },
+          { label: 'Total', get: function (c) { return c.total_amount === null || c.total_amount === undefined ? '-' : c.total_amount + ' ' + (c.currency || ''); } },
+          { label: 'State', get: function (c) { return String(c.state || '').replace(/_/g, ' '); } },
+          { label: 'Flagged', get: function (c) { return (c.flagged || []).concat(c.advisory_flagged || []).join(', ') || 'none'; } }], r.claims));
+        if (r.count > r.shown) out.appendChild(h('p', { class: 'muted small', text: 'Showing the newest ' + r.shown + ' of ' + r.count + '.' }));
+        out.appendChild(h('p', { class: 'muted small', text: 'Looking at this was written to the security log.' }));
+      }, function (e) { btn.disabled = false; CG.fail(e); });
+    });
+    return h('div', { class: 'card stack' }, h('div', { class: 'row between' }, h('b', { text: 'Patient history' }), btn), out);
+  }
 
   // ---- inbox ------------------------------------------------------------------------------------------------------------
   function inboxRow(v) {

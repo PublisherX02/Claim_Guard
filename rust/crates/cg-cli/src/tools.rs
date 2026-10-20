@@ -30,7 +30,14 @@ pub(crate) fn has(args: &[String], name: &str) -> bool {
     args.iter().any(|a| a == name)
 }
 
+/// Reads a password or code. With CG_SECRETS_FROM_STDIN=1 each answer is one line of standard input (for scripts and tests that have no terminal;
+/// the value never appears in an argument or in the environment); otherwise it is typed without echo.
 pub(crate) fn secret_prompt(prompt: &str) -> String {
+    if std::env::var("CG_SECRETS_FROM_STDIN").as_deref() == Ok("1") {
+        let mut line = String::new();
+        let _ = std::io::stdin().read_line(&mut line);
+        return line.trim_end_matches(['\r', '\n']).to_string();
+    }
     rpassword::prompt_password(prompt).unwrap_or_default()
 }
 
@@ -182,6 +189,9 @@ pub fn rotate_key(args: &[String]) -> i32 {
         }
     };
     let users = cg_mongo::MongoUserStore::new(client.clone(), &settings.mongo_db).with_encryption(old_users);
+    // with a key per patient, the same key store serves the old and the new data key (see MongoQueueStore::reencrypt_all)
+    let keys: std::sync::Arc<dyn cg_mongo::crypt::KeyStore> = std::sync::Arc::new(cg_mongo::MongoKeyStore::new(client.clone(), &crate::boot::keys_db_name(&settings, &env)));
+    let (old, new) = if crate::boot::patient_keys_enabled(&env) { (old.with_patient_keys(keys.clone()), new.with_patient_keys(keys)) } else { (old, new) };
     let store = cg_mongo::MongoQueueStore::new(client, &crate::boot::queue_db_name(&settings, &env)).with_encryption(old);
     let label = if dry { "dry run" } else { "done" };
     let mut problems = 0;
@@ -270,7 +280,7 @@ pub fn rotate_fernet_key(args: &[String]) -> i32 {
     }
 }
 
-pub const QUEUE_USAGE: &str = "usage: cg queue --badge CG-4004 [--dev] submit --claims FILE [--process] | reconcile | replay ID [--version N] | rerun --rule-pack HASH [--apply] | deadletters | deadletter-replay ID | verify-deal ID | workload [--skip-lower X] | audit";
+pub const QUEUE_USAGE: &str = "usage: cg queue --badge CG-4004 [--dev] submit --claims FILE [--process] | reconcile | replay ID [--version N] | rerun --rule-pack HASH [--apply] | deadletters | deadletter-replay ID | verify-deal ID | workload [--skip-lower X] | audit | privacy-export PATIENT_ID | privacy-erase PATIENT_ID [--confirm N] | privacy-retention --days N [--apply]  (on the server, no sign-in: cg replay-erasures | cg adopt-patient-keys)";
 
 pub fn queue(args: &[String]) -> i32 {
     let say = |s: &str| println!("{s}");
@@ -278,7 +288,7 @@ pub fn queue(args: &[String]) -> i32 {
         say(QUEUE_USAGE);
         return 2;
     };
-    let Some(ci) = args.iter().position(|a| ["submit", "reconcile", "replay", "rerun", "deadletters", "deadletter-replay", "verify-deal", "workload", "audit", "batches"].contains(&a.as_str())) else {
+    let Some(ci) = args.iter().position(|a| ["submit", "reconcile", "replay", "rerun", "deadletters", "deadletter-replay", "verify-deal", "workload", "audit", "batches", "privacy-export", "privacy-erase", "privacy-retention"].contains(&a.as_str())) else {
         say(QUEUE_USAGE);
         return 2;
     };
@@ -303,7 +313,7 @@ pub fn queue(args: &[String]) -> i32 {
         }
     };
     let apply = has(rest, "--apply");
-    let mutating = matches!(command, "submit" | "deadletter-replay") || (command == "rerun" && apply);
+    let mutating = matches!(command, "submit" | "deadletter-replay" | "privacy-erase") || (command == "privacy-retention" && apply) || (command == "rerun" && apply);
     if AccessService::require(&operator, if mutating { "routing.manage" } else { "queue.view" }).is_err() {
         say("error: this operator may not do that");
         return 2;
@@ -313,7 +323,7 @@ pub fn queue(args: &[String]) -> i32 {
         return 2;
     }
     let (store, now) = (&*q.store, b.clock.clone());
-    let positional = rest.iter().find(|a| !a.starts_with("--") && flag(rest, "--version").as_deref() != Some(a.as_str()) && flag(rest, "--claims").as_deref() != Some(a.as_str()) && flag(rest, "--rule-pack").as_deref() != Some(a.as_str()) && flag(rest, "--skip-lower").as_deref() != Some(a.as_str()));
+    let positional = rest.iter().find(|a| !a.starts_with("--") && flag(rest, "--version").as_deref() != Some(a.as_str()) && flag(rest, "--claims").as_deref() != Some(a.as_str()) && flag(rest, "--rule-pack").as_deref() != Some(a.as_str()) && flag(rest, "--skip-lower").as_deref() != Some(a.as_str()) && flag(rest, "--confirm").as_deref() != Some(a.as_str()) && flag(rest, "--days").as_deref() != Some(a.as_str()));
     let out: Result<i32, QueueError> = (|| {
         match command {
             "replay" => {
@@ -384,6 +394,43 @@ pub fn queue(args: &[String]) -> i32 {
                         say(&sorted(&v.to_json(None)));
                     }
                 }
+                Ok(0)
+            }
+            "privacy-export" => {
+                // subject access: everything held about one patient, printed to the operator's terminal and nowhere else
+                let patient = positional.ok_or_else(|| QueueError::Invalid("privacy-export needs a patient identifier".into()))?;
+                let e = cg_queue::privacy::export_subject(store, patient, now()).map_err(|e| QueueError::Invalid(e.to_string()))?;
+                let _ = b.access.record("privacy_action", json!({"actor": operator.badge(), "action": "export", "claims": e["totals"]["claims"], "versions": e["totals"]["versions"]}));
+                say(&serde_json::to_string_pretty(&e).unwrap_or_default());
+                Ok(0)
+            }
+            "privacy-erase" => {
+                // erasure: without --confirm it only counts; with --confirm N it deletes, and only if N is the number counted
+                let patient = positional.ok_or_else(|| QueueError::Invalid("privacy-erase needs a patient identifier".into()))?;
+                let ids = cg_queue::privacy::claim_ids_of(store, patient).map_err(|e| QueueError::Invalid(e.to_string()))?;
+                let preview = cg_queue::privacy::erase_preview(store, &ids).map_err(|e| QueueError::Invalid(e.to_string()))?;
+                match flag(rest, "--confirm").and_then(|v| v.parse::<usize>().ok()) {
+                    Some(n) if n == ids.len() && n > 0 => {
+                        let ledger = cg_queue::erasure_ledger::Ledger::open(crate::boot::ledger_path(&b.data_dir));
+                        let r = cg_queue::privacy::erase_claims(store, &ledger, &ids, "erase", operator.badge(), now()).map_err(|e| QueueError::Invalid(e.to_string()))?;
+                        let _ = b.access.record("privacy_action", json!({"actor": operator.badge(), "action": "erase", "claims": r["claims_erased"], "versions": r["versions_erased"]}));
+                        say(&sorted(&r));
+                        Ok(0)
+                    }
+                    _ => {
+                        say(&format!("{} claim(s) would be erased, {} version(s) at most. Nothing was deleted. Run again with --confirm {} to delete them for good.", ids.len(), preview["versions_at_most"], ids.len()));
+                        Ok(1)
+                    }
+                }
+            }
+            "privacy-retention" => {
+                let days = flag(rest, "--days").and_then(|v| v.parse::<u32>().ok()).filter(|d| *d > 0).ok_or_else(|| QueueError::Invalid("privacy-retention needs --days N (N > 0)".into()))?;
+                let ledger = cg_queue::erasure_ledger::Ledger::open(crate::boot::ledger_path(&b.data_dir));
+                let r = cg_queue::privacy::run_retention(store, &ledger, operator.badge(), now(), days, 10_000, !apply).map_err(|e| QueueError::Invalid(e.to_string()))?;
+                if apply {
+                    let _ = b.access.record("privacy_action", json!({"actor": operator.badge(), "action": "retention", "claims": r["claims"], "versions": r["versions"]}));
+                }
+                say(&sorted(&r));
                 Ok(0)
             }
             "verify-deal" => {
@@ -469,4 +516,66 @@ fn sorted(v: &Value) -> String {
         }
     }
     sort(v).to_string()
+}
+
+/// The queue store built the way the server builds it (same key, same key store), for the two commands that run on the server without a sign-in.
+fn server_queue_store(args: &[String]) -> Result<(cg_mongo::MongoQueueStore, PathBuf), String> {
+    use cg_access::settings::load_settings;
+    let env: std::collections::HashMap<String, String> = std::env::vars().collect();
+    let settings = load_settings(&env, false, "127.0.0.1").map_err(|e| format!("configuration error: {}", e.0))?;
+    let uri = settings.mongo_uri.clone().ok_or("MONGO_URI is required")?;
+    let client = cg_mongo::connect(&uri, 3000).map_err(|_| "the database cannot be reached".to_string())?;
+    let mut crypt = cg_mongo::crypt::FieldCrypt::new(&settings.fernet_key, env.get("DATA_KEY").map(String::as_str)).map_err(|e| format!("configuration error: {}", e.0))?;
+    if crate::boot::patient_keys_enabled(&env) {
+        crypt = crypt.with_patient_keys(std::sync::Arc::new(cg_mongo::MongoKeyStore::new(client.clone(), &crate::boot::keys_db_name(&settings, &env))));
+    }
+    let store = cg_mongo::MongoQueueStore::new(client, &crate::boot::queue_db_name(&settings, &env)).with_encryption(crypt);
+    let data_dir = flag(args, "--data-dir").map(PathBuf::from).or_else(|| env.get("CLAIMGUARD_DATA_DIR").map(PathBuf::from)).unwrap_or_else(|| PathBuf::from("instance"));
+    Ok((store, data_dir))
+}
+
+/// `cg replay-erasures [--data-dir D]`: applies every erasure in the ledger again. Run it right after a restore, before the API and the worker
+/// start (restore.sh does). Anything a backup brought back for an erased patient is deleted, and their key with it. Safe to run twice.
+pub fn replay_erasures(args: &[String]) -> i32 {
+    let (store, data_dir) = match server_queue_store(args) {
+        Ok(x) => x,
+        Err(e) => {
+            println!("error: {e}");
+            return 2;
+        }
+    };
+    let ledger = cg_queue::erasure_ledger::Ledger::open(crate::boot::ledger_path(&data_dir));
+    match cg_queue::privacy::replay_ledger(&store, &ledger) {
+        Ok(r) => {
+            println!("{}", sorted(&r));
+            0
+        }
+        Err(e) => {
+            println!("error: {e}");
+            2
+        }
+    }
+}
+
+/// `cg adopt-patient-keys [--dry-run]`: moves claims still sealed under the master key onto a key per patient, so they can be shredded.
+/// Stop the API and the worker first. Safe to run twice. Backups made before it still hold the old form and have to age out.
+pub fn adopt_patient_keys(args: &[String]) -> i32 {
+    let (store, _) = match server_queue_store(args) {
+        Ok(x) => x,
+        Err(e) => {
+            println!("error: {e}");
+            return 2;
+        }
+    };
+    let dry = has(args, "--dry-run");
+    match store.adopt_patient_keys(dry) {
+        Ok((moved, already, skipped)) => {
+            println!("{}: {moved} claims moved onto a patient key, {already} already on one (or tied to no patient), {skipped} skipped because they changed meanwhile", if dry { "dry run" } else { "done" });
+            i32::from(skipped > 0)
+        }
+        Err(e) => {
+            println!("error: {e}");
+            2
+        }
+    }
 }

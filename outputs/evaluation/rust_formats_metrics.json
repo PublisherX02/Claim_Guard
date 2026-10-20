@@ -1,0 +1,37 @@
+{
+ "fhir_bundle": {
+  "tp": 439,
+  "fp": 0,
+  "fn": 23,
+  "claims": 600,
+  "results": 9000,
+  "disagree": 310,
+  "abst_on_gold_pass": 0,
+  "fail_to_abst": 0,
+  "fail_to_pass": 0,
+  "ingested": 600,
+  "precision": 1.0,
+  "recall": 0.9502,
+  "f1": 0.9745,
+  "disagreements_by_rule_gold_pred": {
+   "R009 PASS->UNABLE_TO_ASSESS": 287,
+   "R009 FAIL->UNABLE_TO_ASSESS": 23
+  }
+ },
+ "csv_folder": {
+  "tp": 462,
+  "fp": 0,
+  "fn": 0,
+  "claims": 600,
+  "results": 9000,
+  "disagree": 0,
+  "abst_on_gold_pass": 0,
+  "fail_to_abst": 0,
+  "fail_to_pass": 0,
+  "ingested": 600,
+  "precision": 1.0,
+  "recall": 1.0,
+  "f1": 1.0,
+  "disagreements_by_rule_gold_pred": {}
+ }
+}

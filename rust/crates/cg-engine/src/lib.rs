@@ -6,6 +6,8 @@
 
 pub mod details;
 pub mod extensions;
+pub mod cag;
+pub mod kag;
 pub mod pack;
 pub mod payer;
 pub mod rag;

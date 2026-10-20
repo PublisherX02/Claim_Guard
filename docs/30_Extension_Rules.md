@@ -134,3 +134,8 @@ python scripts/extension_experiments.py          # writes outputs/evaluation/ext
 The pair table, route modifiers, event-date wording and which diagnoses play which role are our choices and are open to the mentor.
 Two rules (E004, E102) rest on the research report rather than a source we could confirm. Advisory findings are not yet shown in the
 reviewer API or used by the routing score; that belongs to the queue work.
+
+## Three more history checks
+
+E104 (invoice number reused), E105 (many claims in a short time) and E106 (same service on the same day at another provider) are described in
+[docs/61](61_History_Checks_and_Patient_History.md). They are kept in `rules/extensions/history_rules.json` so that the pack pinned for E001 to E103 does not change.

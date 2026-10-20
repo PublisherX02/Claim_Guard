@@ -412,6 +412,35 @@ fn a_reason_that_contains_the_patients_identifier_is_refused_and_unmasking_is_ra
 }
 
 #[test]
+fn rulebook_questions_are_rationed_per_person() {
+    let mut t = t();
+    let viewer = t.login("CG-1001");
+    t.api.ask_per_minute = 2;
+    // this harness has no payer rules, so an allowed question answers 404; what matters is that the third is refused for rate, not for content
+    let statuses: Vec<u16> = (0..4).map(|_| t.get("/api/v1/knowledge/search?q=what%20is%20R003", &viewer).status).collect();
+    assert_eq!(statuses, vec![404, 404, 429, 429], "the third question in the minute is refused");
+    let other = t.login("CG-2002");
+    assert_eq!(t.get("/api/v1/knowledge/search?q=what%20is%20R003", &other).status, 404, "another person's allowance is their own");
+    assert_eq!(t.get("/api/v1/knowledge/search?q=", &viewer).status, 422, "a bad question is refused for what it is");
+    assert_eq!(t.get(&format!("/api/v1/knowledge/search?q={}", "a".repeat(301)), &viewer).status, 422, "a question over 300 characters is refused");
+    assert_ne!(t.get(&format!("/api/v1/knowledge/search?q={}", "a".repeat(300)), &viewer).status, 422, "300 characters is still allowed");
+}
+
+#[test]
+fn written_answers_have_a_lower_allowance_than_plain_questions() {
+    let mut t = t();
+    let viewer = t.login("CG-1001");
+    t.api.ask_per_minute = 50;
+    t.api.ask_generate_per_minute = 1;
+    let g = |t: &T, s: &str| t.get(&format!("/api/v1/knowledge/search?q=what%20is%20R003{s}"), &viewer).status;
+    assert_eq!(g(&t, "&generate=1"), 404, "the first written answer is allowed (this harness has no rules, so 404)");
+    assert_eq!(g(&t, "&generate=1"), 429, "the second in the minute is refused for the written-answer limit");
+    assert_eq!(g(&t, ""), 404, "a plain question is still allowed");
+    let admin = t.login("CG-4004");
+    assert!(j(&t.get("/api/v1/audit/events?event_type=forbidden", &admin))["events"].to_string().contains("written-answer limit"));
+}
+
+#[test]
 fn dangerous_administrator_actions_wait_for_a_second_administrator() {
     let t = t();
     t.w.provision("CG-4005", 4, PW);

@@ -1,0 +1,31 @@
+{
+  "_note": "FICTIONAL, advisory. Three more checks over a patient's earlier claims (E104 to E106), read by the Rust engine only. They are kept apart from catalogue.json so the pack pinned for E001 to E103 (and the Python build that shares it) does not change. They never change the official R001 to R015 results.",
+  "version": "1.0.0",
+  "velocity": {"window_days": 7, "max_claims": 3},
+  "rules": [
+    {
+      "rule_id": "E104",
+      "name": "Invoice number reused",
+      "severity": "high",
+      "version": "1.0.0",
+      "source": "fictional-extension/E104@1.0.0",
+      "corrective_action": "Check the earlier claim that carries this invoice number; one invoice should be billed once. Ask the provider whether this is a resubmission or a different invoice."
+    },
+    {
+      "rule_id": "E105",
+      "name": "Many claims in a short time",
+      "severity": "medium",
+      "version": "1.0.0",
+      "source": "fictional-extension/E105@1.0.0",
+      "corrective_action": "Look at the patient's recent claims together; confirm each is a separate episode of care."
+    },
+    {
+      "rule_id": "E106",
+      "name": "Same service on the same day at another provider",
+      "severity": "medium",
+      "version": "1.0.0",
+      "source": "fictional-extension/E106@1.0.0",
+      "corrective_action": "Confirm with both providers that the service was delivered twice; if not, only one claim should carry it."
+    }
+  ]
+}

@@ -62,6 +62,15 @@ pub struct MongoQueueStore {
 }
 
 impl MongoQueueStore {
+    /// The ids of every claim of one patient. Documents written with encryption carry only a keyed hash of the patient id; older ones carry the id itself.
+    fn patient_claim_ids(&self, patient_id: &str) -> Result<Vec<Bson>> {
+        let filter = match &self.crypt {
+            Some(c) => doc! {"$or": [{"patient_key": c.patient_key(patient_id)}, {"claim.patient_id": patient_id}]},
+            None => doc! {"claim.patient_id": patient_id},
+        };
+        self.claims.distinct("claim_id", filter).run().map_err(unavailable)
+    }
+
     /// Encrypts claim data (see `crypt`) on every write and decrypts it on every read. Documents already stored in plain form stay readable.
     pub fn with_encryption(mut self, crypt: FieldCrypt) -> MongoQueueStore {
         self.crypt = Some(crypt);
@@ -74,10 +83,42 @@ impl MongoQueueStore {
     pub fn reencrypt_all(&self, new: &FieldCrypt, dry_run: bool) -> Result<(usize, usize, usize)> {
         let old = self.crypt.as_ref().ok_or_else(|| StoreError::Invalid("this store has no encryption key to rotate from".into()))?;
         let (mut rewritten, mut current, mut skipped) = (0, 0, 0);
+        let mut old_keys: Vec<String> = vec![];
         let all: Vec<Document> = self.claims.find(doc! {}).run().map_err(unavailable)?.collect::<std::result::Result<_, _>>().map_err(unavailable)?;
         for raw in all {
             let Some(id) = raw.get("_id").cloned() else { continue };
             let stored = from_doc(&raw);
+            if FieldCrypt::is_patient_sealed(&stored) {
+                // Sealed under the patient's own key: the data stays as it is. Only the patient index depends on the data key, so the patient's
+                // key is carried to the new index and the document is pointed at it.
+                let Ok(plain) = old.open(stored.clone()) else {
+                    match new.open(stored.clone()) {
+                        Ok(_) => {
+                            current += 1; // already rotated
+                            continue;
+                        }
+                        Err(e) => return Err(StoreError::Invalid(format!("claim {} opens with neither key: {}", stored["claim_id"].as_str().unwrap_or("?"), e.0))),
+                    }
+                };
+                let (old_pk, new_pk) = (stored["patient_key"].as_str().unwrap_or("").to_string(), plain["claim"]["patient_id"].as_str().map(|p| new.patient_key(p)).unwrap_or_default());
+                if new_pk.is_empty() || new_pk == old_pk {
+                    current += 1;
+                    continue;
+                }
+                if dry_run {
+                    rewritten += 1;
+                    continue;
+                }
+                old.carry_patient_key(&old_pk, new, &new_pk).map_err(|e| StoreError::Invalid(e.0))?;
+                let r = self.claims.update_one(doc! {"_id": id, "state": raw.get("state").cloned().unwrap_or(Bson::Null), "state_at": raw.get("state_at").cloned().unwrap_or(Bson::Null)}, doc! {"$set": {"patient_key": &new_pk}}).run().map_err(unavailable)?;
+                if r.modified_count == 1 {
+                    rewritten += 1;
+                    old_keys.push(old_pk);
+                } else {
+                    skipped += 1;
+                }
+                continue;
+            }
             let plain = match old.open(stored.clone()) {
                 Ok(p) => p,
                 Err(_) => match new.open(stored.clone()) {
@@ -92,7 +133,7 @@ impl MongoQueueStore {
                 rewritten += 1;
                 continue;
             }
-            let replacement = to_doc(&new.seal_stored(&plain));
+            let replacement = to_doc(&new.seal_stored(&plain).map_err(|e| StoreError::Invalid(e.0))?);
             let r = self.claims.replace_one(doc! {"_id": id, "state": raw.get("state").cloned().unwrap_or(Bson::Null), "state_at": raw.get("state_at").cloned().unwrap_or(Bson::Null)}, replacement).run().map_err(unavailable)?;
             if r.modified_count == 1 {
                 rewritten += 1;
@@ -100,7 +141,62 @@ impl MongoQueueStore {
                 skipped += 1;
             }
         }
+        // an old index entry goes once no claim points at it; leaving it would leave a key wrapped by the old master that erasure never reaches
+        old_keys.sort();
+        old_keys.dedup();
+        for k in old_keys {
+            if self.claims.count_documents(doc! {"patient_key": &k}).run().map_err(unavailable)? == 0 {
+                old.forget_patient_key(&k).map_err(|e| StoreError::Invalid(e.0))?;
+            }
+        }
         Ok((rewritten, current, skipped))
+    }
+
+    /// Moves every claim still sealed under the master key onto its patient's own key (so it can be shredded), and seals plain ones.
+    /// Stop the API and the worker first. Returns (moved, already on a patient key or without a patient, skipped because it changed meanwhile).
+    /// Backups made before this run still hold the old form: they cannot be shredded and must age out.
+    pub fn adopt_patient_keys(&self, dry_run: bool) -> Result<(usize, usize, usize)> {
+        let c = self.crypt.as_ref().filter(|c| c.has_patient_keys()).ok_or_else(|| StoreError::Invalid("per-patient keys are not switched on".into()))?;
+        let (mut moved, mut already, mut skipped) = (0, 0, 0);
+        let all: Vec<Document> = self.claims.find(doc! {}).run().map_err(unavailable)?.collect::<std::result::Result<_, _>>().map_err(unavailable)?;
+        for raw in all {
+            let Some(id) = raw.get("_id").cloned() else { continue };
+            let stored = from_doc(&raw);
+            if FieldCrypt::is_patient_sealed(&stored) {
+                already += 1;
+                continue;
+            }
+            let plain = c.open(stored).map_err(|e| StoreError::Invalid(e.0))?;
+            if plain["claim"]["patient_id"].as_str().is_none() {
+                already += 1; // nothing ties it to a patient, so there is no key to give it
+                continue;
+            }
+            if dry_run {
+                moved += 1;
+                continue;
+            }
+            let replacement = to_doc(&c.seal_stored(&plain).map_err(|e| StoreError::Invalid(e.0))?);
+            let r = self.claims.replace_one(doc! {"_id": id, "state": raw.get("state").cloned().unwrap_or(Bson::Null), "state_at": raw.get("state_at").cloned().unwrap_or(Bson::Null)}, replacement).run().map_err(unavailable)?;
+            if r.modified_count == 1 {
+                moved += 1;
+            } else {
+                skipped += 1;
+            }
+        }
+        Ok((moved, already, skipped))
+    }
+
+    /// The patient index stored on a claim document (None when it has none, or the store is not encrypted).
+    fn stored_patient_key(&self, claim_id: &str, version: Option<i64>) -> Result<Option<String>> {
+        if self.crypt.is_none() {
+            return Ok(None);
+        }
+        let mut filter = doc! {"claim_id": claim_id};
+        if let Some(v) = version {
+            filter.insert("version", v);
+        }
+        let d = self.claims.find_one(filter).projection(doc! {"patient_key": 1}).run().map_err(unavailable)?;
+        Ok(d.and_then(|d| d.get_str("patient_key").ok().map(str::to_string)))
     }
 
     fn open(&self, v: Value) -> Result<Value> {
@@ -173,7 +269,7 @@ impl QueueStore for MongoQueueStore {
     fn put_triaged(&self, doc: &Value) -> Result<bool> {
         let mut full = prepare_new_doc(doc)?;
         if let Some(c) = &self.crypt {
-            c.seal_new_doc(&mut full);
+            c.seal_new_doc(&mut full).map_err(|e| StoreError::Invalid(e.0))?;
         }
         match self.claims.insert_one(to_doc(&full)).run() {
             Ok(_) => Ok(true),
@@ -198,8 +294,11 @@ impl QueueStore for MongoQueueStore {
         check_number(now, "now")?;
         let event = states::make_event(from, to, actor, now, detail).map_err(StoreError::Invalid)?;
         let mut fields = check_set_fields(&set_fields)?;
-        if let Some(c) = &self.crypt {
-            c.seal_set(claim_id, version, &mut fields);
+        if self.crypt.is_some() {
+            let pk = self.stored_patient_key(claim_id, Some(version))?;
+            if let Some(c) = &self.crypt {
+                c.seal_set(pk.as_deref(), claim_id, version, &mut fields).map_err(|e| StoreError::Invalid(e.0))?;
+            }
         }
         let mut filter = doc! {"claim_id": claim_id, "version": version, "state": from};
         if let Some(h) = holder {
@@ -216,14 +315,18 @@ impl QueueStore for MongoQueueStore {
         check_version(version)?;
         check_number(now, "now")?;
         check_decision(decision)?;
+        let sealed = match &self.crypt {
+            Some(c) => {
+                let pk = self.stored_patient_key(claim_id, Some(version))?;
+                c.seal(pk.as_deref(), claim_id, version, "decisions", decision).map_err(|e| StoreError::Invalid(e.0))?
+            }
+            None => decision.clone(),
+        };
         let found = self
             .claims
             .find_one_and_update(
                 doc! {"claim_id": claim_id, "version": version, "state": "leased", "lease.badge_id": badge_id, "lease.expires_at": {"$gt": now}},
-                doc! {"$push": {"decisions": to_bson(&match &self.crypt {
-                    Some(c) => c.seal(claim_id, version, "decisions", decision),
-                    None => decision.clone(),
-                })}},
+                doc! {"$push": {"decisions": to_bson(&sealed)}},
             )
             .return_document(ReturnDocument::After)
             .run()
@@ -371,6 +474,55 @@ impl QueueStore for MongoQueueStore {
         self.many(self.claims.find(doc! {"state": "leased", "lease.expires_at": {"$lte": now}}).sort(doc! {"lease.expires_at": 1, "claim_id": 1}).run().map_err(unavailable)?)
     }
 
+    fn docs_for_patient(&self, patient_id: &str) -> Result<Vec<Value>> {
+        let ids = self.patient_claim_ids(patient_id)?;
+        if ids.is_empty() {
+            return Ok(vec![]);
+        }
+        let rows = self.many(self.claims.find(doc! {"claim_id": {"$in": ids}}).sort(doc! {"claim_id": 1, "version": 1}).run().map_err(unavailable)?)?;
+        Ok(rows.into_iter().filter(|d| d["claim"]["patient_id"] == patient_id).collect())
+    }
+
+    fn erase_claim(&self, claim_id: &str) -> Result<i64> {
+        let n = self.claims.delete_many(doc! {"claim_id": claim_id}).run().map_err(unavailable)?.deleted_count as i64;
+        self.request_events.delete_many(doc! {"claim_id": claim_id}).run().map_err(unavailable)?;
+        self.dead.delete_many(doc! {"claim_id": claim_id}).run().map_err(unavailable)?;
+        Ok(n)
+    }
+
+    fn patient_key_of_claim(&self, claim_id: &str) -> Result<Option<String>> {
+        self.stored_patient_key(claim_id, None)
+    }
+
+    fn forget_patient_key_if_orphaned(&self, patient_key: &str) -> Result<bool> {
+        let Some(c) = self.crypt.as_ref().filter(|c| c.has_patient_keys()) else { return Ok(false) };
+        if self.claims.count_documents(doc! {"patient_key": patient_key}).run().map_err(unavailable)? > 0 {
+            return Ok(false); // the patient still has claims in the store: the key stays
+        }
+        c.forget_patient_key(patient_key).map_err(|e| StoreError::Invalid(e.0))
+    }
+
+    fn closed_before(&self, cutoff: f64, limit: usize) -> Result<Vec<String>> {
+        check_number(cutoff, "cutoff")?;
+        if limit == 0 {
+            return Ok(vec![]);
+        }
+        // candidates are the decided versions older than the cutoff; a claim counts only if that is also its newest version
+        let rows = self.claims.find(doc! {"state": "decided", "state_at": {"$lt": cutoff}}).projection(doc! {"_id": 0, "claim_id": 1, "version": 1, "state_at": 1}).sort(doc! {"state_at": 1, "claim_id": 1}).run().map_err(unavailable)?;
+        let mut out = vec![];
+        for r in rows {
+            let r = r.map_err(unavailable)?;
+            let (id, ver) = (r.get_str("claim_id").unwrap_or("").to_string(), r.get_i64("version").unwrap_or_else(|_| r.get_i32("version").unwrap_or(0) as i64));
+            if self.latest_versions(&[id.clone()])?.get(&id) == Some(&ver) && !out.contains(&id) {
+                out.push(id);
+                if out.len() >= limit {
+                    break;
+                }
+            }
+        }
+        Ok(out)
+    }
+
     fn claims_for_patient(&self, patient_id: &str) -> Result<Vec<Value>> {
         // documents written with encryption carry only a keyed hash of the patient id; older ones carry the id itself
         let filter = match &self.crypt {
@@ -381,7 +533,7 @@ impl QueueStore for MongoQueueStore {
         if ids.is_empty() {
             return Ok(vec![]);
         }
-        let rows = self.many(self.claims.find(doc! {"claim_id": {"$in": ids}}).projection(doc! {"_id": 0, "claim_id": 1, "version": 1, "claim": 1}).run().map_err(unavailable)?)?;
+        let rows = self.many(self.claims.find(doc! {"claim_id": {"$in": ids}}).projection(doc! {"_id": 0, "claim_id": 1, "version": 1, "claim": 1, "patient_key": 1}).run().map_err(unavailable)?)?;
         let mut latest: BTreeMap<String, Value> = BTreeMap::new();
         for d in rows {
             let id = d["claim_id"].as_str().unwrap_or("").to_string();
@@ -610,6 +762,134 @@ mod tests {
     #[test]
     fn and_so_does_the_encrypting_store_because_encryption_is_invisible_to_its_callers() {
         contract(true);
+    }
+
+    #[test]
+    fn and_so_does_the_store_with_a_key_per_patient() {
+        let Some(uri) = uri() else { return };
+        let names = std::sync::Mutex::new(vec![]);
+        let key = fernet::Fernet::generate_key();
+        let make = || -> Box<dyn QueueStore> {
+            let name = format!("claimguard_rs_qkeys_{}", rand::random::<u64>());
+            let client = crate::connect(&uri, 3000).expect("connect");
+            let keys = std::sync::Arc::new(crate::keys::MongoKeyStore::new(client.clone(), &format!("{name}_keys")));
+            let store = MongoQueueStore::new(client, &name).with_encryption(FieldCrypt::new(&key, None).unwrap().with_patient_keys(keys));
+            store.ensure_indexes().expect("indexes");
+            names.lock().unwrap().push(name);
+            Box::new(store)
+        };
+        cg_queue::contract::run(&make);
+        let client = crate::connect(&uri, 3000).unwrap();
+        for n in names.lock().unwrap().iter() {
+            let _ = client.database(n).drop().run();
+            let _ = client.database(&format!("{n}_keys")).drop().run();
+        }
+    }
+
+    /// The whole story of docs/59 against a real database: erase, shred, restore an old backup, replay the ledger.
+    #[test]
+    fn erasing_a_patient_shreds_their_key_and_a_restored_backup_is_unreadable_then_deleted() {
+        let Some(uri) = uri() else { return };
+        let name = format!("claimguard_rs_shred_{}", rand::random::<u64>());
+        let client = crate::connect(&uri, 3000).unwrap();
+        let key = fernet::Fernet::generate_key();
+        let open_store = || {
+            let keys = std::sync::Arc::new(crate::keys::MongoKeyStore::new(client.clone(), &format!("{name}_keys")));
+            let s = MongoQueueStore::new(client.clone(), &name).with_encryption(FieldCrypt::new(&key, None).unwrap().with_patient_keys(keys));
+            s.ensure_indexes().unwrap();
+            s
+        };
+        let store = open_store();
+        let new = |id: &str, patient: &str| {
+            json!({"claim_id": id, "version": 1, "input_hash": format!("h-{id}"), "claim": {"claim_id": id, "patient_id": patient, "notes": "SHRED-ME"}, "results": [],
+                "receipt": {"created_at": 1.0, "lane": "A", "eligibility": "any", "score": 3, "rule_pack_hash": "p"}, "advisory": []})
+        };
+        for (id, p) in [("C1", "PAT-A"), ("C2", "PAT-A"), ("C3", "PAT-B")] {
+            assert!(store.put_triaged(&new(id, p)).unwrap());
+        }
+        let claims = client.database(&name).collection::<Document>("claims");
+        let keys_coll = client.database(&format!("{name}_keys")).collection::<Document>("patient_keys");
+        assert_eq!(keys_coll.count_documents(doc! {}).run().unwrap(), 2, "one key per patient");
+        // a transition and a decision also seal under the patient's key
+        store.transition("C1", 1, "triaged", "ready", "system", 0.5, None, None, None).unwrap().unwrap();
+        // 1. a backup: copies of the claim documents (what mongodump takes) and, separately, of the key database
+        let claims_backup: Vec<Document> = claims.find(doc! {}).run().unwrap().map(|d| d.unwrap()).collect();
+        let keys_backup: Vec<Document> = keys_coll.find(doc! {}).run().unwrap().map(|d| d.unwrap()).collect();
+        let tmp = tempfile::tempdir().unwrap();
+        let ledger = cg_queue::erasure_ledger::Ledger::open(tmp.path().join("erasure_ledger.jsonl"));
+        // 2. erase PAT-A
+        let ids = cg_queue::privacy::claim_ids_of(&store, "PAT-A").unwrap();
+        assert_eq!(ids, ["C1", "C2"]);
+        let r = cg_queue::privacy::erase_claims(&store, &ledger, &ids, "erase", "CG-4004", 5.0).unwrap();
+        assert_eq!((r["claims_erased"].as_i64(), r["patient_keys_destroyed"].as_i64()), (Some(2), Some(1)));
+        assert_eq!(keys_coll.count_documents(doc! {}).run().unwrap(), 1, "PAT-A's key is gone, PAT-B's stays");
+        assert!(store.get("C3", None).unwrap().is_some(), "another patient is untouched");
+        // 3. the old claims backup alone (no key): the ciphertext is unreadable, even with the master key in hand
+        claims.delete_many(doc! {}).run().unwrap();
+        claims.insert_many(claims_backup.clone()).run().unwrap();
+        let e = store.get("C1", None).unwrap_err().to_string();
+        assert!(e.contains("no longer exists"), "a restored claim of an erased patient cannot be read: {e}");
+        assert!(store.get("C3", None).unwrap().is_some(), "PAT-B still reads from the same restore");
+        // 4. replaying the ledger deletes what the restore brought back
+        let again = cg_queue::privacy::replay_ledger(&store, &ledger).unwrap();
+        assert_eq!(again["claims_erased_again"], 2);
+        assert!(store.get("C1", None).unwrap().is_none() && store.get("C2", None).unwrap().is_none());
+        // 5. the worst case: the OLD KEY BACKUP is restored too, so PAT-A's key is back and the old claims read again
+        keys_coll.delete_many(doc! {}).run().unwrap();
+        keys_coll.insert_many(keys_backup).run().unwrap();
+        claims.delete_many(doc! {}).run().unwrap();
+        claims.insert_many(claims_backup).run().unwrap();
+        let fresh = open_store(); // a new process: nothing cached
+        assert_eq!(fresh.get("C1", None).unwrap().unwrap()["claim"]["notes"], "SHRED-ME", "with both backups the data reads: this is why the ledger is replayed");
+        let again = cg_queue::privacy::replay_ledger(&fresh, &ledger).unwrap();
+        assert_eq!((again["claims_erased_again"].as_i64(), again["patient_keys_destroyed"].as_i64()), (Some(2), Some(1)));
+        assert!(fresh.get("C1", None).unwrap().is_none());
+        assert_eq!(keys_coll.count_documents(doc! {}).run().unwrap(), 1, "the resurrected key was destroyed again");
+        // 6. what is stored never held the identifier or the notes
+        let raw = format!("{:?}", claims.find(doc! {}).run().unwrap().map(|d| d.unwrap()).collect::<Vec<_>>());
+        assert!(!raw.contains("PAT-") && !raw.contains("SHRED-ME"));
+        let _ = client.database(&name).drop().run();
+        let _ = client.database(&format!("{name}_keys")).drop().run();
+    }
+
+    #[test]
+    fn claims_sealed_under_the_master_key_move_onto_patient_keys_and_survive_a_key_rotation() {
+        let Some(uri) = uri() else { return };
+        let name = format!("claimguard_rs_adopt_{}", rand::random::<u64>());
+        let client = crate::connect(&uri, 3000).unwrap();
+        let (ka, kb) = (fernet::Fernet::generate_key(), fernet::Fernet::generate_key());
+        let keys: std::sync::Arc<dyn crate::crypt::KeyStore> = std::sync::Arc::new(crate::keys::MongoKeyStore::new(client.clone(), &format!("{name}_keys")));
+        // written before per-patient keys existed
+        let legacy = MongoQueueStore::new(client.clone(), &name).with_encryption(FieldCrypt::new("x", Some(&ka)).unwrap());
+        legacy.ensure_indexes().unwrap();
+        for (id, p) in [("C1", "PAT-A"), ("C2", "PAT-B")] {
+            let d = json!({"claim_id": id, "version": 1, "input_hash": format!("h-{id}"), "claim": {"claim_id": id, "patient_id": p, "notes": "ADOPT-ME"}, "results": [],
+                "receipt": {"created_at": 1.0, "lane": "A", "eligibility": "any", "score": 3, "rule_pack_hash": "p"}, "advisory": []});
+            assert!(legacy.put_triaged(&d).unwrap());
+        }
+        let store = MongoQueueStore::new(client.clone(), &name).with_encryption(FieldCrypt::new("x", Some(&ka)).unwrap().with_patient_keys(keys.clone()));
+        assert_eq!(store.adopt_patient_keys(true).unwrap(), (2, 0, 0), "a dry run counts");
+        assert_eq!(store.adopt_patient_keys(false).unwrap(), (2, 0, 0));
+        assert_eq!(store.adopt_patient_keys(false).unwrap(), (0, 2, 0), "run again: already adopted");
+        assert_eq!(store.get("C1", None).unwrap().unwrap()["claim"]["notes"], "ADOPT-ME");
+        assert!(legacy.get("C1", None).is_err(), "without the key store the adopted claim is no longer readable");
+        // now rotate the data key: the patient index changes, so each patient key moves to its new index
+        let new = FieldCrypt::new("x", Some(&kb)).unwrap().with_patient_keys(keys.clone());
+        assert_eq!(store.reencrypt_all(&new, true).unwrap(), (2, 0, 0));
+        assert_eq!(store.reencrypt_all(&new, false).unwrap(), (2, 0, 0));
+        let rotated = MongoQueueStore::new(client.clone(), &name).with_encryption(FieldCrypt::new("x", Some(&kb)).unwrap().with_patient_keys(keys.clone()));
+        assert_eq!(rotated.get("C1", None).unwrap().unwrap()["claim"]["notes"], "ADOPT-ME");
+        assert_eq!(rotated.claims_for_patient("PAT-A").unwrap().len(), 1, "the patient index follows the new key");
+        assert_eq!(keys.list().unwrap().len(), 2, "the old index entries were removed, none left wrapped by the old master key");
+        assert_eq!(store.reencrypt_all(&new, false).unwrap(), (0, 2, 0), "repeating after an interruption changes nothing");
+        // and a rotated patient can still be shredded
+        let ledger_dir = tempfile::tempdir().unwrap();
+        let ledger = cg_queue::erasure_ledger::Ledger::open(ledger_dir.path().join("l.jsonl"));
+        let r = cg_queue::privacy::erase_claims(&rotated, &ledger, &["C1".to_string()], "erase", "CG-4004", 1.0).unwrap();
+        assert_eq!(r["patient_keys_destroyed"], 1);
+        assert_eq!(keys.list().unwrap().len(), 1);
+        let _ = client.database(&name).drop().run();
+        let _ = client.database(&format!("{name}_keys")).drop().run();
     }
 
     #[test]

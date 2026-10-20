@@ -1,0 +1,60 @@
+{"id": "K001", "q": "Which rules can fire for SVC-CONSULT under EDU-BASIC?"}
+{"id": "K002", "q": "What do I need to watch for when a claim bills SVC-CONSULT to policy EDU-PLUS?"}
+{"id": "K003", "q": "What do I need to watch for when a claim bills SVC-DENTAL to policy EDU-BASIC?"}
+{"id": "K004", "q": "If a claim has a SVC-DENTAL line on EDU-PLUS, which checks apply to it?"}
+{"id": "K005", "q": "If a claim has a SVC-IMAGE line on EDU-BASIC, which checks apply to it?"}
+{"id": "K006", "q": "Which rules can fire for SVC-IMAGE under EDU-PLUS?"}
+{"id": "K007", "q": "Which rules can fire for SVC-LAB under EDU-BASIC?"}
+{"id": "K008", "q": "What do I need to watch for when a claim bills SVC-LAB to policy EDU-PLUS?"}
+{"id": "K009", "q": "What do I need to watch for when a claim bills SVC-PHARM to policy EDU-BASIC?"}
+{"id": "K010", "q": "If a claim has a SVC-PHARM line on EDU-PLUS, which checks apply to it?"}
+{"id": "K011", "q": "If a claim has a SVC-THERAPY line on EDU-BASIC, which checks apply to it?"}
+{"id": "K012", "q": "Which rules can fire for SVC-THERAPY under EDU-PLUS?"}
+{"id": "K013", "q": "Which rule checks that the provider is in the insurer network?"}
+{"id": "K014", "q": "Which rules look at whether a service needs prior authorization?"}
+{"id": "K015", "q": "Which rule makes sure the required supporting document is attached?"}
+{"id": "K016", "q": "Which rule enforces the maximum price per unit?"}
+{"id": "K017", "q": "Which rule limits how many units can be on one line?"}
+{"id": "K018", "q": "Which rule enforces the submission deadline in days?"}
+{"id": "K019", "q": "Which rule compares the claim currency with the policy?"}
+{"id": "K020", "q": "Which rules use the service date of a line?"}
+{"id": "K021", "q": "Which rules read the invoice number field?"}
+{"id": "K022", "q": "Which rules depend on the currency field of a claim?"}
+{"id": "K023", "q": "Which rules read coverage.status?"}
+{"id": "K024", "q": "Which rules read the provider_id field?"}
+{"id": "K025", "q": "Which rules look at the total_amount?"}
+{"id": "K026", "q": "Which rules read the modifier on a line?"}
+{"id": "K027", "q": "Which rules use the attachment type?"}
+{"id": "K028", "q": "What claim data does rule R003 look at?"}
+{"id": "K029", "q": "Which fields does R004 compare?"}
+{"id": "K030", "q": "Which fields does rule R010 read?"}
+{"id": "K031", "q": "What inputs does R012 use?"}
+{"id": "K032", "q": "Which fields does R014 read?"}
+{"id": "K033", "q": "What data does R009 read?"}
+{"id": "K034", "q": "What is the highest unit price the policy EDU-BASIC allows for SVC-THERAPY?"}
+{"id": "K035", "q": "How many units of SVC-LAB can be billed on one line under EDU-PLUS?"}
+{"id": "K036", "q": "What document must support a SVC-IMAGE line under EDU-BASIC?"}
+{"id": "K037", "q": "What is the price ceiling for SVC-DENTAL on policy EDU-PLUS?"}
+{"id": "K038", "q": "What is the quantity limit per line for SVC-PHARM under EDU-BASIC?"}
+{"id": "K039", "q": "Which supporting document does policy EDU-BASIC require for SVC-DENTAL?"}
+{"id": "K040", "q": "How many days after the service can a claim be submitted under EDU-BASIC?"}
+{"id": "K041", "q": "How many days after the service can a claim be submitted under EDU-PLUS?"}
+{"id": "K042", "q": "Does policy EDU-BASIC require an authorization for SVC-LAB?"}
+{"id": "K043", "q": "Which policies allow provider EDU-PROV-02?"}
+{"id": "K044", "q": "Is EDU-PROV-03 in the network of EDU-PLUS, and which rule checks it?"}
+{"id": "K045", "q": "How do policies EDU-BASIC and EDU-PLUS differ?"}
+{"id": "K046", "q": "What is different between the EDU-BASIC and EDU-PLUS policies?"}
+{"id": "K047", "q": "Which rules have medium severity?"}
+{"id": "K048", "q": "List the rules with high severity."}
+{"id": "K049", "q": "How are R008 and R009 related?"}
+{"id": "K050", "q": "Which rules depend on R007?"}
+{"id": "K051", "q": "Which other rules work together with R014?"}
+{"id": "K052", "q": "List all the service codes in the catalogue."}
+{"id": "K053", "q": "Quelles règles dépendent de l'autorisation préalable d'un service ?"}
+{"id": "K054", "q": "Quelle règle vérifie que le prestataire fait partie du réseau ?"}
+{"id": "K055", "q": "Quelle règle contrôle le délai de soumission d'un dossier ?"}
+{"id": "K056", "q": "Quelles règles s’appliquent à SVC-IMAGE avec la politique EDU-PLUS ?"}
+{"id": "K057", "q": "ما هي القاعدة التي تتحقق من أن مقدم الخدمة ضمن الشبكة؟"}
+{"id": "K058", "q": "أي قاعدة تتحقق من وجود المستند الداعم المطلوب؟"}
+{"id": "K059", "q": "أي القواعد تعتمد على التفويض المسبق للخدمة؟"}
+{"id": "K060", "q": "ما هو الحد الأقصى لسعر الوحدة للخدمة SVC-THERAPY في السياسة EDU-BASIC؟"}
