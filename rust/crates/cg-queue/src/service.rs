@@ -362,6 +362,21 @@ impl QueueService {
         Ok(json!({"claim_id": claim_id, "count": total, "shown": rows.len(), "claims": rows}))
     }
 
+    /// This person's notifications, newest first (see `notify`). Permissions are read again here, so a person who lost the right to decide claims
+    /// stops getting them at once.
+    pub fn notifications(&self, principal: &Principal) -> R<Value> {
+        self.require(principal, "claims.decide")?;
+        let rows = self.store.notifications(principal.badge(), crate::notify::LIST_LIMIT).map_err(store_err)?;
+        Ok(json!({"notifications": rows}))
+    }
+
+    /// "Delete all": this person's notifications are removed (the ones sent to everyone are hidden from them only).
+    pub fn clear_notifications(&self, principal: &Principal) -> R<Value> {
+        self.require(principal, "claims.decide")?;
+        let n = self.store.clear_notifications(principal.badge(), self.now()).map_err(store_err)?;
+        Ok(json!({"cleared": n}))
+    }
+
     pub fn heartbeat(&self, principal: &Principal) -> R<i64> {
         self.require(principal, "claims.decide")?;
         let now = self.now();

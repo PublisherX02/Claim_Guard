@@ -98,8 +98,23 @@ fn configure_shift(store: &dyn QueueStore, badges: Vec<String>) -> Result<(), St
     Ok(())
 }
 
+/// The sample claims are all from different patients, so an officer would never see anything under "Patient history". For the demo, three
+/// patients get four or five claims each (the same patient id on every sixth claim), which is what that panel is for: an officer tracing a
+/// pattern across one patient's earlier claims. Demo data only.
+fn share_patients(claims: &mut [Value]) {
+    if claims.len() < 20 {
+        return;
+    }
+    for base in 0..3 {
+        let Some(patient) = claims[base]["patient_id"].as_str().map(str::to_string) else { continue };
+        for i in (base + 6..claims.len()).step_by(6).take(4) {
+            claims[i]["patient_id"] = json!(patient);
+        }
+    }
+}
+
 /// Seeds accounts, puts the reviewers on shift and loads sample claims through the real intake.
-fn seed_demo(b: &Boot) -> Result<(), String> {
+fn seed_demo(b: &Boot) -> Result<Value, String> {
     let q = b.queue.as_ref().ok_or("the demo needs the queue")?;
     let accounts = seed_accounts(&b.access)?;
     configure_shift(&*q.store, accounts.as_object().into_iter().flatten().filter(|(_, v)| matches!(v["level"].as_i64(), Some(2 | 3))).map(|(k, _)| k.clone()).collect())?;
@@ -107,6 +122,9 @@ fn seed_demo(b: &Boot) -> Result<(), String> {
     let claims: Vec<Value> = text.lines().filter(|l| !l.trim().is_empty()).filter_map(|l| serde_json::from_str(l).ok()).collect();
     // CG_DEMO_CLAIMS (default 60) is how many sample claims the demo starts with; 0 starts it empty
     let how_many = std::env::var("CG_DEMO_CLAIMS").ok().and_then(|v| v.parse::<usize>().ok()).unwrap_or(60);
+    let mut claims = claims;
+    let upto = how_many.min(claims.len());
+    share_patients(&mut claims[..upto]);
     let accepted = q.intake.submit_batch(&claims[..claims.len().min(how_many)], "demo").map(|(_, rows)| rows.iter().filter(|r| r["accepted"] == true).count()).unwrap_or(0);
     let path = b.data_dir.join("demo_accounts.json");
     std::fs::write(&path, serde_json::to_string_pretty(&accounts).unwrap_or_default()).map_err(|e| e.to_string())?;
@@ -115,7 +133,7 @@ fn seed_demo(b: &Boot) -> Result<(), String> {
         println!("  {badge}  level {}  {:<22} password: {}", acc["level"], acc["name"].as_str().unwrap_or(""), acc["password"].as_str().unwrap_or(""));
     }
     println!("{accepted} sample claims loaded. The authenticator seeds are in the file above.");
-    Ok(())
+    Ok(accounts)
 }
 
 pub fn run(args: &[String]) -> i32 {
@@ -155,10 +173,11 @@ fn start(a: Args, dev: bool) -> Result<(), String> {
     let claims = Arc::new(FileClaimStore::from_jsonl(&claims_path, &b.engine)?);
     let stop = Arc::new(AtomicBool::new(false));
     let (mut queue_service, mut probes, mut worker, mut guard) = (None, vec![], None, None);
+    let mut demo_accounts: Option<Value> = None;
     if let Some(q) = &b.queue {
         probes = queue_probes(q.service.clone(), q.breaker.clone(), q.runtime.explain.model_name(), q.broker.clone(), b.env.get("REDIS_URL").cloned().filter(|s| !s.is_empty()), a.demo, b.clock.clone());
         if a.demo {
-            seed_demo(&b)?;
+            demo_accounts = Some(seed_demo(&b)?);
         }
         // In a real deployment the worker is its own process (`cg worker`); only the demo runs it here.
         if a.demo {
@@ -170,7 +189,7 @@ fn start(a: Args, dev: bool) -> Result<(), String> {
     if dev {
         println!("DEV MODE: users live {}; generated secrets are kept in {}. Do not use real data.", if b.settings.mongo_uri.is_some() { "in the configured database" } else { "in memory (lost on exit)" }, b.data_dir.join("dev_secrets.json").display());
     }
-    let api = Arc::new(Api::new(ApiParts {
+    let mut api = Api::new(ApiParts {
         access: b.access.clone(),
         claims,
         review_log: b.review_log.clone(),
@@ -183,7 +202,11 @@ fn start(a: Args, dev: bool) -> Result<(), String> {
         data_dir: b.data_dir.clone(),
         payer: Some(b.payer.clone()),
         import: Some(cg_api::import::ImportParts { reader: cg_ingest::document::ReaderConfig::from_env(&b.env)?, catalog: cg_ingest::extract::Catalog::load(&b.root) }),
-    }));
+    });
+    if let Some(accounts) = demo_accounts {
+        api.offer_demo_logins(accounts); // demo only: the sign-in page's "Local demo accounts" buttons (the route answers this PC alone)
+    }
+    let api = Arc::new(api);
     let addr: SocketAddr = format!("{}:{}", if a.host == "localhost" { "127.0.0.1" } else { &a.host }, a.port).parse().map_err(|_| "bad --host".to_string())?;
     println!("listening on {}:{}", a.host, a.port);
     let rt = tokio::runtime::Builder::new_multi_thread().enable_all().build().map_err(|e| e.to_string())?;

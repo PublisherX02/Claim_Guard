@@ -11,6 +11,7 @@
 //! build that wrote it.)
 
 use crate::flow::{release, routing_config};
+use crate::notify;
 use crate::routing_config::{self as rc, RoutingConfig};
 use crate::store::QueueStore;
 use cg_access::securitylog::SecurityLog;
@@ -224,6 +225,9 @@ impl Dispatcher {
         for (claim_id, badge, version) in &plan {
             if matches!(self.store.lease(claim_id, *version, badge, now, expires), Ok(Some(_))) {
                 deal.assigned.push((claim_id.clone(), badge.clone(), *version));
+                if let Ok(Some(doc)) = self.store.get(claim_id, Some(*version)) {
+                    notify::claim_arrived(&*self.store, badge, &doc, expires, now);
+                }
                 if let Some(log) = &self.log {
                     let _ = log.record("claim_dealt", json!({"deal_id": deal.deal_id, "claim_id": claim_id, "badge_id": badge}));
                 }
@@ -267,6 +271,7 @@ impl Dispatcher {
             let holder = doc["lease"]["badge_id"].as_str().unwrap_or("").to_string();
             if matches!(release(&*self.store, &doc, now, "system:dispatcher", "lease_expired"), Ok(Some(_))) {
                 count += 1;
+                notify::lease_expired(&*self.store, &holder, doc["claim_id"].as_str().unwrap_or(""), now);
                 if let Some(log) = &self.log {
                     let _ = log.record("lease_expired", json!({"claim_id": doc["claim_id"], "badge_id": holder}));
                 }

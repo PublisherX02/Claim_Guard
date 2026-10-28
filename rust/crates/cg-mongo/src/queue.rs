@@ -13,7 +13,7 @@ use crate::bsonconv::{from_doc, to_bson, to_doc};
 use crate::crypt::FieldCrypt;
 use cg_access::store::StoreError;
 use cg_queue::states;
-use cg_queue::store::{check_batch_event, check_request_event, check_config_doc, check_reliability_doc, check_reliability_move, reliability_event, check_decision, check_id_doc, check_job, check_number, check_set_fields, check_version, lane_key, prepare_new_doc, project_history, QueueStore, Result, DEALABLE};
+use cg_queue::store::{check_notification, check_batch_event, check_request_event, check_config_doc, check_reliability_doc, check_reliability_move, reliability_event, check_decision, check_id_doc, check_job, check_number, check_set_fields, check_version, lane_key, prepare_new_doc, project_history, QueueStore, Result, DEALABLE};
 use mongodb::bson::{doc, Bson, DateTime, Document};
 use mongodb::options::{IndexOptions, ReturnDocument};
 use mongodb::sync::{Client, Collection};
@@ -58,6 +58,8 @@ pub struct MongoQueueStore {
     cache: Collection<Document>,
     jobs: Collection<Document>,
     counters: Collection<Document>,
+    notes: Collection<Document>,
+    note_cursors: Collection<Document>,
     crypt: Option<FieldCrypt>,
 }
 
@@ -210,6 +212,12 @@ impl MongoQueueStore {
         d.map(|d| self.open(from_doc(&d))).transpose()
     }
 
+    /// When this badge last cleared its notifications (before every notification if it never has).
+    fn cleared_at(&self, badge: &str) -> Result<f64> {
+        let row = self.note_cursors.find_one(doc! {"badge": badge}).run().map_err(unavailable)?;
+        Ok(row.and_then(|r| r.get_f64("cleared_at").ok()).unwrap_or(f64::NEG_INFINITY))
+    }
+
     fn many(&self, c: mongodb::sync::Cursor<Document>) -> Result<Vec<Value>> {
         let docs = c.map(|r| r.map(|d| from_doc(&d)).map_err(unavailable)).collect::<Result<Vec<Value>>>()?;
         docs.into_iter().map(|d| self.open(d)).collect()
@@ -228,6 +236,8 @@ impl MongoQueueStore {
             cache: db.collection("cache"),
             jobs: db.collection("jobs"),
             counters: db.collection("counters"),
+            notes: db.collection("notifications"),
+            note_cursors: db.collection("notification_cursors"),
             crypt: None,
             client,
             db_name: db_name.to_string(),
@@ -255,6 +265,10 @@ impl MongoQueueStore {
         go(&self.cache, with(doc! {"key": 1}, unique()))?;
         go(&self.jobs, with(doc! {"name": 1}, unique()))?;
         go(&self.cache, with(doc! {"expires_at": 1}, ttl()))?;
+        go(&self.notes, plain(doc! {"to": 1, "at": -1}))?;
+        go(&self.notes, with(doc! {"id": 1}, unique()))?;
+        go(&self.notes, plain(doc! {"claim_id": 1}))?;
+        go(&self.note_cursors, with(doc! {"badge": 1}, unique()))?;
         go(&self.counters, with(doc! {"counter": 1, "window": 1}, unique()))?;
         go(&self.counters, with(doc! {"expires_at": 1}, ttl()))?;
         Ok(())
@@ -487,6 +501,7 @@ impl QueueStore for MongoQueueStore {
         let n = self.claims.delete_many(doc! {"claim_id": claim_id}).run().map_err(unavailable)?.deleted_count as i64;
         self.request_events.delete_many(doc! {"claim_id": claim_id}).run().map_err(unavailable)?;
         self.dead.delete_many(doc! {"claim_id": claim_id}).run().map_err(unavailable)?;
+        self.notes.delete_many(doc! {"claim_id": claim_id}).run().map_err(unavailable)?;
         Ok(n)
     }
 
@@ -714,6 +729,29 @@ impl QueueStore for MongoQueueStore {
             }
         }
         Ok(rows)
+    }
+
+    fn append_notification(&self, n: &Value) -> Result<()> {
+        check_notification(n)?;
+        self.notes.insert_one(to_doc(n)).run().map(|_| ()).map_err(unavailable)
+    }
+
+    fn notifications(&self, badge: &str, limit: usize) -> Result<Vec<Value>> {
+        if limit == 0 {
+            return Ok(vec![]);
+        }
+        let cleared = self.cleared_at(badge)?;
+        let filter = doc! {"$or": [{"to": badge}, {"to": "*", "at": {"$gt": cleared}}]};
+        self.many(self.notes.find(filter).sort(doc! {"at": -1}).limit(limit as i64).run().map_err(unavailable)?)
+    }
+
+    fn clear_notifications(&self, badge: &str, now: f64) -> Result<i64> {
+        check_number(now, "now")?;
+        let cleared = self.cleared_at(badge)?;
+        let hidden = self.notes.count_documents(doc! {"to": "*", "at": {"$gt": cleared}}).run().map_err(unavailable)? as i64;
+        let own = self.notes.delete_many(doc! {"to": badge}).run().map_err(unavailable)?.deleted_count as i64;
+        self.note_cursors.update_one(doc! {"badge": badge}, doc! {"$set": {"cleared_at": now}}).upsert(true).run().map_err(unavailable)?;
+        Ok(own + hidden)
     }
 
     fn ping(&self) -> bool {
