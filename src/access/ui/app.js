@@ -101,13 +101,14 @@
     app.appendChild(h('div', { class: 'shell' },
       h('aside', { class: 'side' }, h('div', { class: 'brand' }, h('img', { src: 'icon.svg', alt: '' }), h('span', { text: 'ClaimGuard' })), nav,
         h('div', { class: 'me stack' }, h('div', null, h('b', { text: me.name }), h('div', { class: 'muted small', text: me.badge_id + ' - ' + (LEVELS[me.level] || 'Level ' + me.level) })),
+          CG.has('claims.decide') ? CG.notes.bellButton() : null,
           h('button', { class: 'btn small', type: 'button', text: 'Sign out', onclick: signOut }))),
       main));
     return main;
   }
 
   function signOut() {
-    CG.api('POST', '/auth/logout').catch(function () {}).then(function () { CG.state.me = null; CG.stopTimers(); location.hash = '#/login'; });
+    CG.api('POST', '/auth/logout').catch(function () {}).then(function () { CG.state.me = null; CG.notes.stop(); CG.stopTimers(); location.hash = '#/login'; });
   }
 
   // ---- router -----------------------------------------------------------------------------------------------------------
@@ -132,13 +133,14 @@
   function route() {
     CG.stopTimers();
     var hash = location.hash || '#/';
-    if (hash === '#/login') { loginView(); return; }
+    if (hash === '#/login') { CG.notes.stop(); loginView(); return; }
     if (!CG.state.me) { CG.api('GET', '/auth/me').then(function (me) { CG.state.me = me; route(); }, function () { location.hash = '#/login'; loginView(); }); return; }
     if (CG.state.me.must_change_password || hash === '#/password') { passwordView(); return; }
     for (var i = 0; i < ROUTES.length; i++) {
       var m = ROUTES[i][0].exec(hash);
       if (m) {
         if (!CG.has(ROUTES[i][1])) break;
+        CG.notes.start();
         var main = shell(ROUTES[i][3]);
         ROUTES[i][2](m, main);
         main.focus && main.setAttribute('tabindex', '-1');

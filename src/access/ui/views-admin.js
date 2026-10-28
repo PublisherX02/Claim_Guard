@@ -100,9 +100,18 @@
       var excl = h('textarea', { placeholder: 'One pair per line: reviewer badge, patient id (that reviewer never gets that patient)' }); excl.value = (cfg.exclusions || []).map(function (p) { return p.join(', '); }).join('\n');
       var autoClear = h('input', { type: 'checkbox', id: 'auto-clear-green', 'aria-label': 'Clear clean claims automatically' }); autoClear.checked = !!cfg.auto_clear_green;
       var auditPct = h('input', { type: 'number', min: '1', max: '100', step: '1', value: cfg.audit_percent, 'aria-label': 'Percent of each batch that officers check' });
+      var REQ = [['off', 'Off: every flagged claim goes to an officer'], ['medium', 'Medium and above: ask for missing information on findings rated medium or higher'], ['all', 'All: ask for missing information on every finding that can be asked']];
+      var autoReq = h('select', { id: 'auto-request-info', 'aria-label': 'Automatic requests for more information' });
+      REQ.forEach(function (o) { var op = h('option', { value: o[0], text: o[1] }); if (o[0] === (cfg.auto_request_info || 'off')) op.selected = true; autoReq.appendChild(op); });
+      var skipOn = h('input', { type: 'checkbox', id: 'bulk-skip-on', 'aria-label': 'Offer bulk confirm for reliably upheld rules' }); skipOn.checked = Number(cfg.bulk_confirm_skip_lower) > 0;
+      var skipVal = h('input', { type: 'number', min: '0.8', max: '0.999', step: '0.001', value: Number(cfg.bulk_confirm_skip_lower) > 0 ? cfg.bulk_confirm_skip_lower : 0.95, 'aria-label': 'Minimum upheld rate for bulk confirm' });
       var save = h('button', { class: 'btn primary', type: 'button', text: 'Save settings', onclick: function () {
         var changes = {}, k;
         if (autoClear.checked !== !!cfg.auto_clear_green) changes.auto_clear_green = autoClear.checked;
+        if (autoReq.value !== (cfg.auto_request_info || 'off')) changes.auto_request_info = autoReq.value;
+        var skipNew = skipOn.checked ? Number(skipVal.value) : 0;
+        if (skipOn.checked && (isNaN(skipNew) || skipNew < 0.8 || skipNew > 0.999)) { CG.toast('The bulk-confirm rate must be from 0.8 to 0.999.', 'bad'); return; }
+        if (skipNew !== Number(cfg.bulk_confirm_skip_lower || 0)) changes.bulk_confirm_skip_lower = skipNew;
         if (auditPct.value !== '' && Number(auditPct.value) !== cfg.audit_percent) changes.audit_percent = Number(auditPct.value);
         NUMBERS.forEach(function (n) {
           var v = Number(inputs[n[0]].value);
@@ -126,6 +135,10 @@
       body.appendChild(h('div', { class: 'card' }, h('h2', { text: 'Clean claims and the audit sample' }),
         h('div', { class: 'field' }, h('label', { class: 'row' }, autoClear, h('span', { text: 'Clear clean claims automatically' })), h('div', { class: 'muted small', text: 'When on, the system clears the clean claims of a batch itself and officers check only a sample. When off, every claim goes to an officer.' })),
         h('div', { class: 'field' }, h('label', { text: 'Percent of each batch that officers check' }), auditPct, h('div', { class: 'muted small', text: 'At least one claim per batch. One wrong claim found in the sample holds the whole batch for the administrator.' }))));
+      body.appendChild(h('div', { class: 'card' }, h('h2', { text: 'Automatic requests for more information' }),
+        h('div', { class: 'field' }, h('label', { for: 'auto-request-info', text: 'When a claim is missing information' }), autoReq, h('div', { class: 'muted small', text: 'When on, the system itself asks the provider for the missing information instead of sending the claim to an officer, and every officer sees a notification saying what it asked. Off by default.' }))));
+      body.appendChild(h('div', { class: 'card' }, h('h2', { text: 'Bulk confirm shortcut' }),
+        h('div', { class: 'field' }, h('label', { class: 'row' }, skipOn, h('span', { text: 'Offer bulk confirm for rules whose findings officers almost always uphold' })), h('div', { class: 'row' }, h('label', { for: '', text: 'Minimum upheld rate, with confidence (0.8 to 0.999)' }), skipVal), h('div', { class: 'muted small', text: 'Off by default. A rule qualifies only when its proven upheld rate is at least this level; officers still look at the findings first, and every bulk confirmation is written to the audit trail.' }))));
       body.appendChild(h('div', { class: 'card' }, h('h2', { text: 'Capacity and timing' }), h('div', { class: 'row' }, numberFields.map(function (f) { return h('div', { style: null, class: 'grow' }, f); }))));
       body.appendChild(h('div', { class: 'card' }, h('h2', { text: 'Points per flagged finding' }), h('div', { class: 'row' }, pointFields.map(function (f) { return h('div', { class: 'grow' }, f); }))));
       body.appendChild(h('div', { class: 'row savebar', style: null }, save));

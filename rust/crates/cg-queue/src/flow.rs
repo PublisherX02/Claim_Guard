@@ -3,6 +3,7 @@
 
 use crate::explain::ExplainStep;
 use crate::routing_config::{self, RoutingConfig};
+use crate::notify;
 use crate::states;
 use crate::store::{QueueStore, Result};
 use crate::{shadow, triage};
@@ -518,6 +519,7 @@ pub fn advance(store: &dyn QueueStore, claim_id: &str, version: i64, explain: &E
     let mut state = state;
     // what to attach when the claim reaches `ready`: set by the information-request step below
     let mut ready_extra: Option<(Value, Option<Map<String, Value>>)> = None;
+    let mut asked: Option<Value> = None; // the findings the system asked about on its own, to announce once the claim has moved
     if state == "triaged" {
         if doc["receipt"]["lane"] == "green" {
             return green_path(store, &doc, claim_id, version, now);
@@ -537,7 +539,10 @@ pub fn advance(store: &dyn QueueStore, claim_id: &str, version: i64, explain: &E
                     set.insert("auto_requested".into(), json!(true));
                     set.insert("decisions".into(), Value::Array(request_decisions(&ask, now)));
                     return match store.transition(claim_id, version, "triaged", "decided", AUTO_REQUEST, now, Some(json!({"auto_requested": true, "findings": ask.len(), "audit_draw": draw})), Some(set), None) {
-                        Ok(Some(_)) => "decided",
+                        Ok(Some(_)) => {
+                            notify::info_requested(store, claim_id, &ask, true, now);
+                            "decided"
+                        }
                         _ => "noop",
                     };
                 } else {
@@ -546,6 +551,7 @@ pub fn advance(store: &dyn QueueStore, claim_id: &str, version: i64, explain: &E
                     set.insert("auto_requested".into(), json!(true));
                     set.insert("decisions".into(), Value::Array(request_decisions(&ask, now)));
                     ready_extra = Some((json!({"why": "explained", "auto_requested": ask.len(), "audit_draw": draw}), Some(set)));
+                    asked = Some(json!(ask));
                 }
             }
         }
@@ -561,7 +567,11 @@ pub fn advance(store: &dyn QueueStore, claim_id: &str, version: i64, explain: &E
     match ready_extra {
         Some((mut detail, set)) => {
             detail["why"] = json!(why);
-            make_ready_with(store, claim_id, version, &state, now, detail, set)
+            let moved = make_ready_with(store, claim_id, version, &state, now, detail, set);
+            if let (Some(Value::Array(rows)), "ready") = (&asked, moved) {
+                notify::info_requested(store, claim_id, &rows.iter().collect::<Vec<_>>(), false, now);
+            }
+            moved
         }
         None => make_ready(store, claim_id, version, &state, now, why),
     }

@@ -134,6 +134,8 @@ pub struct Api {
     doc_slots: import::DocumentSlots,
     ledger: Arc<ops::LedgerView>,
     ui_files: BTreeMap<&'static str, (&'static [u8], &'static str)>,
+    /// The generated demo accounts (`cg serve --demo` only): the sign-in page asks for one of them by level, as the desktop app's bridge does.
+    demo_logins: Option<Value>,
 }
 
 pub struct ApiParts {
@@ -375,7 +377,26 @@ impl Api {
             doc_slots: import::DocumentSlots::default(),
             ledger,
             ui_files: claimstore::ui_files(),
+            demo_logins: None,
         }
+    }
+
+    /// Demo mode only: lets `GET /demo/login/{level}` hand a generated demo login (badge, password and the current authenticator code) to a request
+    /// that comes from this PC. Never called on a real server, where that path stays a plain 404.
+    pub fn offer_demo_logins(&mut self, accounts: Value) {
+        self.demo_logins = Some(accounts);
+    }
+
+    fn demo_login(&self, req: &ApiRequest, level: &str) -> R {
+        let (Some(accounts), Ok(level)) = (&self.demo_logins, level.parse::<i64>()) else { return Err(ApiError::new(404, "not_found")) };
+        if !matches!(req.client.as_str(), "127.0.0.1" | "::1") || req.method != "GET" {
+            return Err(ApiError::new(404, "not_found"));
+        }
+        let now = (self.clock)();
+        let found = accounts.as_object().into_iter().flatten().find(|(_, a)| a["level"].as_i64() == Some(level));
+        let Some((badge, a)) = found else { return Err(ApiError::new(404, "not_found")) };
+        let code = cg_access::totp::code_at(a["secret"].as_str().unwrap_or(""), cg_access::totp::current_step(now, 30)).ok_or_else(|| ApiError::new(404, "not_found"))?;
+        Ok(ApiResponse::json(200, &json!({"badge": badge, "password": a["password"], "code": code})))
     }
 
     fn now(&self) -> f64 {
@@ -526,6 +547,9 @@ impl Api {
         if let Some(name) = path.strip_prefix(UI_PREFIX) {
             return self.ui_file(name, req);
         }
+        if let Some(level) = path.strip_prefix("/demo/login/") {
+            return self.demo_login(req, level);
+        }
         if path == "/healthz" {
             return Ok(if self.access.store.ping() { ApiResponse::json(200, &json!({"status": "ok"})) } else { ApiResponse::json(503, &json!({"status": "degraded"})) });
         }
@@ -563,6 +587,8 @@ impl Api {
             ["approvals", id, "cancel"] => if m == "POST" { self.approvals_cancel(req, id) } else { Err(wrong()) },
             ["work", "inbox"] if self.queue.is_some() => if m == "GET" { self.work_inbox(req) } else { Err(wrong()) },
             ["work", "changes"] if self.queue.is_some() => if m == "GET" { self.work_changes(req) } else { Err(wrong()) },
+            ["work", "notifications"] if self.queue.is_some() => if m == "GET" { self.work_notifications(req) } else { Err(wrong()) },
+            ["work", "notifications", "clear"] if self.queue.is_some() => if m == "POST" { self.work_notifications_clear(req) } else { Err(wrong()) },
             ["work", "next"] if self.queue.is_some() => if m == "POST" { self.work_next(req) } else { Err(wrong()) },
             ["work", "heartbeat"] if self.queue.is_some() => if m == "POST" { self.work_heartbeat(req) } else { Err(wrong()) },
             ["work", "claims", id, "findings", rule, "decision"] if self.queue.is_some() => if m == "POST" { self.work_decide(req, id, rule) } else { Err(wrong()) },
@@ -1054,7 +1080,7 @@ impl Api {
         let q = self.queue()?;
         let topics = query(req).get("topics").cloned().unwrap_or_else(|| "inbox".into());
         let want: Vec<&str> = topics.split(',').collect();
-        if want.is_empty() || want.len() > 2 || want.iter().any(|t| !["inbox", "queue"].contains(t)) || (want.len() == 2 && want[0] == want[1]) {
+        if want.is_empty() || want.len() > 3 || want.iter().any(|t| !["inbox", "queue", "notifications"].contains(t)) || (1..want.len()).any(|i| want[..i].contains(&want[i])) {
             return Err(invalid());
         }
         let mut h = Sha256::new();
@@ -1067,6 +1093,14 @@ impl Api {
                 h.update(b",");
             }
         }
+        if want.contains(&"notifications") {
+            let rows = q.notifications(&p).map_err(|e| self.qerr(e, req, &p))?;
+            h.update(b"notifications");
+            for n in rows["notifications"].as_array().into_iter().flatten() {
+                h.update(n["id"].as_str().unwrap_or("").as_bytes());
+                h.update(b",");
+            }
+        }
         if want.contains(&"queue") {
             let d = q.dashboard(&p).map_err(|e| self.qerr(e, req, &p))?;
             let stable = json!({"counts": d["counts"], "waiting": d["waiting"], "countersign": d["awaiting_countersign"], "on_shift": d["on_shift"],
@@ -1075,6 +1109,16 @@ impl Api {
             h.update(stable.to_string().as_bytes());
         }
         Ok(ApiResponse::json(200, &json!({"signature": hex::encode(h.finalize()), "topics": want})))
+    }
+
+    fn work_notifications(&self, req: &ApiRequest) -> R {
+        let p = self.need(req, "claims.decide")?;
+        self.queue()?.notifications(&p).map(|v| ApiResponse::json(200, &v)).map_err(|e| self.qerr(e, req, &p))
+    }
+
+    fn work_notifications_clear(&self, req: &ApiRequest) -> R {
+        let p = self.need(req, "claims.decide")?;
+        self.queue()?.clear_notifications(&p).map(|v| ApiResponse::json(200, &v)).map_err(|e| self.qerr(e, req, &p))
     }
 
     fn work_next(&self, req: &ApiRequest) -> R {
