@@ -131,6 +131,19 @@ pub fn check_batch_event(e: &Value) -> Result<()> {
     Ok(())
 }
 
+/// A notification for the console: `{id, to, kind, title, at, ...}`. `to` is one badge, or "*" for everyone who may decide claims. It carries
+/// a claim id, rule ids and counts, never a claim value or a patient identifier.
+pub fn check_notification(n: &Value) -> Result<()> {
+    for key in ["id", "to", "kind", "title"] {
+        check_id_doc(n, key)?;
+    }
+    match n.get("at").and_then(Value::as_f64) {
+        Some(at) => check_number(at, "at")?,
+        None => return invalid("a notification needs a time"),
+    }
+    Ok(())
+}
+
 /// A request event: `{request_id, claim_id, kind: "sent" | "declined", at, ...}`.
 pub fn check_request_event(e: &Value) -> Result<()> {
     check_id_doc(e, "request_id")?;
@@ -236,6 +249,13 @@ pub trait QueueStore: Send + Sync {
     fn bump(&self, counter: &str, window_key: &str, limit: i64) -> Result<bool>;
     fn record_job(&self, name: &str, now: f64, ok: bool, detail: &str) -> Result<()>;
     fn jobs(&self) -> Result<Vec<Value>>;
+    /// Stores one notification (see `check_notification`).
+    fn append_notification(&self, n: &Value) -> Result<()>;
+    /// The notifications this badge may see, newest first: the ones addressed to it, and the broadcast ones ("*") it has not cleared.
+    fn notifications(&self, badge: &str, limit: usize) -> Result<Vec<Value>>;
+    /// Clears this badge's notifications at `now`: its own are deleted, the broadcast ones stay for everyone else but are hidden from it.
+    /// Returns how many it had.
+    fn clear_notifications(&self, badge: &str, now: f64) -> Result<i64>;
     fn ping(&self) -> bool;
 }
 
@@ -251,6 +271,8 @@ struct Inner {
     jobs: BTreeMap<String, Value>,
     cache: HashMap<String, String>,
     counters: HashMap<(String, String), i64>,
+    notes: Vec<Value>,
+    notes_cleared: HashMap<String, f64>,
 }
 
 /// Every method takes one lock, so each behaves like the single atomic database operation it stands in for.
@@ -490,6 +512,7 @@ impl QueueStore for MemoryQueueStore {
         let erased = (before - g.docs.len()) as i64;
         g.request_events.retain(|e| e["claim_id"] != claim_id);
         g.dead.retain(|(_, d)| d["claim_id"] != claim_id);
+        g.notes.retain(|n| n["claim_id"] != claim_id);
         Ok(erased)
     }
 
@@ -660,6 +683,33 @@ impl QueueStore for MemoryQueueStore {
 
     fn jobs(&self) -> Result<Vec<Value>> {
         Ok(self.lock().jobs.values().cloned().collect())
+    }
+
+    fn append_notification(&self, n: &Value) -> Result<()> {
+        check_notification(n)?;
+        self.lock().notes.push(n.clone());
+        Ok(())
+    }
+
+    fn notifications(&self, badge: &str, limit: usize) -> Result<Vec<Value>> {
+        let g = self.lock();
+        let cleared = g.notes_cleared.get(badge).copied().unwrap_or(f64::NEG_INFINITY);
+        let mut rows: Vec<Value> = g.notes.iter().filter(|n| n["to"] == badge || (n["to"] == "*" && n["at"].as_f64().unwrap_or(0.0) > cleared)).cloned().collect();
+        rows.sort_by(|a, b| b["at"].as_f64().partial_cmp(&a["at"].as_f64()).unwrap_or(std::cmp::Ordering::Equal));
+        rows.truncate(limit);
+        Ok(rows)
+    }
+
+    fn clear_notifications(&self, badge: &str, now: f64) -> Result<i64> {
+        check_number(now, "now")?;
+        let mut g = self.lock();
+        let cleared = g.notes_cleared.get(badge).copied().unwrap_or(f64::NEG_INFINITY);
+        let hidden = g.notes.iter().filter(|n| n["to"] == "*" && n["at"].as_f64().unwrap_or(0.0) > cleared).count() as i64;
+        let before = g.notes.len();
+        g.notes.retain(|n| n["to"] != badge);
+        let own = (before - g.notes.len()) as i64;
+        g.notes_cleared.insert(badge.to_string(), now);
+        Ok(own + hidden)
     }
 
     fn ping(&self) -> bool {

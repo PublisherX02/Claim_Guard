@@ -209,4 +209,156 @@
   CG.status = function (s) { return CG.h('span', { class: 'dot ' + s, role: 'img', 'aria-label': s }); };
   CG.when = function (iso) { var d = new Date(iso); return isNaN(d) ? String(iso || '-') : d.toLocaleString(); };
 
+  // ---- notifications: the bell, the pop-ups (5 seconds each), and the detail window ----------------------------------------------------
+  // The server keeps each person's notifications (claim arrived, information requested by the pipeline, lease expired). The live stream only
+  // says "changed" (topic: notifications); this code then reads GET /work/notifications. The stream is opened once after sign-in and is not
+  // one of the per-page streams, so moving between pages does not close it. A notification pops up once; a reload lists the old ones in the
+  // bell without popping them again. Everything the server sends is put on the page as text only.
+  var POPUP_MS = 5000, MAX_POPUPS = 4, FRESH_S = 30;
+  var KINDS = { claim_arrived: ['New claim', 'info'], info_requested_auto: ['Pipeline action', 'ai'], lease_expired: ['Returned to pool', 'B'] };
+  var N = CG.notes = { items: [], seen: null, es: null, timer: null, badge: null, bell: null, count: null, panel: null, pops: null, detail: null, started: false };
+
+  function seenKey() { return 'cg_seen_' + (N.badge || ''); }
+  function loadSeen() {
+    var out = {};
+    try { (JSON.parse(localStorage.getItem(seenKey()) || '[]') || []).forEach(function (id) { out[id] = true; }); } catch (e) { /* no storage: nothing is remembered */ }
+    return out;
+  }
+  function saveSeen() { try { localStorage.setItem(seenKey(), JSON.stringify(Object.keys(N.seen).slice(-300))); } catch (e) { /* ignore */ } }
+
+  function host() {
+    if (N.pops) return;
+    N.pops = CG.h('div', { class: 'note-pops', 'aria-live': 'polite' });
+    document.body.appendChild(N.pops);
+  }
+
+  N.start = function () {
+    var me = CG.state.me;
+    if (!me || !CG.has('claims.decide')) { N.stop(); return; }
+    if (N.started && N.badge === me.badge_id) return;
+    N.stop();
+    N.badge = me.badge_id; N.started = true; N.seen = null; N.items = [];
+    host();
+    N.refresh();
+    if (window.EventSource) {
+      var es = N.es = new EventSource('/api/v1/work/events?topics=notifications'), pending = null;
+      var poke = function () { if (!pending) pending = setTimeout(function () { pending = null; N.refresh(); }, 200); };
+      es.addEventListener('hello', poke); es.addEventListener('changed', poke);
+      es.addEventListener('end', function () { es.close(); });
+    }
+    N.timer = setInterval(N.refresh, 20000);               // the fallback if the stream is buffered, closed after its five minutes, or unsupported
+  };
+
+  N.stop = function () {
+    if (N.es) { N.es.close(); N.es = null; }
+    if (N.timer) { clearInterval(N.timer); N.timer = null; }
+    N.started = false; N.items = []; N.seen = null; N.badge = null;
+    N.hidePanel(); N.closeDetail();
+    if (N.pops) CG.clear(N.pops);
+    N.paint();
+  };
+
+  N.refresh = function () {
+    return CG.api('GET', '/work/notifications').then(function (r) {
+      var rows = (r && r.notifications) || [];
+      if (N.seen === null) N.seen = loadSeen();
+      var now = Date.now() / 1000, fresh = [];
+      rows.forEach(function (n) {
+        if (N.seen[n.id]) return;
+        N.seen[n.id] = true;
+        if (now - n.at < FRESH_S) fresh.push(n);          // only what has just happened pops up; older ones wait in the bell
+      });
+      N.items = rows;
+      saveSeen();
+      fresh.reverse().forEach(N.popup);
+      N.paint();
+      if (N.panel) N.paintPanel();
+    }, function (e) { if (e && e.status === 404) N.stop(); });
+  };
+
+  function kindOf(n) { return KINDS[n.kind] || ['Notice', 'neutral']; }
+  function ago(at) {
+    var s = Math.max(0, Math.round(Date.now() / 1000 - at));
+    return s < 60 ? 'just now' : s < 3600 ? Math.floor(s / 60) + ' min ago' : s < 86400 ? Math.floor(s / 3600) + ' h ago' : new Date(at * 1000).toLocaleDateString();
+  }
+
+  N.popup = function (n) {
+    host();
+    var el = CG.h('div', { class: 'note-pop ' + (kindOf(n)[1]), role: 'status', tabindex: '0' },
+      CG.h('div', { class: 'row between' }, CG.chip(kindOf(n)[0], kindOf(n)[1]), CG.h('button', { class: 'note-x', type: 'button', 'aria-label': 'Dismiss', text: 'x', onclick: function (e) { e.stopPropagation(); gone(); } })),
+      CG.h('b', { text: n.title }), CG.h('div', { class: 'small muted', text: n.summary }), CG.h('i', { class: 'note-life' }));
+    var timer = setTimeout(gone, POPUP_MS);
+    function gone() { clearTimeout(timer); if (el.parentNode) el.remove(); }
+    var open = function () { gone(); N.showDetail(n); };
+    el.addEventListener('click', open);
+    el.addEventListener('keydown', function (e) { if (e.key === 'Enter') open(); });
+    N.pops.appendChild(el);
+    while (N.pops.children.length > MAX_POPUPS) N.pops.removeChild(N.pops.firstChild);
+  };
+
+  // the bell in the sidebar: shell() rebuilds the page on every move, so it asks for a fresh one each time
+  N.bellButton = function () {
+    var count = CG.h('span', { class: 'note-count', 'aria-hidden': 'true' });
+    var b = CG.h('button', { class: 'btn small note-bell', type: 'button', 'aria-label': 'Notifications', 'aria-expanded': 'false', onclick: function (e) { e.stopPropagation(); N.togglePanel(); } }, 'Notifications ', count);
+    N.bell = b; N.count = count;
+    N.paint();
+    return b;
+  };
+  N.paint = function () {
+    if (!N.count) return;
+    var n = N.items.length;
+    N.count.textContent = n ? String(n > 99 ? '99+' : n) : '';
+    N.count.className = 'note-count' + (n ? ' on' : '');
+    if (N.bell) N.bell.setAttribute('aria-label', n ? 'Notifications, ' + n : 'Notifications');
+  };
+
+  N.togglePanel = function () { if (N.panel) N.hidePanel(); else N.showPanel(); };
+  N.hidePanel = function () {
+    if (N.panel) { N.panel.remove(); N.panel = null; }
+    if (N.bell) N.bell.setAttribute('aria-expanded', 'false');
+  };
+  N.showPanel = function () {
+    N.panel = CG.h('div', { class: 'note-panel card', role: 'dialog', 'aria-label': 'Notifications' });
+    document.body.appendChild(N.panel);
+    if (N.bell) N.bell.setAttribute('aria-expanded', 'true');
+    N.paintPanel();
+    N.refresh();
+  };
+  N.paintPanel = function () {
+    var p = N.panel; if (!p) return;
+    CG.clear(p);
+    var clear = CG.h('button', { class: 'btn small danger', type: 'button', text: 'Delete all', disabled: N.items.length ? null : true, onclick: N.clearAll });
+    p.appendChild(CG.h('div', { class: 'row between' }, CG.h('b', { text: 'Notifications' }), CG.h('div', { class: 'row' }, clear, CG.h('button', { class: 'btn small', type: 'button', text: 'Close', onclick: N.hidePanel }))));
+    if (!N.items.length) { p.appendChild(CG.h('p', { class: 'muted', text: 'Nothing new. Claims that reach you, and what the pipeline does by itself, will be listed here.' })); return; }
+    p.appendChild(CG.h('ul', { class: 'plain note-list' }, N.items.map(function (n) {
+      return CG.h('li', null, CG.h('button', { class: 'note-row', type: 'button', onclick: function () { N.showDetail(n); } },
+        CG.chip(kindOf(n)[0], kindOf(n)[1]), CG.h('span', { class: 'note-title', text: n.title }), CG.h('span', { class: 'muted small', text: ago(n.at) })));
+    })));
+  };
+  N.clearAll = function () {
+    CG.api('POST', '/work/notifications/clear', {}).then(function () { N.items = []; N.paint(); N.paintPanel(); CG.toast('All notifications deleted.', 'good'); }, CG.fail);
+  };
+
+  N.closeDetail = function () { if (N.detail) { N.detail.remove(); N.detail = null; } };
+  N.showDetail = function (n) {
+    N.closeDetail();
+    var body = CG.h('div', { class: 'stack' }, CG.h('div', { class: 'row between' }, CG.chip(kindOf(n)[0], kindOf(n)[1]), CG.h('span', { class: 'muted small', text: new Date(n.at * 1000).toLocaleString() })),
+      CG.h('h2', { text: n.title }), CG.h('p', { text: n.summary }),
+      CG.kv((n.lines || []).map(function (l) { return [String(l[0]), String(l[1])]; })));
+    var actions = CG.h('div', { class: 'row' });
+    if (n.kind === 'claim_arrived' && n.claim_id) {
+      var open = CG.h('a', { class: 'btn primary', href: '#/work/' + encodeURIComponent(n.claim_id), text: 'Open the claim', onclick: function () { N.closeDetail(); N.hidePanel(); } });
+      actions.appendChild(open);
+      CG.api('GET', '/work/inbox').then(function (r) {          // do not offer a link that cannot open: the claim may have left this person's inbox
+        if (!(r.claims || []).some(function (c) { return c.claim_id === n.claim_id; })) { open.remove(); actions.insertBefore(CG.h('span', { class: 'muted small', text: 'This claim is no longer in your inbox.' }), actions.firstChild); }
+      }, function () {});
+    }
+    actions.appendChild(CG.h('button', { class: 'btn', type: 'button', text: 'Close', onclick: N.closeDetail }));
+    body.appendChild(actions);
+    N.detail = CG.h('div', { class: 'note-overlay', onclick: function (e) { if (e.target === N.detail) N.closeDetail(); } }, CG.h('div', { class: 'note-detail card', role: 'dialog', 'aria-modal': 'true', 'aria-label': n.title }, body));
+    document.body.appendChild(N.detail);
+  };
+  document.addEventListener('keydown', function (e) { if (e.key === 'Escape') { if (N.detail) N.closeDetail(); else N.hidePanel(); } });
+  document.addEventListener('click', function (e) { if (N.panel && !N.panel.contains(e.target) && !(N.bell && N.bell.contains(e.target)) && !(N.detail && N.detail.contains(e.target))) N.hidePanel(); });
+
 })();

@@ -103,6 +103,29 @@ pub fn run(fresh: &dyn Fn() -> Box<dyn QueueStore>) {
     assert_eq!((moved["auto_requested"].as_bool(), moved["decisions"].clone()), (Some(true), asked.clone()));
     assert_eq!(s.get("G3", None).unwrap().unwrap()["decisions"], asked);
 
+    // ---- notifications: private ones, broadcast ones, clearing per person, erasure by claim
+    let s = fresh();
+    let note = |id: &str, to: &str, claim: &str, at: f64| json!({"id": id, "to": to, "kind": "claim_arrived", "claim_id": claim, "title": "t", "summary": "s", "lines": [["a", "b"]], "at": at});
+    s.append_notification(&note("n1", "CG-2002", "N1", NOW + 1.0)).unwrap();
+    s.append_notification(&note("n2", "CG-2003", "N2", NOW + 2.0)).unwrap();
+    s.append_notification(&note("n3", "*", "N3", NOW + 3.0)).unwrap();
+    assert!(s.append_notification(&note("n1", "CG-2002", "N1", NOW + 1.0)).is_err() || s.notifications("CG-2002", 10).unwrap().len() >= 2, "an id is stored once or the repeat is refused");
+    for bad in [json!({}), json!({"id": "x", "to": "y", "kind": "k"}), json!({"id": "x", "to": "y", "kind": "k", "title": "t", "at": "now"})] {
+        assert!(s.append_notification(&bad).is_err(), "{bad}");
+    }
+    let ids = |s: &dyn QueueStore, b: &str| s.notifications(b, 10).unwrap().iter().map(|n| n["id"].as_str().unwrap().to_string()).collect::<Vec<_>>();
+    assert_eq!(ids(&*s, "CG-2002")[..2], ["n3", "n1"], "newest first: the broadcast and its own");
+    assert_eq!(ids(&*s, "CG-2003")[..2], ["n3", "n2"]);
+    assert_eq!(s.notifications("CG-2002", 1).unwrap().len(), 1);
+    assert!(ids(&*s, "CG-9999").iter().all(|i| i == "n3"), "a stranger sees only the broadcast");
+    assert!(s.clear_notifications("CG-2002", NOW + 4.0).unwrap() >= 2);
+    assert!(ids(&*s, "CG-2002").is_empty(), "cleared");
+    assert_eq!(ids(&*s, "CG-2003")[..2], ["n3", "n2"], "clearing one person's list leaves everyone else's");
+    s.append_notification(&note("n4", "*", "N4", NOW + 5.0)).unwrap();
+    assert_eq!(ids(&*s, "CG-2002"), ["n4"], "a broadcast made after the clearing shows again");
+    s.erase_claim("N4").unwrap();
+    assert!(ids(&*s, "CG-2002").is_empty() && !ids(&*s, "CG-2003").contains(&"n4".to_string()), "erasing a claim removes the notifications that name it");
+
     // ---- outbox, by_state, counts
     let s = fresh();
     assert!(s.put_triaged(&make_doc("B", 1, "hb", "A", "decide", 2, "P1", NOW + 5.0, None)).unwrap());
