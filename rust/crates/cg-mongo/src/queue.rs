@@ -13,7 +13,7 @@ use crate::bsonconv::{from_doc, to_bson, to_doc};
 use crate::crypt::FieldCrypt;
 use cg_access::store::StoreError;
 use cg_queue::states;
-use cg_queue::store::{check_notification, check_batch_event, check_request_event, check_config_doc, check_reliability_doc, check_reliability_move, reliability_event, check_decision, check_id_doc, check_job, check_number, check_set_fields, check_version, lane_key, prepare_new_doc, project_history, QueueStore, Result, DEALABLE};
+use cg_queue::store::{NOTE_RETAIN_SECONDS, check_notification, check_batch_event, check_request_event, check_config_doc, check_reliability_doc, check_reliability_move, reliability_event, check_decision, check_id_doc, check_job, check_number, check_set_fields, check_version, lane_key, prepare_new_doc, project_history, QueueStore, Result, DEALABLE};
 use mongodb::bson::{doc, Bson, DateTime, Document};
 use mongodb::options::{IndexOptions, ReturnDocument};
 use mongodb::sync::{Client, Collection};
@@ -268,6 +268,7 @@ impl MongoQueueStore {
         go(&self.notes, plain(doc! {"to": 1, "at": -1}))?;
         go(&self.notes, with(doc! {"id": 1}, unique()))?;
         go(&self.notes, plain(doc! {"claim_id": 1}))?;
+        go(&self.notes, plain(doc! {"at": 1}))?;
         go(&self.note_cursors, with(doc! {"badge": 1}, unique()))?;
         go(&self.counters, with(doc! {"counter": 1, "window": 1}, unique()))?;
         go(&self.counters, with(doc! {"expires_at": 1}, ttl()))?;
@@ -733,6 +734,8 @@ impl QueueStore for MongoQueueStore {
 
     fn append_notification(&self, n: &Value) -> Result<()> {
         check_notification(n)?;
+        let cutoff = n["at"].as_f64().unwrap_or(0.0) - NOTE_RETAIN_SECONDS;
+        self.notes.delete_many(doc! {"at": {"$lt": cutoff}}).run().map_err(unavailable)?;
         self.notes.insert_one(to_doc(n)).run().map(|_| ()).map_err(unavailable)
     }
 

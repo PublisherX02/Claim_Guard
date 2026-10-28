@@ -95,6 +95,58 @@ jobs:
       - name: The narrated demo runs end to end
         run: python scripts/demo.py --out-dir "$RUNNER_TEMP/demo"
 
+  rust:
+    name: rust (workspace tests and cargo audit)
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    # The server, queue and desktop engine are the Rust workspace; this job tests it against a real MongoDB and Redis like the Python job.
+    services:
+      mongodb:
+        image: mongo:7
+        ports:
+          - 27017:27017
+        env:
+          MONGO_INITDB_ROOT_USERNAME: ci
+          MONGO_INITDB_ROOT_PASSWORD: ci-${{ github.run_id }}-${{ github.run_attempt }}
+        options: >-
+          --health-cmd "mongosh --quiet --eval 'db.runCommand({ping:1}).ok'"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 12
+      redis:
+        image: redis:7
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 12
+    defaults:
+      run:
+        working-directory: rust
+    env:
+      # rust/rust-toolchain.toml names the Windows toolchain used for the desktop build; on Linux the plain stable one is used instead.
+      RUSTUP_TOOLCHAIN: stable
+      CARGO_TERM_COLOR: never
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: rust
+      - name: Workspace tests (MongoDB and Redis tests must run, not skip)
+        env:
+          MONGO_URI: mongodb://ci:ci-${{ github.run_id }}-${{ github.run_attempt }}@localhost:27017/?authSource=admin
+          REQUIRE_MONGO: '1'
+          REDIS_URL: redis://localhost:6379/0
+          REQUIRE_REDIS: '1'
+        run: cargo test --workspace --locked
+      - name: Known vulnerabilities in Rust dependencies (cargo audit, reviewed exceptions in rust/.cargo/audit.toml)
+        run: |
+          cargo install cargo-audit --locked
+          cargo audit
+
   rules-accuracy:
     name: rules-accuracy (15 rules vs the answer key)
     runs-on: ubuntu-latest
