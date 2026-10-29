@@ -170,7 +170,7 @@
           { label: 'When', get: function (r) { return CG.when(r.recorded_at); } },
           { label: 'Event', get: function (r) { return CG.chip(r.event.event_type, /login_failure|lockout|forbidden|token_rejected/.test(r.event.event_type) ? 'high' : 'neutral'); } },
           { label: 'What happened', get: function (r) { return describe(r.event); } },
-          { label: 'Claim', get: function (r) { return r.event.claim_id ? h('a', { href: '#/trace/' + encodeURIComponent(r.event.claim_id), class: 'mono', text: r.event.claim_id }) : null; } },
+          { label: 'Claim', get: function (r) { return r.event.claim_id ? h('a', { href: '#/trace/' + encodeURIComponent(r.event.claim_id), class: 'mono cid', text: r.event.claim_id }) : null; } },
           { label: '', get: function (r) { return h('button', { class: 'btn small', type: 'button', text: 'Proof', title: 'A signed proof that this event is in the log', onclick: function () { getProof('security', r.sequence); } }); } }
         ], d.events));
         pager.appendChild(h('button', { class: 'btn small', type: 'button', text: 'Newer', disabled: offset === 0, onclick: function () { offset = Math.max(0, offset - limit); loadRows(); } }));

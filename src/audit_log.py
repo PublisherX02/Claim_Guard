@@ -117,6 +117,7 @@ SECURITY_EVENTS = {
     'claim_decided_green': {'badge_id', 'claim_id', 'action'},
     'queue_admin': {'actor', 'command'},
     'claim_signoff': {'claim_id', 'badge_id', 'stage', 'outcome'},
+    'patient_history_viewed': {'badge_id', 'claim_id', 'n'},
     'triage_receipt': {'claim_id', 'input_hash', 'result_hash', 'lane', 'score', 'config_version'},
 }
 _REQUIRED.update(SECURITY_EVENTS)

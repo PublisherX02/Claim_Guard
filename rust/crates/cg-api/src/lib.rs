@@ -11,6 +11,7 @@
 //! * bodies are small, JSON only, strictly typed with unknown fields refused, and errors never echo input or internals.
 
 pub mod claimstore;
+pub mod demo;
 pub mod import;
 pub mod ops;
 pub mod server;
@@ -136,6 +137,8 @@ pub struct Api {
     ui_files: BTreeMap<&'static str, (&'static [u8], &'static str)>,
     /// The generated demo accounts (`cg serve --demo` only): the sign-in page asks for one of them by level, as the desktop app's bridge does.
     demo_logins: Option<Value>,
+    /// The demo's intake log and its pool of claims still to arrive (`cg serve --demo` only).
+    demo_feed: Option<Arc<demo::ArrivalFeed>>,
 }
 
 pub struct ApiParts {
@@ -378,6 +381,7 @@ impl Api {
             ledger,
             ui_files: claimstore::ui_files(),
             demo_logins: None,
+            demo_feed: None,
         }
     }
 
@@ -387,16 +391,51 @@ impl Api {
         self.demo_logins = Some(accounts);
     }
 
+    /// Demo mode only: the intake log behind `GET /demo/feed` (the notification bell) and `POST /demo/arrivals` ("Simulate new claims").
+    pub fn offer_demo_feed(&mut self, feed: Arc<demo::ArrivalFeed>) {
+        self.demo_feed = Some(feed);
+    }
+
     fn demo_login(&self, req: &ApiRequest, level: &str) -> R {
         let (Some(accounts), Ok(level)) = (&self.demo_logins, level.parse::<i64>()) else { return Err(ApiError::new(404, "not_found")) };
         if !matches!(req.client.as_str(), "127.0.0.1" | "::1") || req.method != "GET" {
             return Err(ApiError::new(404, "not_found"));
         }
         let now = (self.clock)();
-        let found = accounts.as_object().into_iter().flatten().find(|(_, a)| a["level"].as_i64() == Some(level));
+        let wanted = query(req).remove("badge").unwrap_or_default();
+        let found = accounts.as_object().into_iter().flatten().find(|(b, a)| a["level"].as_i64() == Some(level) && (wanted.is_empty() || **b == wanted));
         let Some((badge, a)) = found else { return Err(ApiError::new(404, "not_found")) };
         let code = cg_access::totp::code_at(a["secret"].as_str().unwrap_or(""), cg_access::totp::current_step(now, 30)).ok_or_else(|| ApiError::new(404, "not_found"))?;
         Ok(ApiResponse::json(200, &json!({"badge": badge, "password": a["password"], "code": code})))
+    }
+
+    /// The demo staff for the sign-in page's employee cards: who exists at which clearance level. No password, no seed.
+    fn demo_people(&self, req: &ApiRequest) -> R {
+        let Some(accounts) = &self.demo_logins else { return Err(ApiError::new(404, "not_found")) };
+        if !matches!(req.client.as_str(), "127.0.0.1" | "::1") || req.method != "GET" {
+            return Err(ApiError::new(404, "not_found"));
+        }
+        let people: Vec<Value> = accounts.as_object().into_iter().flatten().map(|(b, a)| json!({"badge": b, "name": a["name"], "level": a["level"], "title": a.get("title").cloned().unwrap_or(json!(""))})).collect();
+        Ok(ApiResponse::json(200, &Value::Array(people)))
+    }
+
+    /// The notification bell's source, and "Simulate new claims": 1 to 5 more sample claims through the real intake. The custom header cannot be
+    /// sent by another site's form or image, so a web page elsewhere cannot trigger it through the browser (a cross-site fetch would need CORS).
+    fn demo_feed_route(&self, req: &ApiRequest, arrivals: bool) -> R {
+        let Some(feed) = &self.demo_feed else { return Err(ApiError::new(404, "not_found")) };
+        if !matches!(req.client.as_str(), "127.0.0.1" | "::1") {
+            return Err(ApiError::new(404, "not_found"));
+        }
+        if !arrivals {
+            return if req.method == "GET" { Ok(ApiResponse::json(200, &feed.snapshot())) } else { Err(ApiError::new(405, "method_not_allowed")) };
+        }
+        if req.method != "POST" {
+            return Err(ApiError::new(405, "method_not_allowed"));
+        }
+        let n = query(req).get("n").map_or(Some(1), |v| v.parse::<usize>().ok());
+        let Some(n) = n.filter(|n| (1..=5).contains(n)).filter(|_| req.headers.get("x-cg-demo").map(String::as_str) == Some("1")) else { return Err(invalid()) };
+        let accepted = feed.arrive(n);
+        Ok(ApiResponse::json(200, &json!({"accepted": accepted, "left": feed.left()})))
     }
 
     fn now(&self) -> f64 {
@@ -549,6 +588,12 @@ impl Api {
         }
         if let Some(level) = path.strip_prefix("/demo/login/") {
             return self.demo_login(req, level);
+        }
+        match path {
+            "/demo/people" => return self.demo_people(req),
+            "/demo/feed" => return self.demo_feed_route(req, false),
+            "/demo/arrivals" => return self.demo_feed_route(req, true),
+            _ => {}
         }
         if path == "/healthz" {
             return Ok(if self.access.store.ping() { ApiResponse::json(200, &json!({"status": "ok"})) } else { ApiResponse::json(503, &json!({"status": "degraded"})) });

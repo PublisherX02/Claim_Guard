@@ -298,6 +298,22 @@ class ServiceBase:
             self.q.decide_green(self.w.principal(badge='CG-4004'), green, 'verify_clear')
 
     # ---- administration
+    def test_the_holder_sees_the_patients_other_claims_without_identifiers_and_the_read_is_logged(self):
+        mine, other, stranger = self.w.claim_ids()[:3]
+        self.w.ready(mine)
+        self.w.intake.submit(dict(self.w.claims.get(other)[0], patient_id=self.w.claims.get(mine)[0]['patient_id']))   # same patient, another claim
+        self.w.ready(stranger)
+        self.w.lease_to(mine, 'CG-2002')
+        out = self.q.patient_history(self.w.principal(badge='CG-2002'), mine)
+        self.assertEqual([r['claim_id'] for r in out['claims']], [other])
+        self.assertEqual((out['count'], out['shown']), (1, 1))
+        self.assertNotIn(self.w.claims.get(mine)[0]['patient_id'], json.dumps(out))
+        self.assertEqual([e['n'] for e in self.w.events() if e['event_type'] == 'patient_history_viewed'], [1])
+        with self.assertRaises(NotFound):                    # only the person holding the claim may look
+            self.q.patient_history(self.w.principal(badge='CG-2003'), mine)
+        with self.assertRaises(Forbidden):
+            self.q.patient_history(self.w.principal(badge='CG-1001'), mine)
+
     def test_the_admin_cannot_decide_anything_but_can_see_the_dashboard_and_the_configuration(self):
         admin = self.w.principal(badge='CG-4004')
         cid = self.w.ready(self.w.find('medium'))
