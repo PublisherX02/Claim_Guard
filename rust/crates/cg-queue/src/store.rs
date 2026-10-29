@@ -131,6 +131,9 @@ pub fn check_batch_event(e: &Value) -> Result<()> {
     Ok(())
 }
 
+/// How long a notification is kept: storing one also deletes every notification older than this, so the list cannot grow without end.
+pub const NOTE_RETAIN_SECONDS: f64 = 30.0 * 86_400.0;
+
 /// A notification for the console: `{id, to, kind, title, at, ...}`. `to` is one badge, or "*" for everyone who may decide claims. It carries
 /// a claim id, rule ids and counts, never a claim value or a patient identifier.
 pub fn check_notification(n: &Value) -> Result<()> {
@@ -249,7 +252,7 @@ pub trait QueueStore: Send + Sync {
     fn bump(&self, counter: &str, window_key: &str, limit: i64) -> Result<bool>;
     fn record_job(&self, name: &str, now: f64, ok: bool, detail: &str) -> Result<()>;
     fn jobs(&self) -> Result<Vec<Value>>;
-    /// Stores one notification (see `check_notification`).
+    /// Stores one notification (see `check_notification`) and deletes the ones more than `NOTE_RETAIN_SECONDS` older than it.
     fn append_notification(&self, n: &Value) -> Result<()>;
     /// The notifications this badge may see, newest first: the ones addressed to it, and the broadcast ones ("*") it has not cleared.
     fn notifications(&self, badge: &str, limit: usize) -> Result<Vec<Value>>;
@@ -687,7 +690,10 @@ impl QueueStore for MemoryQueueStore {
 
     fn append_notification(&self, n: &Value) -> Result<()> {
         check_notification(n)?;
-        self.lock().notes.push(n.clone());
+        let cutoff = n["at"].as_f64().unwrap_or(0.0) - NOTE_RETAIN_SECONDS;
+        let mut g = self.lock();
+        g.notes.retain(|o| o["at"].as_f64().unwrap_or(0.0) >= cutoff);
+        g.notes.push(n.clone());
         Ok(())
     }
 

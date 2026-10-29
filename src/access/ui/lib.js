@@ -213,10 +213,12 @@
   // The server keeps each person's notifications (claim arrived, information requested by the pipeline, lease expired). The live stream only
   // says "changed" (topic: notifications); this code then reads GET /work/notifications. The stream is opened once after sign-in and is not
   // one of the per-page streams, so moving between pages does not close it. A notification pops up once; a reload lists the old ones in the
-  // bell without popping them again. Everything the server sends is put on the page as text only.
-  var POPUP_MS = 5000, MAX_POPUPS = 4, FRESH_S = 30;
+  // bell without popping them again. What happened while nobody was signed in waits in the bell too: the first read after signing in only
+  // marks what is there as seen, and every later read pops what is new (no clock comparison, so a browser whose clock is off still pops).
+  // Everything the server sends is put on the page as text only.
+  var POPUP_MS = 5000, MAX_POPUPS = 4;
   var KINDS = { claim_arrived: ['New claim', 'info'], info_requested_auto: ['Pipeline action', 'ai'], lease_expired: ['Returned to pool', 'B'] };
-  var N = CG.notes = { items: [], seen: null, es: null, timer: null, badge: null, bell: null, count: null, panel: null, pops: null, detail: null, started: false };
+  var N = CG.notes = { items: [], seen: null, es: null, timer: null, badge: null, bell: null, count: null, panel: null, pops: null, detail: null, started: false, primed: false, gen: 0 };
 
   function seenKey() { return 'cg_seen_' + (N.badge || ''); }
   function loadSeen() {
@@ -237,7 +239,7 @@
     if (!me || !CG.has('claims.decide')) { N.stop(); return; }
     if (N.started && N.badge === me.badge_id) return;
     N.stop();
-    N.badge = me.badge_id; N.started = true; N.seen = null; N.items = [];
+    N.badge = me.badge_id; N.started = true; N.seen = null; N.items = []; N.primed = false; N.gen++;
     host();
     N.refresh();
     if (window.EventSource) {
@@ -252,28 +254,31 @@
   N.stop = function () {
     if (N.es) { N.es.close(); N.es = null; }
     if (N.timer) { clearInterval(N.timer); N.timer = null; }
-    N.started = false; N.items = []; N.seen = null; N.badge = null;
+    N.started = false; N.items = []; N.seen = null; N.badge = null; N.primed = false; N.gen++;
     N.hidePanel(); N.closeDetail();
     if (N.pops) CG.clear(N.pops);
     N.paint();
   };
 
   N.refresh = function () {
+    var gen = N.gen;
     return CG.api('GET', '/work/notifications').then(function (r) {
+      if (gen !== N.gen || !N.started) return;            // signed out (or someone else signed in) while this read was on its way
       var rows = (r && r.notifications) || [];
       if (N.seen === null) N.seen = loadSeen();
-      var now = Date.now() / 1000, fresh = [];
+      var fresh = [];
       rows.forEach(function (n) {
         if (N.seen[n.id]) return;
         N.seen[n.id] = true;
-        if (now - n.at < FRESH_S) fresh.push(n);          // only what has just happened pops up; older ones wait in the bell
+        if (N.primed) fresh.push(n);                       // the first read after signing in only takes stock; older ones wait in the bell
       });
+      N.primed = true;
       N.items = rows;
       saveSeen();
       fresh.reverse().forEach(N.popup);
       N.paint();
       if (N.panel) N.paintPanel();
-    }, function (e) { if (e && e.status === 404) N.stop(); });
+    }, function (e) { if (gen === N.gen && e && e.status === 404) N.stop(); });
   };
 
   function kindOf(n) { return KINDS[n.kind] || ['Notice', 'neutral']; }

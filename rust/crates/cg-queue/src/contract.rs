@@ -125,6 +125,10 @@ pub fn run(fresh: &dyn Fn() -> Box<dyn QueueStore>) {
     assert_eq!(ids(&*s, "CG-2002"), ["n4"], "a broadcast made after the clearing shows again");
     s.erase_claim("N4").unwrap();
     assert!(ids(&*s, "CG-2002").is_empty() && !ids(&*s, "CG-2003").contains(&"n4".to_string()), "erasing a claim removes the notifications that name it");
+    let later = NOW + 5.0 + crate::store::NOTE_RETAIN_SECONDS;
+    s.append_notification(&note("n5", "CG-2003", "N5", later - 1.0)).unwrap();
+    s.append_notification(&note("n6", "CG-2003", "N6", later + 10.0)).unwrap();
+    assert_eq!(ids(&*s, "CG-2003"), ["n6", "n5"], "storing a notification drops the ones older than the retention window (n2, n3), keeps the rest");
 
     // ---- outbox, by_state, counts
     let s = fresh();
