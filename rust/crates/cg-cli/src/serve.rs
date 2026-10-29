@@ -10,6 +10,7 @@ use cg_access::passwords;
 use cg_access::service::AccessService;
 use cg_access::settings::random_token;
 use cg_api::claimstore::FileClaimStore;
+use cg_api::demo::ArrivalFeed;
 use cg_api::ops::queue_probes;
 use cg_api::server;
 use cg_api::{Api, ApiParts};
@@ -22,15 +23,26 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 
 const LOCAL: [&str; 3] = ["127.0.0.1", "localhost", "::1"];
+// Synthetic employees, one or two per clearance level, so the demo shows each level's own console (docs/62). Two supervisors, because an
+// administrator's change that needs approval must be approved by a second one.
 const DEMO_ACCOUNTS: [(i64, &str, &str); 7] = [
-    (1, "CG-1001", "Demo Viewer"),
-    (2, "CG-2002", "Demo Reviewer Amal"),
-    (2, "CG-2003", "Demo Reviewer Omar"),
-    (3, "CG-3003", "Demo Senior Layla"),
-    (3, "CG-3004", "Demo Senior Karim"),
-    (4, "CG-4004", "Demo Administrator"),
-    (4, "CG-4005", "Demo Administrator Two"),
+    (1, "CG-1001", "Nadia Haddad"),
+    (2, "CG-2002", "Amal Bennani"),
+    (2, "CG-2003", "Omar Saidi"),
+    (3, "CG-3003", "Layla Mansour"),
+    (3, "CG-3004", "Karim Zaidi"),
+    (4, "CG-4004", "Sami Khoury"),
+    (4, "CG-4005", "Rania Aziz"),
 ];
+
+fn demo_title(level: i64) -> &'static str {
+    match level {
+        1 => "Claims analyst (read-only)",
+        2 => "Claims officer",
+        3 => "Senior claims officer",
+        _ => "Claims operations supervisor",
+    }
+}
 
 pub const USAGE: &str = "usage: cg serve [--host H] [--port N] [--dev] [--demo] [--queue] [--behind-proxy] [--data-dir D] [--claims FILE]\n       cg worker [--dev] [--data-dir D]";
 
@@ -81,7 +93,7 @@ fn seed_accounts(access: &AccessService) -> Result<Value, String> {
         let password = demo_password(badge);
         let (_, uri) = access.provision_user(badge, name, &password, level, "demo", &[], &[], false).map_err(|e| format!("{e:?}"))?;
         let secret = uri.split("secret=").nth(1).and_then(|s| s.split('&').next()).unwrap_or("").to_string();
-        out.insert(badge.into(), json!({"level": level, "name": name, "password": password, "secret": secret}));
+        out.insert(badge.into(), json!({"level": level, "name": name, "title": demo_title(level), "password": password, "secret": secret}));
     }
     Ok(Value::Object(out))
 }
@@ -113,8 +125,9 @@ fn share_patients(claims: &mut [Value]) {
     }
 }
 
-/// Seeds accounts, puts the reviewers on shift and loads sample claims through the real intake.
-fn seed_demo(b: &Boot) -> Result<Value, String> {
+/// Seeds accounts, puts the reviewers on shift and loads sample claims through the real intake. Returns the accounts and the sample claims
+/// not loaded, which "Simulate new claims" sends in later.
+fn seed_demo(b: &Boot) -> Result<(Value, Vec<Value>), String> {
     let q = b.queue.as_ref().ok_or("the demo needs the queue")?;
     let accounts = seed_accounts(&b.access)?;
     configure_shift(&*q.store, accounts.as_object().into_iter().flatten().filter(|(_, v)| matches!(v["level"].as_i64(), Some(2 | 3))).map(|(k, _)| k.clone()).collect())?;
@@ -133,7 +146,8 @@ fn seed_demo(b: &Boot) -> Result<Value, String> {
         println!("  {badge}  level {}  {:<22} password: {}", acc["level"], acc["name"].as_str().unwrap_or(""), acc["password"].as_str().unwrap_or(""));
     }
     println!("{accepted} sample claims loaded. The authenticator seeds are in the file above.");
-    Ok(accounts)
+    let rest = claims.split_off(claims.len().min(how_many));
+    Ok((accounts, rest))
 }
 
 pub fn run(args: &[String]) -> i32 {
@@ -173,11 +187,13 @@ fn start(a: Args, dev: bool) -> Result<(), String> {
     let claims = Arc::new(FileClaimStore::from_jsonl(&claims_path, &b.engine)?);
     let stop = Arc::new(AtomicBool::new(false));
     let (mut queue_service, mut probes, mut worker, mut guard) = (None, vec![], None, None);
-    let mut demo_accounts: Option<Value> = None;
+    let (mut demo_accounts, mut demo_feed): (Option<Value>, Option<Arc<ArrivalFeed>>) = (None, None);
     if let Some(q) = &b.queue {
         probes = queue_probes(q.service.clone(), q.breaker.clone(), q.runtime.explain.model_name(), q.broker.clone(), b.env.get("REDIS_URL").cloned().filter(|s| !s.is_empty()), a.demo, b.clock.clone());
         if a.demo {
-            demo_accounts = Some(seed_demo(&b)?);
+            let (accounts, pool) = seed_demo(&b)?;
+            demo_accounts = Some(accounts);
+            demo_feed = Some(ArrivalFeed::attach(q.intake.clone(), pool, b.clock.clone())); // after the start-up claims, so the bell starts at zero
         }
         // In a real deployment the worker is its own process (`cg worker`); only the demo runs it here.
         if a.demo {
@@ -205,6 +221,9 @@ fn start(a: Args, dev: bool) -> Result<(), String> {
     });
     if let Some(accounts) = demo_accounts {
         api.offer_demo_logins(accounts); // demo only: the sign-in page's "Local demo accounts" buttons (the route answers this PC alone)
+    }
+    if let Some(feed) = demo_feed {
+        api.offer_demo_feed(feed); // demo only: the notification bell and "Simulate new claims"
     }
     let api = Arc::new(api);
     let addr: SocketAddr = format!("{}:{}", if a.host == "localhost" { "127.0.0.1" } else { &a.host }, a.port).parse().map_err(|_| "bad --host".to_string())?;

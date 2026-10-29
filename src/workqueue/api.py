@@ -64,6 +64,10 @@ def install(app, queue, need, principal_dep, run):
     def decide(claim_id: str, rule_id: str, body: DecisionBody, request: Request, principal: Any = Depends(need('claims.decide'))):
         return go(lambda: queue.decide_finding(principal, claim_id, rule_id, body.action, body.reason), request, principal)
 
+    @app.get(API + '/work/claims/{claim_id}/history')
+    def patient_history(claim_id: str, request: Request, principal: Any = Depends(need('claims.decide'))):
+        return go(lambda: queue.patient_history(principal, claim_id), request, principal)
+
     @app.post(API + '/work/claims/{claim_id}/verify')
     def verify(claim_id: str, body: VerifyBody, request: Request, principal: Any = Depends(need('claims.decide'))):
         return go(lambda: queue.decide_green(principal, claim_id, body.action), request, principal)

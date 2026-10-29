@@ -71,38 +71,47 @@
       CG.toast('Press c again within 5 seconds to confirm all ' + n + ' findings.', 'warn');
     });
     return h('div', { class: 'row' }, button,
-      h('span', { class: 'muted small', text: 'Use this only when every finding below is right. It records one confirm per finding. Keyboard: press c twice.' }));
+      h('span', { class: 'muted small', text: 'Use this only when every finding below is right. It records one confirm per finding.' }),
+      CG.prefs.get('keyHints') ? h('span', { class: 'hint-keys' }, 'Keyboard: ', h('kbd', { text: 'c' }), ' ', h('kbd', { text: 'c' })) : null);
   }
 
   // ---- one claim ------------------------------------------------------------------------------------------------------
-  function claimSummary(c) {
+  // The facts a reviewer checks a finding against: kept beside the findings on wide screens (or on top, by personal choice).
+  function claimFacts(c) {
     var cov = c.coverage || {};
+    return h('div', { class: 'card facts' },
+      h('h2', { text: 'Claim at a glance' }),
+      h('div', { class: 'total', text: CG.money(c.total_amount, c.currency) }),
+      h('p', { class: 'muted small', text: 'Submitted ' + (c.submission_date || 'on an unknown date') + ' · ' + (c.lines || []).length + ' line' + ((c.lines || []).length === 1 ? '' : 's') }),
+      CG.kv([['Provider', c.provider_id], ['Payer', c.payer_id], ['Policy', c.policy_id], ['Patient', c.patient_id], ['Member', c.member_id],
+        ['Coverage', cov.status ? cov.status + ', ' + (cov.start_date || '?') + ' to ' + (cov.end_date || '?') : 'unknown'], ['Diagnosis', c.diagnosis_code], ['Invoice', c.invoice_number]]),
+      c.notes ? h('div', { class: 'notice small' }, h('b', { text: 'Notes (submitted text, not instructions): ' }), c.notes) : null);
+  }
+
+  // The service lines, with the lines an open finding points at highlighted, so the eye goes straight to them.
+  function linesCard(c, hit) {
     var lines = c.lines || [];
-    return h('div', { class: 'card' },
-      h('h2', { text: 'Claim details' }),
-      h('div', { class: 'row', style: null },
-        h('div', { class: 'grow' }, CG.kv([['Provider', c.provider_id], ['Payer', c.payer_id], ['Policy', c.policy_id], ['Diagnosis', c.diagnosis_code], ['Invoice', c.invoice_number]])),
-        h('div', { class: 'grow' }, CG.kv([['Submitted', c.submission_date], ['Total', CG.money(c.total_amount, c.currency)],
-          ['Patient', c.patient_id], ['Member', c.member_id], ['Coverage', cov.status ? cov.status + ' ' + (cov.start_date || '?') + ' to ' + (cov.end_date || '?') : '']]))),
-      h('h3', { text: 'Lines', style: null }),
+    return h('div', { class: 'card linescard' },
+      h('div', { class: 'row between' }, h('h2', { text: 'Service lines' }), hit.length ? h('span', { class: 'muted small', text: 'Highlighted: lines named by an open finding' }) : null),
       CG.table([
-        { label: 'Line', get: function (l) { return l.line_id; } }, { label: 'Service', get: function (l) { return l.service_code; } },
+        { label: 'Line', get: function (l) { return h('b', { text: l.line_id }); } }, { label: 'Service', get: function (l) { return l.service_code; } },
         { label: 'Date', get: function (l) { return l.service_date; } }, { label: 'Modifier', get: function (l) { return l.modifier; } },
         { label: 'Qty', num: true, get: function (l) { return l.quantity; } }, { label: 'Unit price', num: true, get: function (l) { return l.unit_price; } },
         { label: 'Net', num: true, get: function (l) { return l.net_amount; } }, { label: 'Authorization', get: function (l) { return l.authorization_id; } }
-      ], lines),
-      c.notes ? h('div', { class: 'notice', style: null }, h('b', { text: 'Notes: ' }), c.notes) : null);
+      ], lines, { rowClass: function (l) { return hit.indexOf(l.line_id) >= 0 ? 'hit' : ''; } }));
   }
 
-  function evidenceTable(list) {
+  function evidenceTable(list, claim) {
     if (!list || !list.length) return null;
     return h('div', { class: 'evidence' }, CG.table([
-      { label: 'Where', get: function (e) { return e.path; } }, { label: 'Value', get: function (e) { return CG.fmtValue(e.value); } }], list));
+      { label: 'Where', get: function (e) { return h('span', null, h('span', { text: CG.pathLabel(e.path, claim) }), h('span', { class: 'path', text: e.path })); } },
+      { label: 'Value seen', get: function (e) { return h('span', { class: 'val', text: CG.fmtValue(e.value) }); } }], list));
   }
 
   function decisionForm(finding, ctx, refresh) {
     var chosen = null, busy = false;
     var reason = h('textarea', { maxlength: '1000', placeholder: 'Why? Write what you checked and what you found.', 'aria-label': 'Reason' });
+    var reasonLabel = h('label', { text: 'Reason (kept in the audit log; optional when you confirm)' });
     var send = h('button', { class: 'btn primary', type: 'button', disabled: true, text: 'Record decision' });
     var boxes = [];
     var choices = h('div', { class: 'choices', role: 'radiogroup' }, finding.allowed_actions.map(function (a) {
@@ -114,7 +123,11 @@
       boxes.push(box);
       return box;
     }));
-    function sync() { send.disabled = busy || !chosen || (chosen !== 'confirm_issue' && !reason.value.trim()); }
+    function sync() {
+      var needs = chosen && chosen !== 'confirm_issue';
+      reasonLabel.textContent = needs ? 'Reason (required, kept in the audit log)' : 'Reason (kept in the audit log; optional when you confirm)';
+      send.disabled = busy || !chosen || (needs && !reason.value.trim());
+    }
     reason.addEventListener('input', sync);
     send.addEventListener('click', function () {
       busy = true; sync();
@@ -123,37 +136,48 @@
       }, function (e) { busy = false; sync(); CG.fail(e); });
     });
     var quick = canConfirm(finding) ? h('div', { class: 'row' },
-      h('button', { class: 'btn primary', type: 'button', text: 'Confirm the issue', onclick: function () {
+      h('button', { class: 'btn primary', type: 'button', onclick: function () {
         if (busy) return;
         busy = true; sync();
         confirmNow(ctx, finding).then(function () { CG.toast('Confirmed ' + finding.rule_id + '.', 'good'); refresh(); }, function (e) { busy = false; sync(); CG.fail(e); });
-      } }),
+      } }, CG.icon('check'), 'Confirm the issue'),
       h('span', { class: 'muted small', text: 'One click when the finding is right. No reason needed.' })) : null;
-    return h('div', { class: 'stack' }, h('h3', { text: 'Your decision' }), quick,
-      h('p', { class: 'muted small', text: quick ? 'Or choose another action (a reason is needed to dismiss).' : 'Choose an action.' }), choices,
-      h('div', { class: 'field' }, h('label', { text: 'Reason (kept in the audit log; optional when you confirm)' }), reason), send);
+    var full = h('div', { class: 'stack' }, choices, h('div', { class: 'field' }, reasonLabel, reason), send);
+    if (!quick) return h('div', { class: 'decide stack' }, h('h3', { text: 'Your decision' }), full);
+    // the other actions override the engine and need a reason: one click away, so the common case stays one click
+    var more = h('details', null, h('summary', { class: 'small', text: 'Another action: dismiss, request information, or mark corrected' }), full);
+    return h('div', { class: 'decide stack' }, h('h3', { text: 'Your decision' }), quick, more);
   }
 
-  function findingCard(f, ctx, refresh) {
+  function findingCard(f, ctx, refresh, claim) {
     var flagged = f.status === 'FAIL' || f.status === 'UNABLE_TO_ASSESS';
     var kind = !flagged ? 'flag-pass' : f.severity === 'high' ? 'flag-high' : 'flag-medium';
-    var card = h('div', { class: 'card ' + kind },
-      h('div', { class: 'row between' },
-        h('div', { class: 'row' }, h('b', { class: 'mono', text: f.rule_id }), CG.chip(f.status), flagged ? CG.chip(f.severity) : null, f.review_state ? CG.chip(f.review_state) : null),
-        f.affected_line_ids && f.affected_line_ids.length ? h('span', { class: 'muted small', text: 'Lines: ' + f.affected_line_ids.join(', ') }) : null),
-      f.explanation ? h('p', { text: f.explanation, style: null }) : null);
+    var open = f.allowed_actions && f.allowed_actions.length;
+    var card = h('article', { class: 'card finding ' + kind + (flagged && !open ? ' settled' : ''), 'aria-label': f.rule_id + ' ' + CG.ruleName(f.rule_id) },
+      h('div', { class: 'fhead' },
+        h('div', null,
+          h('div', { class: 'row tight' }, h('span', { class: 'rid', text: f.rule_id }), CG.chip(f.status), flagged ? CG.chip(f.severity) : null, f.review_state ? CG.chip(f.review_state) : null),
+          h('div', { class: 'rtitle', text: CG.ruleName(f.rule_id) || f.rule_id })),
+        f.affected_line_ids && f.affected_line_ids.length ? h('span', { class: 'lines', text: (f.affected_line_ids.length > 1 ? 'Lines ' : 'Line ') + f.affected_line_ids.join(', ') }) : null));
+    var body = h('div', { class: 'fbody' }, f.explanation ? h('p', { class: 'explain', text: f.explanation }) : null);
+    card.appendChild(body);
     if (!flagged) return card;
-    if (f.ai_explanation && f.ai_explanation.text !== f.explanation) {      // the built-in template restates the line above: show the box only when it adds something
-      card.appendChild(h('div', { class: 'ai-box' },
-        h('div', { class: 'row' }, CG.chip('AI draft', 'ai'), h('span', { class: 'muted small', text: 'Source: ' + f.ai_explanation.source + '. The rule engine decided the status; this text only helps you read it. Check it against the evidence.' })),
+    if (CG.prefs.get('showAi') && f.ai_explanation && f.ai_explanation.text !== f.explanation) {      // the built-in template restates the line above: show the box only when it adds something
+      body.appendChild(h('div', { class: 'ai-box' },
+        h('div', { class: 'row tight' }, CG.chip('AI draft', 'ai'), h('span', { class: 'muted small', text: 'Source: ' + f.ai_explanation.source + '. The rule engine decided the status; this text only helps you read it. Check it against the evidence.' })),
         h('p', { text: f.ai_explanation.text })));
     }
-    if (f.corrective_action) card.appendChild(h('p', null, h('b', { text: 'What the rulebook says to do: ' }), f.corrective_action));
-    var ev = evidenceTable(f.evidence);
-    if (ev) card.appendChild(h('details', null, h('summary', { text: 'Evidence (' + f.evidence.length + ')' }), ev));
-    if (f.allowed_actions && f.allowed_actions.length) card.appendChild(decisionForm(f, ctx, refresh));
-    else if (f.review_state === 'resolved') card.appendChild(h('p', { class: 'muted small', text: 'Settled.' }));
-    else card.appendChild(h('p', { class: 'muted small', text: 'You cannot decide this finding with your clearance (hidden actions are not offered).' }));
+    if (f.corrective_action && CG.prefs.get('showTodo')) body.appendChild(h('div', { class: 'todo-box' }, h('b', { text: 'What the rulebook says to do' }), f.corrective_action));
+    var ev = evidenceTable(f.evidence, claim);
+    if (ev) {
+      var det = h('details', null, h('summary', { text: 'Evidence the engine used (' + f.evidence.length + ')' }), ev);
+      if (CG.prefs.get('evidenceOpen') && f.evidence.length <= 6) det.open = true;      // a long list stays one click away so the decision is not pushed down
+      body.appendChild(det);
+    }
+    if (open) body.appendChild(decisionForm(f, ctx, refresh));
+    else if (f.review_state === 'resolved') body.appendChild(h('p', { class: 'muted small' }, CG.icon('check'), ' Settled.'));
+    else if (!CG.has('claims.decide')) body.appendChild(h('p', { class: 'muted small readonly' }, CG.icon('lock'), h('span', { text: 'Read-only: reviewers decide this finding.' })));
+    else body.appendChild(h('p', { class: 'muted small', text: 'You cannot decide this finding with your clearance (hidden actions are not offered).' }));
     return card;
   }
 
@@ -181,8 +205,8 @@
         h('div', { class: 'notice warn', text: 'This claim was picked at random to check how the system cleared its batch. If you find something the engine missed, flag it: the whole batch is held at once and an administrator decides what happens to it.' }),
         h('div', { class: 'row' }, category, note));
     }
-    return h('div', { class: 'card flag-pass stack' },
-      h('h2', { text: 'No rule flagged this claim' }),
+    return h('div', { class: 'card flag-pass stack green-card' },
+      h('h2', null, CG.icon('check'), 'No rule flagged this claim'),
       h('p', { text: 'All checks completed with no finding. This is a pre-validation clearance only: it is not payer approval and promises no payment. A person still looks at every claim: confirm it, or send it up if something looks wrong to you.' }),
       flagBox,
       h('div', { class: 'row' },
@@ -216,18 +240,45 @@
         CG.renderClaim(root, v, ctx);
       }, function (e) { CG.fail(e); });
     }
-    var head = h('div', { class: 'row between' },
-      h('div', null, h('a', { href: back, text: ctx.mode === 'work' ? 'Back to my inbox' : 'Back to all claims' }), h('h1', { class: 'mono', text: ctx.id })),
-      h('div', { class: 'row' }, view.lane ? CG.chip('Lane ' + view.lane, view.lane === 'green' ? 'green' : view.lane) : null, view.score !== undefined ? h('span', { class: 'muted', text: 'score ' + view.score }) : null,
-        view.version ? h('span', { class: 'muted', text: 'version ' + view.version }) : null));
-    root.appendChild(head);
-
+    var lease = null;
     if (view.leased_until) {
-      var lease = h('span', { class: 'mono' });
-      var tick = function () { var left = view.leased_until - Date.now() / 1000; lease.textContent = left > 0 ? CG.fmtDuration(left) + ' left on your lease' : 'Your lease has run out'; };
+      var leaseText = h('span');
+      lease = h('span', { class: 'lease', title: 'Staying on this page keeps the lease alive. If it lapses the claim goes back to the pool.', role: 'timer', 'aria-live': 'off' }, CG.icon('clock'), leaseText);
+      var tick = function () {
+        var left = view.leased_until - Date.now() / 1000;
+        leaseText.textContent = left > 0 ? CG.fmtDuration(left) + ' left on your lease' : 'Your lease has run out';
+        lease.className = 'lease' + (left <= 0 ? ' out' : left < 300 ? ' warn' : '');
+      };
       tick(); CG.every(1000, tick);
-      root.appendChild(h('div', { class: 'notice info row between' }, h('span', null, lease), h('span', { class: 'muted small', text: 'Staying on this page keeps the lease alive. If it lapses the claim goes back to the pool.' })));
     }
+    // patient history: the card sits under the lines, and a button next to the claim number jumps there and loads it, so it is easy to find
+    var hist = ctx.mode === 'work' ? historyCard(ctx) : null;
+    var histJump = hist ? h('button', { class: 'btn histjump', type: 'button', onclick: function () {
+      var col = hist.parentNode;              // bring the card to the top of the claim, right under this button, then load it
+      if (col && col.firstChild !== hist) col.insertBefore(hist, col.firstChild);
+      hist.scrollIntoView({ behavior: 'smooth', block: 'start' }); hist.load();
+    } },
+      CG.icon('list'), 'Patient history') : null;
+    root.appendChild(CG.pageHead({ cls: 'claimhead', title: ctx.id,
+      crumbs: [[ctx.mode === 'work' ? 'My inbox' : 'All claims', back], ['Claim']],
+      chips: [view.lane ? CG.chip(view.lane === 'green' ? 'Clean (green lane)' : 'Lane ' + view.lane, view.lane === 'green' ? 'green' : view.lane) : null,
+        view.score !== undefined ? h('span', { class: 'muted small', text: 'priority score ' + view.score }) : null,
+        view.version ? h('span', { class: 'muted small', text: 'version ' + view.version }) : null],
+      actions: [histJump, lease] }));
+
+    // progress: what is left to do on this claim, in numbers
+    var openCount = flagged.filter(function (f) { return f.allowed_actions && f.allowed_actions.length; }).length;
+    var others = view.findings.length - flagged.length;
+    if (flagged.length) {
+      var done = flagged.length - openCount, bar = h('div', { class: 'bar', role: 'progressbar', 'aria-valuemin': '0', 'aria-valuemax': String(flagged.length), 'aria-valuenow': String(done), 'aria-label': 'Findings decided' }, h('i'));
+      bar.firstChild.style.width = (100 * done / flagged.length) + '%';
+      root.appendChild(h('div', { class: 'progress' },
+        h('div', { class: 'stats' },
+          h('span', { class: 'stat todo' }, h('b', { text: String(openCount) }), openCount === 1 ? 'finding for you to decide' : 'findings for you to decide'),
+          h('span', { class: 'stat done' }, h('b', { text: String(done) }), 'settled or with someone else'),
+          h('span', { class: 'stat' }, h('b', { text: String(others) }), 'rules passed or not applicable')), bar));
+    }
+    if (!CG.has('claims.decide')) root.appendChild(h('div', { class: 'notice info readonly' }, CG.icon('lock'), h('span', { text: 'Read-only view. You can read every finding and its evidence; reviewers record the decisions.' })));
     if (view.signoff_stage && STAGES[view.signoff_stage]) root.appendChild(h('div', { class: 'notice warn', text: STAGES[view.signoff_stage] }));
     if (view.escalated) root.appendChild(h('div', { class: 'notice warn', text: 'This claim was escalated.' }));
     if (ctx.mode === 'browse' && view.allowed_actions && view.allowed_actions.indexOf('unmask') >= 0) {
@@ -248,60 +299,96 @@
       root.appendChild(h('div', { class: 'notice warn' }, h('b', { text: 'Compared with this patient’s earlier claims: ' }),
         advFlagged.map(function (f) { return f.rule_id + ' (' + f.explanation + ')'; }).join(' '), ' These are advisory checks: they inform your decision and change nothing.'));
     }
-    root.appendChild(claimSummary(view.claim));
-    if (ctx.mode === 'work') root.appendChild(historyCard(ctx));
-    if (fix) root.appendChild(fix);
-    if (ctx.mode === 'work' && view.allowed_actions && view.allowed_actions.indexOf('verify_clear') >= 0) root.appendChild(greenActions(view, ctx, refresh));
+    // two columns: what to decide on the left, the facts to decide it against on the right (stacked on narrow screens or by choice)
+    var mainCol = h('div', { class: 'col' }), side = h('aside', { class: 'col', 'aria-label': 'Claim facts' });
+    var hitLines = [];
+    flagged.forEach(function (f) { if (f.allowed_actions && f.allowed_actions.length) (f.affected_line_ids || []).forEach(function (l) { if (hitLines.indexOf(l) < 0) hitLines.push(l); }); });
 
-    root.appendChild(h('h2', { text: flagged.length ? flagged.length + ' flagged finding' + (flagged.length > 1 ? 's' : '') : 'Findings', style: null }));
+    if (ctx.mode === 'work' && view.allowed_actions && view.allowed_actions.indexOf('verify_clear') >= 0) mainCol.appendChild(greenActions(view, ctx, refresh));
     var confirmable = flagged.filter(canConfirm);
     if (hotkeyOff) hotkeyOff();
-    if (ctx.mode === 'work' && confirmable.length > 1) root.appendChild(confirmAll(confirmable, ctx, refresh));
-    flagged.forEach(function (f) { root.appendChild(findingCard(f, ctx, refresh)); });
+    if (flagged.length) {
+      mainCol.appendChild(h('div', { class: 'sectionhead' }, h('h2', { text: flagged.length + ' flagged finding' + (flagged.length > 1 ? 's' : '') }),
+        ctx.mode === 'work' && confirmable.length > 1 ? confirmAll(confirmable, ctx, refresh) : null));
+      // open findings first, then the most severe, so the next thing to do is always at the top
+      flagged.slice().sort(function (a, b) {
+        var oa = a.allowed_actions && a.allowed_actions.length ? 0 : 1, ob = b.allowed_actions && b.allowed_actions.length ? 0 : 1;
+        return oa - ob || (a.severity === 'high' ? 0 : 1) - (b.severity === 'high' ? 0 : 1) || (a.rule_id < b.rule_id ? -1 : 1);
+      }).forEach(function (f) { mainCol.appendChild(findingCard(f, ctx, refresh, view.claim)); });
+    }
+    mainCol.appendChild(linesCard(view.claim, hitLines));
+    if (fix) mainCol.appendChild(fix);
+
+    side.appendChild(claimFacts(view.claim));
     var passed = view.findings.filter(function (f) { return flagged.indexOf(f) < 0; });
     if (passed.length) {
-      root.appendChild(h('details', { class: 'card' }, h('summary', { text: passed.length + ' other rules (passed or not applicable)' }),
-        CG.table([{ label: 'Rule', get: function (f) { return f.rule_id; } }, { label: 'Status', get: function (f) { return CG.chip(f.status); } },
-          { label: 'Why', get: function (f) { return f.explanation; } }], passed)));
+      var pass = h('details', { class: 'card' }, h('summary', { text: passed.length + ' other rules (passed or not applicable)' }),
+        h('ul', { class: 'plain ruleref' }, passed.map(function (f) {
+          return h('li', { title: f.explanation || '' }, CG.chip(f.status), ' ', h('span', { class: 'mono small', text: f.rule_id }), ' ', CG.ruleName(f.rule_id));
+        })));
+      if (CG.prefs.get('showPassed')) pass.open = true;
+      side.appendChild(pass);
     }
     if (view.advisory && view.advisory.length) {
       var adv = view.advisory.filter(function (f) { return f.status === 'FAIL' || f.status === 'UNABLE_TO_ASSESS'; });
-      var advBox = h('details', { class: 'card' }, h('summary', { text: 'Advisory checks (extra rules, for information only): ' + adv.length + ' flagged' }),
-        adv.length ? CG.table([{ label: 'Rule', get: function (f) { return f.rule_id; } }, { label: 'Status', get: function (f) { return CG.chip(f.status); } },
+      var advBox = h('details', { class: 'card' }, h('summary', { text: 'Advisory checks (information only): ' + adv.length + ' flagged' }),
+        adv.length ? CG.table([{ label: 'Rule', get: function (f) { return h('span', { title: CG.ruleName(f.rule_id), text: f.rule_id }); } }, { label: 'Status', get: function (f) { return CG.chip(f.status); } },
           { label: 'Why', get: function (f) { return f.explanation; } }], adv) : h('p', { class: 'muted', text: 'Nothing flagged.' }));
       if (adv.length) advBox.open = true;
-      root.appendChild(advBox);
+      side.appendChild(advBox);
     }
+    if (hist) mainCol.appendChild(hist);      // under the lines: the table needs the width
+    else if (CG.has('claims.decide')) mainCol.appendChild(h('div', { class: 'card histcard' }, h('h2', { text: 'Patient history' }),
+      h('p', { class: 'muted', text: 'The patient’s other claims open from your inbox: only the reviewer holding a claim may look at them. Open this claim from My inbox to see them.' })));
+    root.appendChild(h('div', { class: 'worklayout' }, mainCol, side));
   };
 
   // The patient's other claims, asked for on purpose: reading them is logged and only the holder of the claim may. No patient identifier is shown.
   function historyCard(ctx) {
     var out = h('div', { class: 'stack' });
-    var btn = h('button', { class: 'btn', type: 'button', text: 'Show this patient’s other claims' });
+    var btn = h('button', { class: 'btn primary', type: 'button' }, CG.icon('list'), 'Show this patient’s other claims');
+    var loaded = false;
     btn.addEventListener('click', function () {
-      btn.disabled = true;
+      if (loaded) return;
+      loaded = true; btn.disabled = true;
       CG.api('GET', '/work/claims/' + encodeURIComponent(ctx.id) + '/history').then(function (r) {
         CG.clear(out);
-        if (!r.claims.length) { out.appendChild(h('p', { class: 'muted', text: 'This patient has no other claim on record.' })); return; }
+        btn.remove();
+        if (!r.claims.length) { out.appendChild(h('p', { class: 'muted', text: 'This patient has no other claim on record: this is their first.' })); return; }
+        var flaggedN = r.claims.filter(function (c) { return (c.flagged || []).length; }).length;
+        out.appendChild(h('div', { class: 'histsum' },
+          h('span', null, h('b', { text: String(r.count) }), r.count === 1 ? ' other claim' : ' other claims'),
+          h('span', null, h('b', { class: flaggedN ? 'bad' : 'good', text: String(flaggedN) }), ' flagged by a rule'),
+          h('span', null, 'latest ', h('b', { text: r.claims[0].submission_date || '-' }))));
+        var open = CG.has('claims.view') ? function (c) { location.hash = '#/claim/' + encodeURIComponent(c.claim_id); } : null;
         out.appendChild(CG.table([
-          { label: 'Claim', get: function (c) { return h('span', { class: 'mono', text: c.claim_id }); } },
+          { label: 'Claim', get: function (c) { return h('span', { class: 'mono cid', text: c.claim_id }); } },
           { label: 'Submitted', get: function (c) { return c.submission_date || '-'; } },
           { label: 'Provider', get: function (c) { return c.provider_id || '-'; } },
-          { label: 'Total', get: function (c) { return c.total_amount === null || c.total_amount === undefined ? '-' : c.total_amount + ' ' + (c.currency || ''); } },
-          { label: 'State', get: function (c) { return String(c.state || '').replace(/_/g, ' '); } },
-          { label: 'Flagged', get: function (c) { return (c.flagged || []).concat(c.advisory_flagged || []).join(', ') || 'none'; } }], r.claims));
+          { label: 'Total', num: true, get: function (c) { return c.total_amount === null || c.total_amount === undefined ? '-' : CG.money(c.total_amount, c.currency); } },
+          { label: 'State', get: function (c) { return CG.chip(String(c.state || '-').replace(/_/g, ' '), c.state === 'decided' ? 'good' : 'neutral'); } },
+          { label: 'Flagged', get: function (c) {
+            var rules = (c.flagged || []).concat(c.advisory_flagged || []);
+            return rules.length ? rules.map(function (x) { return h('span', { class: 'rid', title: CG.ruleName(x) || x, text: x }); }) : CG.chip('none', 'good');
+          } }], r.claims, open ? { onRow: open } : {}));
         if (r.count > r.shown) out.appendChild(h('p', { class: 'muted small', text: 'Showing the newest ' + r.shown + ' of ' + r.count + '.' }));
-        out.appendChild(h('p', { class: 'muted small', text: 'Looking at this was written to the security log.' }));
-      }, function (e) { btn.disabled = false; CG.fail(e); });
+        out.appendChild(h('p', { class: 'muted small' }, CG.icon('lock'), ' Looking at this was written to the security log.' + (open ? ' Click a row to open that claim.' : '')));
+      }, function (e) { loaded = false; btn.disabled = false; CG.fail(e); });
     });
-    return h('div', { class: 'card stack' }, h('div', { class: 'row between' }, h('b', { text: 'Patient history' }), btn), out);
+    var card = h('section', { class: 'card stack histcard', id: 'patient-history', tabindex: '-1' },
+      h('div', null, h('h2', { text: 'Patient history' }), h('p', { class: 'muted small', text: 'This patient’s other claims: when, where, how much, and which rules flagged them. No identifiers are shown.' })),
+      btn, out);
+    card.load = function () { btn.click(); };
+    return card;
   }
 
   // ---- inbox ------------------------------------------------------------------------------------------------------------
   function inboxRow(v) {
     var flagged = v.findings.filter(function (f) { return f.status === 'FAIL' || f.status === 'UNABLE_TO_ASSESS'; }).length;
-    var open = v.findings.filter(function (f) { return f.allowed_actions && f.allowed_actions.length; }).length;
-    return { id: v.claim_id, lane: v.lane, score: v.score, flagged: flagged, open: open, left: v.leased_until, stage: v.signoff_stage, v: v };
+    var openList = v.findings.filter(function (f) { return f.allowed_actions && f.allowed_actions.length; });
+    var high = openList.some(function (f) { return f.severity === 'high'; });
+    return { id: v.claim_id, lane: v.lane, score: v.score, flagged: flagged, open: openList.length, left: v.leased_until, stage: v.signoff_stage, v: v,
+      rules: openList.map(function (f) { return f.rule_id; }), sev: openList.length ? (high ? 'high' : 'medium') : null };
   }
 
   // The open findings of the inbox grouped by rule: same kind of finding side by side is faster to read than claim by claim.
@@ -324,7 +411,7 @@
     var ctxFor = function (id) { return { decisionPath: function (r) { return '/work/claims/' + encodeURIComponent(id) + '/findings/' + encodeURIComponent(r) + '/decision'; } }; };
     var looked = false, bulk = null;
     var table = CG.table([
-      { label: 'Claim', get: function (r) { return h('a', { href: '#/work/' + encodeURIComponent(r.id), class: 'mono', text: r.id }); } },
+      { label: 'Claim', get: function (r) { return h('a', { href: '#/work/' + encodeURIComponent(r.id), class: 'mono cid', text: r.id }); } },
       { label: 'Severity', get: function (r) { return CG.chip(r.f.severity); } },
       { label: 'Status', get: function (r) { return CG.chip(r.f.status); } },
       { label: 'Lines', get: function (r) { return (r.f.affected_line_ids || []).join(', '); } },
@@ -335,7 +422,7 @@
     ], rows);
     var body = h('div', { class: 'stack' }, table);
     var head = h('div', { class: 'row between' },
-      h('div', { class: 'row' }, h('b', { class: 'mono', text: rule }), h('span', { class: 'muted', text: rows.length + ' open finding' + (rows.length > 1 ? 's' : '') }),
+      h('div', { class: 'row' }, h('span', { class: 'rid', text: rule }), h('b', { text: CG.ruleName(rule) }), h('span', { class: 'muted', text: rows.length + ' open finding' + (rows.length > 1 ? 's' : '') }),
         light ? CG.chip('Light review', 'green') : null));
     if (light) {
       bulk = twoStep('Confirm all ' + rows.length + ' after a light look', 'Click again to confirm all ' + rows.length, function (b) {
@@ -356,15 +443,15 @@
     }
     var details = h('details', null, h('summary', { text: light ? 'Look at these findings (needed before bulk confirm)' : 'Show the findings' }), body);
     details.addEventListener('toggle', function () { if (details.open) looked = true; });
-    return h('div', { class: 'card' }, head,
+    return h('div', { class: 'card rulecard' }, head,
       light ? h('p', { class: 'muted small', text: 'Reviewers have upheld almost every finding of this rule. A random few are still sent to you for a full review, so the check never stops.' }) : null,
       details);
   }
 
   CG.views = CG.views || {};
   CG.views.inbox = function (root) {
-    var list = h('div'), status = h('p', { class: 'muted' });
-    var mode = CG.state.inboxMode || 'claim', light = [], lastSig = '';
+    var list = h('div'), status = h('div', { class: 'tiles' });
+    var mode = CG.state.inboxMode || CG.prefs.get('inboxMode') || 'claim', light = [], lastSig = '';
     // The page refreshes itself every 20 seconds and on server pushes. In the by-rule view a redraw would close the list the person has open and
     // forget that they looked at it, so it redraws only when something that matters changed.
     function signature(d) {
@@ -374,7 +461,7 @@
     }
     function drawByRule(items) {
       var groups = ruleGroups(items), rules = Object.keys(groups).sort();
-      if (!rules.length) { list.appendChild(h('div', { class: 'card' }, h('p', { text: 'No open findings to confirm in your inbox.' }))); return; }
+      if (!rules.length) { list.appendChild(CG.empty('check', 'No open findings to confirm', 'Switch to "By claim" to verify clean claims.')); return; }
       rules.forEach(function (rule) { list.appendChild(ruleCard(rule, groups[rule], light.indexOf(rule) >= 0, load)); });
     }
     function draw(items) {
@@ -382,43 +469,54 @@
       CG.clear(list);
       if (mode === 'rule' && items.length) { drawByRule(items); return; }
       if (!items.length) {
-        list.appendChild(h('div', { class: 'card' }, h('p', { text: 'Your inbox is empty.' }), h('p', { class: 'muted', text: 'The dispatcher keeps it topped up while you are on shift. Press "Take next claim" to ask for one now.' })));
+        list.appendChild(CG.empty('inbox', 'Your inbox is empty', 'The dispatcher keeps it topped up while you are on shift. Press "Take next claim" to ask for one now.'));
         return;
       }
-      list.appendChild(CG.table([
-        { label: 'Claim', get: function (r) { return h('span', { class: 'mono', text: r.id }); } },
-        { label: 'Lane', get: function (r) { return CG.chip(r.lane === 'green' ? 'green' : 'Lane ' + r.lane, r.lane); } },
-        { label: 'Score', num: true, get: function (r) { return r.score; } },
-        { label: 'Flagged', num: true, get: function (r) { return r.flagged; } },
-        { label: 'To decide', num: true, get: function (r) { return r.open || (r.flagged ? 0 : 'verify'); } },
-        { label: 'Stage', get: function (r) { return r.stage ? CG.chip(r.stage, 'B') : null; } },
-        { label: 'Lease', get: function (r) { return r.left ? CG.fmtDuration(r.left - Date.now() / 1000) : null; } }
-      ], items.map(inboxRow), { onRow: function (r) { location.hash = '#/work/' + encodeURIComponent(r.id); } }));
+      var hiddenCols = CG.prefs.get('hiddenCols') || [];      // personal choice of inbox columns (Customize, Lists); the claim number always stays
+      list.appendChild(h('div', { class: 'card' }, CG.table([
+        { label: 'Claim', get: function (r) { return h('span', { class: 'mono cid', text: r.id }); } },
+        { key: 'lane', label: 'Lane', get: function (r) { return CG.chip(r.lane === 'green' ? 'clean' : 'Lane ' + r.lane, r.lane); } },
+        { key: 'issues', label: 'Issues', get: function (r) {
+          if (!r.rules.length) return h('span', { class: 'muted', text: r.flagged ? 'with someone else' : 'verify clean claim' });
+          return h('span', { title: r.rules.map(function (x) { return x + ' ' + CG.ruleName(x); }).join('\n') }, CG.chip(r.sev), ' ', r.rules.length === 1 ? [h('span', { class: 'rid', text: r.rules[0] }), ' ' + CG.ruleName(r.rules[0])] : r.rules.map(function (x) { return h('span', { class: 'rid', text: x }); }));
+        } },
+        { key: 'todo', label: 'To decide', num: true, get: function (r) { return r.open || (r.flagged ? 0 : 'verify'); } },
+        { key: 'priority', label: 'Priority', num: true, get: function (r) { return r.score; } },
+        { key: 'stage', label: 'Stage', get: function (r) { return r.stage ? CG.chip(r.stage, 'B') : null; } },
+        { key: 'lease', label: 'Lease', get: function (r) { return r.left ? CG.fmtDuration(r.left - Date.now() / 1000) : null; } }
+      ].filter(function (c) { return !c.key || hiddenCols.indexOf(c.key) < 0; }), items.map(inboxRow), { onRow: function (r) { location.hash = '#/work/' + encodeURIComponent(r.id); } })));
     }
+    function tile(n, label, hl) { return h('div', { class: 'tile' + (hl ? ' hl-' + hl : '') }, h('div', { class: 'n', text: String(n) }), h('div', { class: 'l', text: label })); }
     function load() {
       return CG.api('GET', '/work/inbox').then(function (d) {
         light = d.light_review || [];
-        status.textContent = d.claims.length + ' claim' + (d.claims.length === 1 ? '' : 's') + ' waiting for you.';
+        var rows = d.claims.map(inboxRow), open = 0, green = 0, staged = 0;
+        rows.forEach(function (r) { open += r.open; if (!r.flagged) green++; if (r.stage) staged++; });
+        CG.clear(status);
+        CG.append(status, [tile(d.claims.length, d.claims.length === 1 ? 'claim waiting for you' : 'claims waiting for you'), tile(open, 'findings to decide', open ? 'high' : 'ok'),
+          tile(green, 'clean claims to verify', green ? 'ok' : null), staged ? tile(staged, 'waiting on a second senior', 'med') : null]);
         var sig = signature(d);
         if (mode === 'rule' && sig === lastSig && list.firstChild) { CG.state.inbox = d.claims; return; }
         lastSig = sig;
         draw(d.claims);
       }, CG.fail);
     }
-    var take = h('button', { class: 'btn primary', type: 'button', text: 'Take next claim', onclick: function () {
+    var take = h('button', { class: 'btn primary', type: 'button', onclick: function () {
       CG.api('POST', '/work/next').then(function (d) {
         if (!d.claim) { CG.toast('Nothing is waiting for you right now.', 'info'); return; }
         location.hash = '#/work/' + encodeURIComponent(d.claim.claim_id);
       }, CG.fail);
-    } });
+    } }, CG.icon('bolt'), 'Take next claim');
     var byClaim = h('button', { class: 'btn small', type: 'button', text: 'By claim' }), byRule = h('button', { class: 'btn small', type: 'button', text: 'By rule' });
-    function paint() { byClaim.className = 'btn small' + (mode === 'claim' ? ' primary' : ''); byRule.className = 'btn small' + (mode === 'rule' ? ' primary' : ''); }
+    function paint() { byClaim.setAttribute('aria-pressed', String(mode === 'claim')); byRule.setAttribute('aria-pressed', String(mode === 'rule')); }
     function pick(m) { mode = m; CG.state.inboxMode = m; lastSig = signature({ claims: CG.state.inbox || [], light_review: light }); paint(); draw(CG.state.inbox || []); }
     byClaim.addEventListener('click', function () { pick('claim'); });
     byRule.addEventListener('click', function () { pick('rule'); });
     paint();
-    root.appendChild(h('div', { class: 'row between' }, h('h1', { text: 'My inbox' }), h('div', { class: 'row' }, byClaim, byRule, take)));
-    root.appendChild(status); root.appendChild(list);
+    root.appendChild(CG.pageHead({ title: 'My inbox', sub: 'Claims routed to you. Open one, or take the next in line.',
+      actions: [h('div', { class: 'seg', role: 'group', 'aria-label': 'Group the inbox' }, byClaim, byRule), take] }));
+    root.appendChild(status); list.appendChild(CG.loading('Reading your inbox...'));
+    root.appendChild(h('div', { class: 'sectionhead' })); root.appendChild(list);
     load();
     CG.every(20000, load);
     CG.live('inbox', load);
@@ -432,10 +530,10 @@
       fixPath: function (what) { return '/work/claims/' + encodeURIComponent(id) + '/' + what; },
       reload: function () { return CG.api('GET', '/work/inbox').then(function (d) { return d.claims.filter(function (c) { return c.claim_id === id; })[0] || null; }); }
     };
-    root.appendChild(h('p', { class: 'muted', text: 'Loading claim...' }));
+    root.appendChild(CG.loading('Loading claim...'));
     ctx.reload().then(function (v) {
       CG.clear(root);
-      if (!v) { root.appendChild(h('div', { class: 'card' }, h('p', { text: 'This claim is not in your inbox. It may be finished, or its lease ran out.' }), h('a', { href: '#/inbox', text: 'Back to my inbox' }))); return; }
+      if (!v) { root.appendChild(CG.empty('inbox', 'This claim is not in your inbox', 'It may be finished, or its lease ran out.', h('a', { class: 'btn', href: '#/inbox', text: 'Back to my inbox' }))); return; }
       CG.renderClaim(root, v, ctx);
       CG.every(60000, function () { CG.api('POST', '/work/heartbeat').catch(function () {}); });
     }, CG.fail);
@@ -444,17 +542,21 @@
   // ---- browse -----------------------------------------------------------------------------------------------------------
   CG.views.claims = function (root) {
     var status = h('select', { 'aria-label': 'Status' }, ['', 'FAIL', 'UNABLE_TO_ASSESS', 'PASS'].map(function (s) { return h('option', { value: s, text: s ? s.replace(/_/g, ' ') : 'Any status' }); }));
-    var rule = h('input', { type: 'text', placeholder: 'Rule, e.g. R003', maxlength: '10', 'aria-label': 'Rule' });
-    var out = h('div'), pager = h('div', { class: 'row' }), offset = 0, limit = 25;
+    var rule = h('select', { 'aria-label': 'Rule' }, h('option', { value: '', text: 'Any rule' }),
+      RULE_CHOICES.map(function (r) { return h('option', { value: r, text: r + ' · ' + CG.ruleName(r) }); }));
+    var handed = CG.state.claimsFilter; CG.state.claimsFilter = null;      // a filter chosen on the Home page
+    if (handed && handed.status) status.value = handed.status;
+    var out = h('div', { class: 'card' }), pager = h('div', { class: 'row savebar' }), offset = 0, limit = 25;
     function load() {
-      var q = '?limit=' + limit + '&offset=' + offset + (status.value ? '&status=' + encodeURIComponent(status.value) : '') + (rule.value.trim() ? '&rule_id=' + encodeURIComponent(rule.value.trim().toUpperCase()) : '');
+      var q = '?limit=' + limit + '&offset=' + offset + (status.value ? '&status=' + encodeURIComponent(status.value) : '') + (rule.value ? '&rule_id=' + encodeURIComponent(rule.value) : '');
+      CG.clear(out); out.appendChild(CG.loading());
       CG.api('GET', '/claims' + q).then(function (d) {
         CG.clear(out); CG.clear(pager);
         var rows = d.claims;
-        if (!rows.length) { out.appendChild(h('p', { class: 'muted', text: 'No claims match.' })); }
+        if (!rows.length) { out.appendChild(h('div', { class: 'empty' }, h('h2', { text: 'No claims match' }), h('p', { class: 'muted', text: 'Try another status or rule.' }))); }
         else {
           var cols = [
-            { label: 'Claim', get: function (r) { return h('span', { class: 'mono', text: r.claim_id }); } },
+            { label: 'Claim', get: function (r) { return h('span', { class: 'mono cid', text: r.claim_id }); } },
             { label: 'Results', get: function (r) { return Object.keys(r.counts || {}).sort().map(function (k) { return r.counts[k] + ' ' + k.replace(/_/g, ' ').toLowerCase(); }).join(', '); } },
             { label: 'Highest severity', get: function (r) { return r.max_severity ? CG.chip(r.max_severity) : null; } },
             { label: 'Flagged', get: function (r) { return r.flagged ? CG.chip('flagged', 'high') : 'no'; } }
@@ -467,10 +569,10 @@
       }, CG.fail);
     }
     status.addEventListener('change', function () { offset = 0; load(); });
-    rule.addEventListener('keydown', function (e) { if (e.key === 'Enter') { offset = 0; load(); } });
-    root.appendChild(h('h1', { text: 'All claims' }));
-    root.appendChild(h('div', { class: 'row' }, h('div', null, status), h('div', null, rule), h('button', { class: 'btn', type: 'button', text: 'Filter', onclick: function () { offset = 0; load(); } })));
-    root.appendChild(out); root.appendChild(pager);
+    rule.addEventListener('change', function () { offset = 0; load(); });
+    root.appendChild(CG.pageHead({ title: 'All claims', sub: CG.has('claims.decide') ? 'Every claim and its results. Your own work is in My inbox.' : 'Every claim and its results, read-only.' }));
+    root.appendChild(h('div', { class: 'row', role: 'search' }, h('div', null, status), h('div', null, rule)));
+    root.appendChild(h('div', { class: 'sectionhead' })); root.appendChild(out); root.appendChild(pager);
     load();
   };
 
@@ -480,7 +582,7 @@
       decisionPath: function (rule) { return '/claims/' + encodeURIComponent(id) + '/findings/' + encodeURIComponent(rule) + '/decision'; },
       reload: function () { return CG.api('GET', '/claims/' + encodeURIComponent(id)); }
     };
-    root.appendChild(h('p', { class: 'muted', text: 'Loading claim...' }));
+    root.appendChild(CG.loading('Loading claim...'));
     ctx.reload().then(function (v) { CG.clear(root); CG.renderClaim(root, v, ctx); }, function (e) { CG.clear(root); root.appendChild(h('div', { class: 'notice bad', text: e.message })); });
   };
 })();

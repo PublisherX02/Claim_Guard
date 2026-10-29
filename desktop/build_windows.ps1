@@ -15,8 +15,11 @@ New-Item -ItemType Directory -Force "$engine\data\development" | Out-Null
 Copy-Item $cg "$engine\cg.exe"
 Copy-Item -Recurse (Join-Path $repo 'rules') "$engine\rules"
 Copy-Item (Join-Path $repo 'data\development\claims.jsonl') "$engine\data\development\claims.jsonl"
-if (-not (Test-Path "$work\venv\Scripts\python.exe")) { uv venv "$work\venv" --python 3.12 }
-uv pip install --python "$work\venv\Scripts\python.exe" -r "$here\requirements-desktop.txt" pyinstaller==6.16.0
+$uv = Get-Command uv -ErrorAction SilentlyContinue   # uv when installed, otherwise Python 3.12's own venv and pip
+if (-not (Test-Path "$work\venv\Scripts\python.exe")) { if ($uv) { uv venv "$work\venv" --python 3.12 } else { py -3.12 -m venv "$work\venv" } }
+if ($uv) { uv pip install --python "$work\venv\Scripts\python.exe" -r "$here\requirements-desktop.txt" pyinstaller==6.16.0 }
+else { & "$work\venv\Scripts\python.exe" -m pip install -q -r "$here\requirements-desktop.txt" pyinstaller==6.16.0 }
+if ($LASTEXITCODE) { throw "installing the build requirements failed" }
 & "$work\venv\Scripts\pyinstaller.exe" --noconfirm --onefile --windowed --name ClaimGuard `
     --add-data "$engine;engine" `
     --distpath "$here\$Out" --workpath "$work\pyi" --specpath $work "$here\claimguard_desktop.py"

@@ -1,0 +1,113 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>ClaimGuard Brand Sheet</title>
+<link rel="icon" href="claimguard-mark.svg" type="image/svg+xml">
+<style>
+  :root { --navy: #15294C; --deep: #0E1D38; --steel: #243E70; --ink: #13233F; --slate: #5B6578; --mist: #9FB0CC; --line: #E2E6EC; --paper: #F6F7F9; }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--paper); color: var(--ink); font: 15px/1.55 "IBM Plex Sans", "Segoe UI Variable Text", "Segoe UI", system-ui, Arial, sans-serif; }
+  main { max-width: 1080px; margin: 0 auto; padding: 32px 16px 56px; display: grid; gap: 20px; }
+  .hero { background: var(--navy); color: #fff; border-radius: 14px; padding: clamp(24px, 5vw, 44px); display: grid; gap: 14px; }
+  .hero small { letter-spacing: .16em; text-transform: uppercase; color: var(--mist); font-weight: 600; font-size: 12px; }
+  .hero img { width: min(100%, 420px); }
+  .hero p { color: #C9D4E6; max-width: 46rem; margin: 0; }
+  .card { background: #fff; border: 1px solid var(--line); border-radius: 12px; padding: 20px 22px; }
+  h2 { margin: 0 0 10px; font-size: 18px; }
+  .two { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 20px; }
+  figure { margin: 0; border-radius: 12px; border: 1px solid var(--line); padding: 32px 20px 14px; display: grid; justify-items: center; gap: 14px; background: #fff; }
+  figure.dark { background: var(--navy); border-color: var(--navy); }
+  figure img { width: min(100%, 340px); }
+  figcaption { font-size: 13px; color: var(--slate); } figure.dark figcaption { color: var(--mist); }
+  .sizes { display: flex; gap: 28px; align-items: flex-end; flex-wrap: wrap; }
+  .sizes div { text-align: center; font-size: 12px; color: var(--slate); }
+  .sizes img { display: block; margin: 0 auto 8px; }
+  .onnavy { background: var(--navy); padding: 10px; border-radius: 8px; }
+  .palette { display: grid; grid-template-columns: repeat(auto-fill, minmax(170px, 1fr)); gap: 12px; }
+  .sw { border: 1px solid var(--line); border-radius: 12px; overflow: hidden; background: #fff; }
+  .chip { height: 76px; display: flex; align-items: flex-end; padding: 8px 10px; font-weight: 700; font-size: 12px; }
+  .meta { padding: 8px 10px 10px; font-size: 13px; display: grid; } .meta code, .meta span { color: var(--slate); }
+  table { border-collapse: collapse; width: 100%; font-size: 14px; }
+  th, td { text-align: left; padding: 11px 12px; border-bottom: 1px solid var(--line); }
+  th { font-size: 11px; letter-spacing: .1em; text-transform: uppercase; color: var(--slate); font-weight: 600; }
+  td.n { text-align: right; font-variant-numeric: tabular-nums; }
+  .type { font-size: 40px; font-weight: 700; letter-spacing: -.02em; color: var(--navy); line-height: 1.1; }
+  .caps { letter-spacing: .2em; text-transform: uppercase; font-size: 13px; font-weight: 600; color: var(--slate); }
+  code { font-family: ui-monospace, "Cascadia Mono", Consolas, monospace; }
+</style>
+</head>
+<body>
+<main>
+  <section class="hero">
+    <small>Brand identity · v2.0</small>
+    <img src="claimguard-logo-dark.svg" alt="ClaimGuard Claims administration">
+    <p>A shield that holds a claim document with a check: every claim is protected and verified before it reaches the payer. Navy and white, flat and calm, for people who read claims all day.</p>
+  </section>
+
+  <div class="two">
+    <figure><img src="claimguard-logo.svg" alt="Logo on white"><figcaption>claimguard-logo.svg · on white and light surfaces</figcaption></figure>
+    <figure class="dark"><img src="claimguard-logo-dark.svg" alt="Logo on navy"><figcaption>claimguard-logo-dark.svg · on Administration Navy</figcaption></figure>
+  </div>
+
+  <section class="card">
+    <h2>The mark</h2>
+    <div class="sizes">
+      <div><img src="claimguard-mark.svg" width="128" height="128" alt="">128 px · store, splash</div>
+      <div><img src="claimguard-mark.svg" width="80" height="80" alt="">80 px · sign-in</div>
+      <div><img src="claimguard-mark.svg" width="32" height="32" alt="">32 px · tab</div>
+      <div><img src="claimguard-mark.svg" width="16" height="16" alt="">16 px · favicon</div>
+      <div><div class="onnavy"><img src="claimguard-mark-light.svg" width="36" height="36" alt=""></div>light mark · sidebar</div>
+    </div>
+    <p>Shield (navy, Deep Navy rim): protection of every claim. Document (white, folded corner): the claim itself. Check: the pre-validation. Use the navy mark on light surfaces and the white mark on navy. Do not recolour, stretch or add shadows; below 120 px wide, use the mark alone.</p>
+  </section>
+
+  <section class="card">
+    <h2>Name and line</h2>
+    <div class="type">ClaimGuard</div>
+    <div class="caps">Claims administration</div>
+    <p>Tagline for presentations: <b>Smarter checks, safer claims</b>.</p>
+  </section>
+
+  <section>
+    <h2>Colour palette</h2>
+    <div class="palette">
+      <div class="sw"><div class="chip" style="background:#15294C;color:#fff">Primary</div><div class="meta"><b>Administration Navy</b><code>#15294C</code><span>Sidebar, primary buttons, the shield</span></div></div>
+      <div class="sw"><div class="chip" style="background:#0E1D38;color:#fff">Depth</div><div class="meta"><b>Deep Navy</b><code>#0E1D38</code><span>Shield rim, dark surfaces</span></div></div>
+      <div class="sw"><div class="chip" style="background:#243E70;color:#fff">Active</div><div class="meta"><b>Steel Blue</b><code>#243E70</code><span>Open menu item, hover on navy</span></div></div>
+      <div class="sw"><div class="chip" style="background:#13233F;color:#fff">Text</div><div class="meta"><b>Ink</b><code>#13233F</code><span>Titles and body text</span></div></div>
+      <div class="sw"><div class="chip" style="background:#5B6578;color:#fff">Secondary</div><div class="meta"><b>Slate</b><code>#5B6578</code><span>Labels, table headers, hints</span></div></div>
+      <div class="sw"><div class="chip" style="background:#9FB0CC">On navy</div><div class="meta"><b>Mist</b><code>#9FB0CC</code><span>Secondary text on navy only</span></div></div>
+      <div class="sw"><div class="chip" style="background:#E2E6EC">Lines</div><div class="meta"><b>Line Grey</b><code>#E2E6EC</code><span>Card borders, table rules</span></div></div>
+      <div class="sw"><div class="chip" style="background:#F6F7F9;border-bottom:1px solid #E2E6EC">Surface</div><div class="meta"><b>Paper</b><code>#F6F7F9</code><span>Page background; cards are white</span></div></div>
+      <div class="sw"><div class="chip" style="background:#187A4B;color:#fff">Success</div><div class="meta"><b>Pass Green</b><code>#187A4B</code><span>Passed rule, done</span></div></div>
+      <div class="sw"><div class="chip" style="background:#9A5B05;color:#fff">Warning</div><div class="meta"><b>Caution Amber</b><code>#9A5B05</code><span>Unable to assess, medium</span></div></div>
+      <div class="sw"><div class="chip" style="background:#B42318;color:#fff">Error</div><div class="meta"><b>Fail Red</b><code>#B42318</code><span>Failed rule, high severity</span></div></div>
+    </div>
+  </section>
+
+  <section class="card">
+    <h2>Text colours and contrast (WCAG)</h2>
+    <table>
+      <thead><tr><th>Colour</th><th>On white</th><th>On navy</th><th>Use for text</th></tr></thead>
+      <tbody>
+        <tr><td>Administration Navy #15294C</td><td class="n">14.4</td><td class="n">-</td><td><b>On light</b></td></tr>
+        <tr><td>Ink #13233F</td><td class="n">15.7</td><td class="n">-</td><td><b>On light</b></td></tr>
+        <tr><td>Slate #5B6578</td><td class="n">5.9</td><td class="n">2.5</td><td><b>On light</b></td></tr>
+        <tr><td>Mist #9FB0CC</td><td class="n">2.2</td><td class="n">6.6</td><td><b>On navy only</b></td></tr>
+        <tr><td>White #FFFFFF</td><td class="n">-</td><td class="n">14.4</td><td><b>On navy</b> (10.5 on Steel Blue)</td></tr>
+        <tr><td>Pass Green #187A4B</td><td class="n">5.4</td><td class="n">2.7</td><td><b>On light</b></td></tr>
+        <tr><td>Caution Amber #9A5B05</td><td class="n">5.4</td><td class="n">2.7</td><td><b>On light</b></td></tr>
+        <tr><td>Fail Red #B42318</td><td class="n">6.6</td><td class="n">2.2</td><td><b>On light</b></td></tr>
+      </tbody>
+    </table>
+  </section>
+
+  <section class="card">
+    <h2>Typography</h2>
+    <p>IBM Plex Sans when installed, otherwise Segoe UI: 700 for the name, 600 to 650 for titles, 400 to 500 for reading. <code>CG-4134DC69B4DC · R013</code> in Cascadia Mono for identifiers.</p>
+  </section>
+</main>
+</body>
+</html>

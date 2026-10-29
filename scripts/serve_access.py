@@ -23,23 +23,51 @@ from access.store import StoreUnavailable  # noqa: E402
 LOCAL = config.LOCAL_HOSTS
 
 
-def _offer_demo_logins(app, accounts):
+def _offer_demo_logins(app, accounts, feed=None):
     """Demo mode only (never registered otherwise): GET /demo/login/{level} hands the sign-in page a generated demo login, as the desktop
     app's bridge does. Answers only requests from this PC, and the demo itself refuses any non-local bind."""
     import pyotp
     from fastapi import Request
     from fastapi.responses import JSONResponse
 
-    def demo_login(level: int, request: Request):
-        if (request.client.host if request.client else None) not in ('127.0.0.1', '::1'):
+    def local(request):
+        return (request.client.host if request.client else None) in ('127.0.0.1', '::1')
+
+    def demo_login(level: int, request: Request, badge: str = ''):
+        if not local(request):
             return JSONResponse({'error': 'not found'}, status_code=404)
-        for badge, a in accounts.items():
-            if a['level'] == level:
-                return JSONResponse({'badge': badge, 'password': a['password'], 'code': pyotp.TOTP(a['secret']).now()},
+        for b, a in accounts.items():
+            if a['level'] == level and (not badge or b == badge):
+                return JSONResponse({'badge': b, 'password': a['password'], 'code': pyotp.TOTP(a['secret']).now()},
                                     headers={'Cache-Control': 'no-store'})
         return JSONResponse({'error': 'not found'}, status_code=404)
 
+    # The demo staff for the sign-in page's employee cards: who exists at which clearance level. No password, no seed.
+    def demo_people(request: Request):
+        if not local(request):
+            return JSONResponse({'error': 'not found'}, status_code=404)
+        return JSONResponse([{'badge': b, 'name': a['name'], 'level': a['level'], 'title': a.get('title', '')} for b, a in accounts.items()],
+                            headers={'Cache-Control': 'no-store'})
+
+    # The notification bell's source: how many claims entered intake since the demo started, and the latest ones (synthetic ids only).
+    def demo_feed(request: Request):
+        if not local(request) or feed is None:
+            return JSONResponse({'error': 'not found'}, status_code=404)
+        return JSONResponse(feed.snapshot(), headers={'Cache-Control': 'no-store'})
+
+    # "Simulate new claims": sends 1 to 5 more sample claims through the real intake. The custom header cannot be sent by another
+    # site's form or image, so a web page elsewhere cannot trigger it through the browser (a cross-site fetch would need CORS).
+    def demo_arrivals(request: Request, n: int = 1):
+        if not local(request) or feed is None:
+            return JSONResponse({'error': 'not found'}, status_code=404)
+        if request.headers.get('x-cg-demo') != '1' or not 1 <= n <= 5:
+            return JSONResponse({'error': 'invalid_request'}, status_code=400)
+        return JSONResponse({'accepted': feed.arrive(n), 'left': len(feed.pool)}, headers={'Cache-Control': 'no-store'})
+
     app.add_api_route('/demo/login/{level}', demo_login, methods=['GET'], include_in_schema=False)
+    app.add_api_route('/demo/people', demo_people, methods=['GET'], include_in_schema=False)
+    app.add_api_route('/demo/feed', demo_feed, methods=['GET'], include_in_schema=False)
+    app.add_api_route('/demo/arrivals', demo_arrivals, methods=['POST'], include_in_schema=False)
 
 
 def main(argv=None, env=None, out=None, run=None, store=None, data_dir=None, claims_path=None):
@@ -88,7 +116,9 @@ def main(argv=None, env=None, out=None, run=None, store=None, data_dir=None, cla
     if args.demo:
         from workqueue import demo
         from engine_core import load_jsonl
-        accounts, loop = demo.start_demo(stack, load_jsonl(ROOT / 'data' / 'development' / 'claims.jsonl'))
+        sample = load_jsonl(ROOT / 'data' / 'development' / 'claims.jsonl')
+        accounts, loop = demo.start_demo(stack, sample)
+        feed = demo.ArrivalFeed(stack.queue, sample[60:-demo.HISTORY_DONORS])    # the claims not loaded at start (nor used as earlier visits) feed "Simulate new claims"
         path = stack.data_dir / 'demo_accounts.json'
         path.write_text(json.dumps(accounts, indent=1), encoding='utf-8')
         try:
@@ -99,7 +129,7 @@ def main(argv=None, env=None, out=None, run=None, store=None, data_dir=None, cla
         for badge, a in accounts.items():
             say(f'  {badge}  level {a["level"]}  {a["name"]:<22} password: {a["password"]}')
         say('Authenticator codes: python scripts/demo_code.py CG-2002   (prints the current 6-digit code)')
-        _offer_demo_logins(app, accounts)
+        _offer_demo_logins(app, accounts, feed)
         say('Demo sign-in: open the console and press a role button; no password or code to type.')
     if args.dev:
         where = 'in the configured database' if stack.settings.mongo_uri else 'in memory (lost on exit)'

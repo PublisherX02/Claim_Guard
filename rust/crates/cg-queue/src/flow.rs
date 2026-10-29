@@ -98,9 +98,13 @@ pub struct Intake {
     pub engine_version: String,
     /// The advisory (extension) results for a claim; None stores `[]`. Never allowed to stop a claim from being triaged.
     pub advisory: Option<AdvisoryFn>,
+    /// Told (claim id, receipt) after each claim version is newly stored, whichever way it came in; a resubmission already stored is not told.
+    /// Set once, after start-up (the demo's intake log); empty on a real server.
+    pub on_stored: OnceLock<StoredFn>,
 }
 
 pub type AdvisoryFn = Arc<dyn Fn(&Value) -> Vec<Value> + Send + Sync>;
+pub type StoredFn = Arc<dyn Fn(&str, &Value) + Send + Sync>;
 
 /// Earlier claims of the same patient read from the queue store (`workqueue/history.py`), for the history-aware extension rules.
 pub struct StoreHistory(pub Arc<dyn QueueStore>);
@@ -271,6 +275,9 @@ impl Intake {
                     "triage_receipt",
                     json!({"claim_id": claim_id, "input_hash": ihash, "result_hash": receipt["result_hash"], "lane": receipt["lane"], "score": receipt["score"], "config_version": receipt["config_version"]}),
                 );
+                if let Some(f) = self.on_stored.get() {
+                    f(&claim_id, &receipt);
+                }
                 return Ok(receipt);
             }
         }

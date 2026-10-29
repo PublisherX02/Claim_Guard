@@ -230,6 +230,7 @@ fn build_queue(store: Arc<dyn QueueStore>, env: &HashMap<String, String>, root: 
         rule_pack_hash: { let e = engine.clone(); Arc::new(move || e.rulebook_hash()) },
         engine_version: engine.code_hash(),
         advisory: Some(flow::advisory_fn(extensions, store.clone())),
+        on_stored: Default::default(),
     });
     service.set_intake(intake.clone());
     service.set_rules({ let e = engine.clone(); Arc::new(move || e.cfg()) });

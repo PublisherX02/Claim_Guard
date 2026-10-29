@@ -36,9 +36,11 @@
     opts = opts || {};
     var head = CG.h('tr', null, columns.map(function (c) { return CG.h('th', { class: c.num ? 'num' : '', text: c.label }); }));
     var body = rows.map(function (row) {
-      var tr = CG.h('tr', { class: opts.onRow ? 'click' : '', tabindex: opts.onRow ? '0' : null }, columns.map(function (c) {
+      var cls = (opts.onRow ? 'click' : '') + (opts.rowClass ? ' ' + (opts.rowClass(row) || '') : '');
+      var tr = CG.h('tr', { class: cls.trim(), tabindex: opts.onRow ? '0' : null }, columns.map(function (c) {
         var v = c.get(row);
-        return CG.h('td', { class: c.num ? 'num' : '' }, v === null || v === undefined || v === '' ? CG.h('span', { class: 'muted', text: '-' }) : v);
+        // data-label lets the phone layout show each cell with its column name (style.css turns rows into cards under 640 px)
+        return CG.h('td', { class: c.num ? 'num' : '', 'data-label': c.label || '' }, v === null || v === undefined || v === '' ? CG.h('span', { class: 'muted', text: '-' }) : v);
       }));
       if (opts.onRow) {
         tr.addEventListener('click', function () { opts.onRow(row); });
@@ -206,6 +208,303 @@
     }));
   };
 
+  // ---- icons: small stroke glyphs drawn as SVG paths (decorative; the text next to them carries the meaning) --------------
+  var ICONS = {
+    home: 'M3 11l9-7 9 7 M5 10v10h14V10 M10 20v-6h4v6',
+    inbox: 'M3 13h5l2 3h4l2-3h5 M5 5h14l2 8v6H3v-6z',
+    list: 'M8 6h13 M8 12h13 M8 18h13 M3.5 6h.01 M3.5 12h.01 M3.5 18h.01',
+    book: 'M4 19V5a2 2 0 012-2h13v14H6a2 2 0 00-2 2zm0 0a2 2 0 002 2h13',
+    grid: 'M3 3h7v7H3z M14 3h7v7h-7z M3 14h7v7H3z M14 14h7v7h-7z',
+    upload: 'M12 16V4 M7 9l5-5 5 5 M4 20h16',
+    send: 'M22 2L11 13 M22 2l-7 20-4-9-9-4z',
+    layers: 'M12 3l9 5-9 5-9-5z M3 13l9 5 9-5',
+    sliders: 'M4 6h9 M17 6h3 M4 12h3 M11 12h9 M4 18h11 M19 18h1 M15 4v4 M9 10v4 M17 16v4',
+    scale: 'M12 3v18 M5 7h14 M5 7l-3 6h6z M19 7l-3 6h6z M8 21h8',
+    pulse: 'M3 12h4l3-8 4 16 3-8h4',
+    shield: 'M12 3l8 3v6c0 5-3.5 8-8 9-4.5-1-8-4-8-9V6z M9 12l2 2 4-4',
+    users: 'M16 20v-2a4 4 0 00-4-4H6a4 4 0 00-4 4v2 M9 10a4 4 0 100-8 4 4 0 000 8z M22 20v-2a4 4 0 00-3-3.9 M16 2.1a4 4 0 010 7.8',
+    palette: 'M12 3a9 9 0 100 18c1 0 1.5-.7 1.5-1.5 0-.4-.2-.8-.4-1.1-.3-.3-.4-.6-.4-1 0-.8.7-1.4 1.5-1.4H16a5 5 0 005-5c0-4.4-4-8-9-8z M7.5 11h.01 M10 7.5h.01 M14.5 7.5h.01',
+    menu: 'M4 6h16 M4 12h16 M4 18h16',
+    x: 'M6 6l12 12 M18 6L6 18',
+    check: 'M20 6L9 17l-5-5',
+    clock: 'M12 7v5l3 2 M12 21a9 9 0 100-18 9 9 0 000 18z',
+    eye: 'M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7S2 12 2 12z M12 15a3 3 0 100-6 3 3 0 000 6z',
+    logout: 'M9 21H5a2 2 0 01-2-2V5a2 2 0 012-2h4 M16 17l5-5-5-5 M21 12H9',
+    star: 'M12 3l2.7 5.6 6.1.9-4.4 4.3 1 6.1L12 17l-5.4 2.9 1-6.1L3.2 9.5l6.1-.9z',
+    lock: 'M5 11h14v10H5z M8 11V7a4 4 0 018 0v4',
+    bolt: 'M13 2L4 14h7l-1 8 9-12h-7z',
+    bell: 'M6 8a6 6 0 0 1 12 0c0 7 3 9 3 9H3s3-2 3-9 M10.3 21a1.94 1.94 0 0 0 3.4 0',
+    image: 'M3 5h18v14H3z M3 16l5-5 4 4 3-3 6 6 M15.5 9.5h.01',
+    volume: 'M11 5L6 9H2v6h4l5 4z M15.5 8.5a5 5 0 0 1 0 7 M19 5a10 10 0 0 1 0 14'
+  };
+  CG.icon = function (name) {
+    var svg = CG.svg('svg', { viewBox: '0 0 24 24', class: 'ic', 'aria-hidden': 'true', focusable: 'false' });
+    svg.appendChild(CG.svg('path', { d: ICONS[name] || ICONS.list }));
+    return svg;
+  };
+
+  // ---- the rulebook's names, so a reviewer reads "R003 Coverage active on service date" and never has to memorise numbers
+  CG.RULES = {
+    R001: 'Required claim information', R002: 'Service and submission chronology', R003: 'Coverage active on service date',
+    R004: 'Member and beneficiary consistency', R005: 'Provider in the supplied network', R006: 'Possible duplicate service lines',
+    R007: 'Line arithmetic', R008: 'Required authorization reference', R009: 'Authorization record matches service',
+    R010: 'Required supporting document', R011: 'Service code in fictional catalogue', R012: 'Claim total equals line amounts',
+    R013: 'Quantity and price limits', R014: 'Submission window', R015: 'Currency matches policy',
+    E001: 'Procedure pair without exception modifier', E002: 'Exception modifier on a never-bundle pair', E003: 'Event date required by the diagnosis',
+    E004: 'Route of administration missing', E005: 'Diagnosis cannot be primary', E101: 'Line duplicates an earlier claim',
+    E102: 'Authorization exhausted across claims', E103: 'Daily quantity across claims', E104: 'Invoice number reused',
+    E105: 'Many claims in a short time', E106: 'Same service at another provider'
+  };
+  CG.ruleName = function (id) { return CG.RULES[id] || ''; };
+
+  // "/lines/0/service_date" -> "Line L1 · service date": the JSON pointer stays visible beside it (it is the audit evidence), this only helps reading
+  CG.pathLabel = function (path, claim) {
+    var p = String(path || '').split('/').filter(Boolean), lines = (claim && claim.lines) || [];
+    if (!p.length) return 'Whole claim';
+    function words(s) { return String(s).replace(/_/g, ' '); }
+    if ((p[0] === 'lines' || p[0] === 'attachments' || p[0] === 'authorizations') && /^\d+$/.test(p[1] || '')) {
+      var i = +p[1], name = p[0] === 'lines' ? 'Line ' + ((lines[i] && lines[i].line_id) || (i + 1)) : (p[0] === 'attachments' ? 'Attachment ' : 'Authorization ') + (i + 1);
+      return name + (p[2] ? ' · ' + words(p.slice(2).join(' ')) : '');
+    }
+    return words(p.join(' · ')).replace(/^./, function (c) { return c.toUpperCase(); });
+  };
+
+  // ---- page furniture
+  CG.pageHead = function (o) {
+    var left = CG.h('div', null,
+      o.crumbs ? CG.h('nav', { class: 'crumbs', 'aria-label': 'Breadcrumb' }, o.crumbs.map(function (c, i) {
+        return [i ? CG.h('span', { 'aria-hidden': 'true', text: '/' }) : null, c[1] ? CG.h('a', { href: c[1], text: c[0] }) : CG.h('span', { text: c[0] })];
+      })) : null,
+      CG.h('h1', { class: o.mono ? 'mono' : null, text: o.title }), o.chips ? CG.h('div', { class: 'chips' }, o.chips) : null,
+      o.sub ? CG.h('p', { class: 'sub', text: o.sub }) : null);
+    if (o.title) CG.setTitle(o.title);
+    return CG.h('header', { class: 'pagehead' + (o.cls ? ' ' + o.cls : '') }, left, o.actions ? CG.h('div', { class: 'row' }, o.actions) : null);
+  };
+  CG.setTitle = function (t) { document.title = t ? t + ' — ClaimGuard Administration' : 'ClaimGuard — Administration'; };
+  CG.empty = function (icon, title, text, action) {
+    return CG.h('div', { class: 'card empty' }, CG.h('div', { class: 'ic-wrap' }, CG.icon(icon)), CG.h('h2', { text: title }), text ? CG.h('p', { class: 'muted', text: text }) : null, action || null);
+  };
+  CG.loading = function (text) { return CG.h('div', { class: 'loading', role: 'status' }, CG.h('span', { class: 'spinner', 'aria-hidden': 'true' }), CG.h('span', { text: text || 'Loading...' })); };
+  CG.initials = function (name) { return String(name || '?').split(/\s+/).filter(Boolean).slice(-2).map(function (w) { return w.charAt(0).toUpperCase(); }).join('') || '?'; };
+
+  // ---- personal templates: each role starts from its own preset, each person may change it (Customize page) -----------
+  // Kept in this browser per badge. They change how the console looks and what is shown first, never what a person may do:
+  // permissions come from the server and are checked again on every request, so hiding a menu item is the most a setting can do.
+  // The clearance level itself is shown in a colour no setting can change (--role-c), so a person's level is always recognisable.
+  CG.ROLES = {
+    1: { key: 'viewer', label: 'Viewer', tagline: 'Read-only access to claims and findings', icon: 'eye', scope: 'Reads claims, findings and evidence. Decides nothing.' },
+    2: { key: 'reviewer', label: 'Reviewer', tagline: 'Decide the findings routed to you', icon: 'check', scope: 'Decides standard findings routed to their inbox.' },
+    3: { key: 'senior', label: 'Senior reviewer', tagline: 'High-severity decisions, countersign and tie-breaks', icon: 'star', scope: 'Decides high-severity findings; two seniors must agree.' },
+    4: { key: 'admin', label: 'Supervisor', tagline: 'Queue, routing, payer rules, people and audit', icon: 'shield', scope: 'Runs the queue, rules, people and audit. Cannot decide claims.' }
+  };
+  CG.PERMS = {
+    'claims.view': 'Read claims, findings and their evidence', 'claims.view_notes': 'Read the notes submitted with a claim',
+    'claims.decide': 'Decide the findings routed to you', 'claims.decide_high': 'Decide high-severity findings and countersign',
+    'claims.recheck': 'Send a corrected claim back through the engine', 'pii.unmask': 'Unmask identifiers for a stated, logged reason',
+    'queue.view': 'See the queue and the system health', 'routing.manage': 'Change routing, shifts, intake and payer rules',
+    'audit.view': 'Read the audit logs and claim traces', 'audit.verify': 'Verify the audit chain', 'users.manage': 'Create and manage accounts'
+  };
+  // Home widgets: which exist for each kind of Home, in their default order
+  CG.WIDGETS = {
+    work: [['tiles', 'Work counts'], ['rules', 'Open findings by rule'], ['keys', 'Keyboard shortcuts'], ['links', 'Shortcuts'], ['clearance', 'Your clearance']],
+    viewer: [['clearance', 'Your clearance'], ['shortcuts', 'Quick filters'], ['recent', 'Recently flagged claims']],
+    admin: [['alerts', 'Staffing alerts'], ['tiles', 'Queue counts'], ['fill', 'Inbox fill'], ['links', 'Admin tools'], ['clearance', 'Your clearance']]
+  };
+  CG.homeKind = function () { return CG.has('claims.decide') ? 'work' : CG.has('queue.view') ? 'admin' : 'viewer'; };
+  CG.INBOX_COLS = [['lane', 'Lane'], ['issues', 'Issues'], ['todo', 'To decide'], ['priority', 'Priority'], ['stage', 'Stage'], ['lease', 'Lease']];
+  var BASE = { theme: 'system', accent: 'brand', accentHex: '', density: 'comfortable', text: 'm', layout: 'side', home: '#/home', evidenceOpen: true, showAi: true,
+    showPassed: false, showTodo: true, keyHints: false, inboxMode: 'claim', hiddenNav: [], sidebar: 'role', rail: false, corners: 'rounded', font: 'system',
+    contrast: 'normal', motion: 'system', zebra: false, stickyHead: true, underline: false, idbar: true, greeting: true, homeWidgets: null, hiddenCols: [],
+    focus: 'strong', vision: 'standard', shapes: false, spacing: 'normal', bigFocus: false, ruler: false, bg: 'none', bgDim: 'medium', glass: false, notify: true, notifyInbox: true, notifySound: 'chime', notifyVolume: 'medium', notifyDesktop: false };
+  function preset(over) { var p = {}; Object.keys(BASE).forEach(function (k) { p[k] = BASE[k]; }); Object.keys(over).forEach(function (k) { p[k] = over[k]; }); return p; }
+  CG.PRESETS = {
+    1: preset({ showPassed: true }),
+    2: preset({ keyHints: true }),
+    3: preset({ keyHints: true }),
+    4: preset({ density: 'compact', evidenceOpen: false, showPassed: true, inboxMode: 'rule', zebra: true })
+  };
+  // Ready-made looks anyone can apply on top of their role template
+  CG.GALLERY = [
+    ['Focus', 'Fewer distractions: no AI drafts, no greeting, evidence open, narrow menu.', { showAi: false, greeting: false, evidenceOpen: true, rail: true, idbar: false, density: 'comfortable' }],
+    ['Night shift', 'Dark theme, slightly larger text, no animation.', { theme: 'dark', text: 'l', motion: 'reduce' }],
+    ['High contrast', 'Stronger borders and text, underlined links, square corners.', { contrast: 'high', underline: true, corners: 'sharp', theme: 'light' }],
+    ['Operator compact', 'Most rows per screen: compact, striped tables, sticky headers.', { density: 'compact', zebra: true, stickyHead: true, text: 's' }],
+    ['Large and calm', 'Extra-large readable text, round corners, comfortable spacing.', { text: 'xl', font: 'humanist', corners: 'round', density: 'comfortable' }],
+    ['Classic paper', 'Serif text on light paper with a slate accent.', { font: 'serif', theme: 'light', accent: 'slate', sidebar: 'light' }]
+  ];
+  // Background templates (pure CSS in style.css, "art-<name>") and the person's own photo
+  CG.BACKGROUNDS = [['none', 'Plain'], ['aurora', 'Aurora'], ['neural', 'Neural grid'], ['dots', 'Dots'], ['constellation', 'Constellation'], ['dusk', 'Dusk'],
+    ['ocean', 'Ocean'], ['forest', 'Forest'], ['paper', 'Paper'], ['photo', 'My photo']];
+  var CHOICES = { theme: ['system', 'light', 'dark'], accent: ['brand', 'teal', 'blue', 'violet', 'amber', 'rose', 'slate', 'custom'], density: ['comfortable', 'compact'],
+    text: ['s', 'm', 'l', 'xl'], layout: ['side', 'stacked'], inboxMode: ['claim', 'rule'], sidebar: ['role', 'dark', 'light', 'accent'], corners: ['sharp', 'rounded', 'round'],
+    font: ['system', 'readable', 'humanist', 'serif', 'mono'], vision: ['standard', 'redgreen', 'blueyellow', 'mono'], spacing: ['normal', 'relaxed', 'wide'], contrast: ['normal', 'high'], motion: ['system', 'reduce'], focus: ['normal', 'strong', 'spotlight'],
+    bg: ['none', 'aurora', 'neural', 'dots', 'constellation', 'dusk', 'ocean', 'forest', 'paper', 'photo'], bgDim: ['light', 'medium', 'strong'],
+    notifySound: ['chime', 'ping', 'double', 'pulse', 'none'], notifyVolume: ['low', 'medium', 'high'] };
+  var BOOLS = ['evidenceOpen', 'showAi', 'showPassed', 'showTodo', 'keyHints', 'rail', 'zebra', 'stickyHead', 'underline', 'idbar', 'greeting', 'glass', 'notify', 'notifyInbox', 'notifyDesktop', 'shapes', 'bigFocus', 'ruler'];
+  var ALL_WIDGETS = ['clearance', 'tiles', 'rules', 'keys', 'links', 'shortcuts', 'recent', 'alerts', 'fill'];
+  var COLS = CG.INBOX_COLS.map(function (c) { return c[0]; });
+  function storeKey(what) { return 'cg.ui.v1.' + (what ? what + '.' : '') + (CG.state.me ? CG.state.me.badge_id : 'anon'); }
+  function readJson(key, fallback) { try { return JSON.parse(localStorage.getItem(key) || 'null') || fallback; } catch (e) { return fallback; } }
+  function writeJson(key, value) { try { localStorage.setItem(key, JSON.stringify(value)); return true; } catch (e) { return false; } }
+  function readStored() { return CG.state.prefsFallback || readJson(storeKey(), {}); }
+  function level() { return (CG.state.me && CG.PRESETS[CG.state.me.level]) ? CG.state.me.level : 2; }
+  function uniq(list, allowed) { var seen = []; list.forEach(function (x) { if (typeof x === 'string' && allowed.test(x) && seen.indexOf(x) < 0) seen.push(x); }); return seen; }
+  // Only known keys with allowed values survive, so an imported or tampered template cannot inject anything
+  CG.cleanPrefs = function (raw) {
+    var out = {};
+    if (!raw || typeof raw !== 'object') return out;
+    Object.keys(CHOICES).forEach(function (k) { if (CHOICES[k].indexOf(raw[k]) >= 0) out[k] = raw[k]; });
+    BOOLS.forEach(function (k) { if (typeof raw[k] === 'boolean') out[k] = raw[k]; });
+    if (typeof raw.accentHex === 'string' && /^#[0-9a-fA-F]{6}$/.test(raw.accentHex)) out.accentHex = raw.accentHex.toLowerCase();
+    if (typeof raw.home === 'string' && /^#\/[a-z]+$/.test(raw.home)) out.home = raw.home;
+    if (Array.isArray(raw.hiddenNav)) out.hiddenNav = uniq(raw.hiddenNav, /^#\/[a-z]+$/).slice(0, 30);
+    if (Array.isArray(raw.homeWidgets)) out.homeWidgets = uniq(raw.homeWidgets, /^[a-z]+$/).filter(function (w) { return ALL_WIDGETS.indexOf(w) >= 0; });
+    if (Array.isArray(raw.hiddenCols)) out.hiddenCols = uniq(raw.hiddenCols, /^[a-z]+$/).filter(function (c) { return COLS.indexOf(c) >= 0; });
+    return out;
+  };
+  // only a base64 JPEG, PNG or WebP data URL under 4 MB: nothing that could close the url() and add CSS
+  CG.photoOk = function (v) { return typeof v === 'string' && v.length < 4000000 && /^data:image\/(jpeg|png|webp);base64,[A-Za-z0-9+\/]+={0,2}$/.test(v); };
+  // A picture file -> a downscaled JPEG data URL, read in the browser only (nothing is uploaded to the server). opts.square crops the
+  // centre to a square of opts.max pixels (profile pictures); otherwise the longest side is limited to opts.max (backgrounds).
+  CG.readImage = function (file, opts) {
+    return new Promise(function (resolve, reject) {
+      if (!file || !/^image\/(jpeg|png|webp|gif|bmp)$/.test(file.type)) { reject(new Error('Choose a JPEG, PNG, WebP, GIF or BMP picture.')); return; }
+      if (file.size > 25 * 1024 * 1024) { reject(new Error('That picture is larger than 25 MB.')); return; }
+      var url = URL.createObjectURL(file), img = new Image();
+      img.onload = function () {
+        URL.revokeObjectURL(url);
+        var w = img.naturalWidth, hh = img.naturalHeight, sx = 0, sy = 0, sw = w, sh = hh, cw, ch;
+        if (!w || !hh) { reject(new Error('That picture could not be read.')); return; }
+        if (opts.square) { var side = Math.min(w, hh); sx = (w - side) / 2; sy = (hh - side) / 2; sw = sh = side; cw = ch = Math.min(opts.max, side); }
+        else { var k = Math.min(1, opts.max / Math.max(w, hh)); cw = Math.round(w * k); ch = Math.round(hh * k); }
+        var c = document.createElement('canvas'); c.width = cw; c.height = ch;
+        var g = c.getContext('2d'); g.fillStyle = '#0b1426'; g.fillRect(0, 0, cw, ch); g.drawImage(img, sx, sy, sw, sh, 0, 0, cw, ch);
+        var q = opts.quality || 0.82, out = c.toDataURL('image/jpeg', q);
+        while (out.length > (opts.limit || 2500000) && q > 0.4) { q -= 0.12; out = c.toDataURL('image/jpeg', q); }
+        if (!CG.photoOk(out)) { reject(new Error('That picture is too large even after shrinking it.')); return; }
+        resolve(out);
+      };
+      img.onerror = function () { URL.revokeObjectURL(url); reject(new Error('That picture could not be read.')); };
+      img.src = url;
+    });
+  };
+  // The profile picture: per badge, in this browser only (others see your initials). Shown in the menu and on your sign-in card.
+  function avatarKey(badge) { return 'cg.ui.v1.avatar.' + badge; }
+  CG.avatarOf = function (badge) { var v = null; try { v = localStorage.getItem(avatarKey(badge)); } catch (e) { v = null; } v = (CG.state.avatarFallback || {})[badge] || v; return CG.photoOk(v) ? v : null; };
+  CG.saveAvatar = function (badge, dataUrl) {
+    if (!CG.photoOk(dataUrl)) throw new Error('That picture could not be used.');
+    CG.state.avatarFallback = CG.state.avatarFallback || {}; delete CG.state.avatarFallback[badge];
+    try { localStorage.setItem(avatarKey(badge), dataUrl); } catch (e) { CG.state.avatarFallback[badge] = dataUrl; }
+  };
+  CG.clearAvatar = function (badge) { if (CG.state.avatarFallback) delete CG.state.avatarFallback[badge]; try { localStorage.removeItem(avatarKey(badge)); } catch (e) { /* nothing stored */ } };
+  CG.avatar = function (name, badge, extra) {
+    var pic = badge ? CG.avatarOf(badge) : null;
+    return CG.h('span', { class: 'avatar' + (pic ? ' pic' : '') + (extra ? ' ' + extra : ''), 'aria-hidden': 'true' }, pic ? CG.h('img', { src: pic, alt: '' }) : CG.initials(name));
+  };
+  CG.cleanName = function (s) { return String(s || '').replace(/[\u0000-\u001f\u007f<>]/g, '').trim().slice(0, 40); };
+  // "#1d5fd1" -> a text colour that stays readable on it (WCAG relative luminance)
+  CG.inkFor = function (hex) {
+    var c = [1, 3, 5].map(function (i) { var v = parseInt(hex.substr(i, 2), 16) / 255; return v <= 0.03928 ? v / 12.92 : Math.pow((v + 0.055) / 1.055, 2.4); });
+    var lum = 0.2126 * c[0] + 0.7152 * c[1] + 0.0722 * c[2];
+    return (lum + 0.05) / 0.05 > 1.05 / (lum + 0.05) ? '#0b1218' : '#ffffff';
+  };
+  // Accessibility (Customize > Accessibility): one click sets the settings that help with a need; each can still be changed alone afterwards
+  CG.A11Y_PRESETS = [
+    ['Red-green colour blindness', 'Status colours that stay apart (orange, olive, blue) and a shape on every status.', { vision: 'redgreen', shapes: true }],
+    ['Blue-yellow colour blindness', 'Red, magenta and teal status colours, and a shape on every status.', { vision: 'blueyellow', shapes: true }],
+    ['No colour (greyscale)', 'Statuses told apart by shape, word and edge style only.', { vision: 'mono', shapes: true }],
+    ['Dyslexia-friendly reading', 'An easy-to-read typeface, wider letter and line spacing, larger text and a reading ruler.', { font: 'readable', spacing: 'wide', text: 'l', ruler: true }],
+    ['Low vision', 'Largest text, high contrast, a strong focus ring and underlined links.', { text: 'xl', contrast: 'high', bigFocus: true, underline: true, spacing: 'relaxed' }],
+    ['Fewer distractions', 'No animation, a plain background and no dimming effects.', { motion: 'reduce', bg: 'none', glass: false, focus: 'strong' }]];
+  CG.A11Y_KEYS = ['vision', 'shapes', 'font', 'spacing', 'text', 'ruler', 'contrast', 'bigFocus', 'underline', 'motion', 'bg', 'glass', 'focus'];
+
+  // reading ruler: a soft band that follows the pointer so the eye keeps its line; its position goes through the CSS object model
+  var ruler = null;
+  function moveRuler(e) { document.documentElement.style.setProperty('--ruler-y', e.clientY + 'px'); }
+  function setRuler(on) {
+    if (on && !ruler && document.body) {
+      ruler = CG.h('div', { class: 'ruler', 'aria-hidden': 'true' }); document.body.appendChild(ruler);
+      document.addEventListener('mousemove', moveRuler, { passive: true });
+    } else if (!on && ruler) {
+      ruler.remove(); ruler = null; document.removeEventListener('mousemove', moveRuler);
+    }
+  }
+
+  CG.prefs = {
+    preset: function () { return CG.PRESETS[level()]; },
+    all: function () {
+      var p = {}, base = CG.prefs.preset(), mine = CG.cleanPrefs(readStored());
+      Object.keys(base).forEach(function (k) { p[k] = k in mine ? mine[k] : base[k]; });
+      if (!p.homeWidgets) p.homeWidgets = CG.WIDGETS[CG.state.me ? CG.homeKind() : 'work'].map(function (w) { return w[0]; });
+      return p;
+    },
+    get: function (k) { return CG.prefs.all()[k]; },
+    custom: function () { return CG.cleanPrefs(readStored()); },
+    save: function (changes) {
+      var mine = CG.cleanPrefs(readStored()), base = CG.prefs.preset(), clean = CG.cleanPrefs(changes);
+      Object.keys(clean).forEach(function (k) { mine[k] = clean[k]; if (JSON.stringify(mine[k]) === JSON.stringify(base[k])) delete mine[k]; });
+      if (!writeJson(storeKey(), mine)) CG.state.prefsFallback = mine;      // private window: the change lasts for this page only
+      CG.prefs.apply();
+    },
+    replace: function (prefs) { var clean = CG.cleanPrefs(prefs); if (!writeJson(storeKey(), clean)) CG.state.prefsFallback = clean; CG.prefs.apply(); },
+    reset: function () { CG.state.prefsFallback = null; try { localStorage.removeItem(storeKey()); } catch (e) { /* nothing stored */ } CG.prefs.apply(); },
+    exportText: function () { return JSON.stringify({ claimguard_ui_template: 2, role: CG.ROLES[level()].key, prefs: CG.prefs.custom() }, null, 2); },
+    importText: function (text) {
+      var data = JSON.parse(text), p = CG.cleanPrefs(data && data.prefs ? data.prefs : data);
+      if (!Object.keys(p).length) throw new Error('No recognised settings in that template.');
+      CG.prefs.save(p); return Object.keys(p).length;
+    },
+    // named profiles: several saved looks per person ("Morning", "Long shift"), switched in one click
+    profiles: function () {
+      var raw = readJson(storeKey('profiles'), {}), out = {};
+      Object.keys(raw).slice(0, 12).forEach(function (n) { var c = CG.cleanName(n); if (c) out[c] = CG.cleanPrefs(raw[n]); });
+      return out;
+    },
+    saveProfile: function (name) {
+      var n = CG.cleanName(name), all = CG.prefs.profiles();
+      if (!n) throw new Error('Give the profile a name.');
+      if (!(n in all) && Object.keys(all).length >= 12) throw new Error('Twelve profiles at most. Delete one first.');
+      all[n] = CG.prefs.custom(); writeJson(storeKey('profiles'), all); return n;
+    },
+    useProfile: function (name) { var all = CG.prefs.profiles(); if (all[name]) CG.prefs.replace(all[name]); },
+    deleteProfile: function (name) { var all = CG.prefs.profiles(); delete all[name]; writeJson(storeKey('profiles'), all); },
+    // the background photo: a downscaled JPEG data URL kept apart from the template (too big to share, and never exported)
+    photo: function () { var v = null; try { v = localStorage.getItem(storeKey('bg')); } catch (e) { v = null; } v = CG.state.photoFallback || v || null; return CG.photoOk(v) ? v : null; },
+    savePhoto: function (dataUrl) {
+      if (!CG.photoOk(dataUrl)) throw new Error('That picture could not be used.');
+      CG.state.photoFallback = null;
+      try { localStorage.setItem(storeKey('bg'), dataUrl); } catch (e) { CG.state.photoFallback = dataUrl; }   // full or private storage: this page only
+      CG.prefs.save({ bg: 'photo' });
+    },
+    clearPhoto: function () { CG.state.photoFallback = null; try { localStorage.removeItem(storeKey('bg')); } catch (e) { /* nothing stored */ } if (CG.prefs.get('bg') === 'photo') CG.prefs.save({ bg: 'none' }); else CG.prefs.apply(); },
+    apply: function () {
+      var p = CG.prefs.all(), root = document.documentElement;
+      if (p.theme === 'system') root.removeAttribute('data-theme'); else root.setAttribute('data-theme', p.theme);
+      ['accent', 'density', 'text', 'layout', 'sidebar', 'corners', 'font', 'contrast', 'motion', 'focus', 'vision', 'spacing'].forEach(function (k) { root.setAttribute('data-' + k, p[k]); });
+      root.setAttribute('data-rail', p.rail ? 'on' : 'off'); root.setAttribute('data-zebra', p.zebra ? 'on' : 'off');
+      root.setAttribute('data-sticky', p.stickyHead ? 'on' : 'off'); root.setAttribute('data-underline', p.underline ? 'on' : 'off');
+      root.setAttribute('data-shapes', p.shapes || p.vision !== 'standard' ? 'on' : 'off'); root.setAttribute('data-bigfocus', p.bigFocus ? 'on' : 'off');
+      setRuler(!!(p.ruler && CG.state.me));
+      // the background: a template is pure CSS; a photo goes through the CSS object model as a checked data: URL (img-src allows data:)
+      var photo = p.bg === 'photo' && CG.state.me ? CG.prefs.photo() : null;
+      root.setAttribute('data-bg', CG.state.me && (p.bg !== 'photo' || photo) ? p.bg : 'none'); root.setAttribute('data-bgdim', p.bgDim); root.setAttribute('data-glass', p.glass ? 'on' : 'off');
+      if (photo) root.style.setProperty('--bg-photo', 'url("' + photo + '")'); else root.style.removeProperty('--bg-photo');
+      root.setAttribute('data-role', CG.state.me ? CG.ROLES[level()].key : 'none');
+      // a custom accent is the only value written through the CSS object model (allowed by the CSP, unlike inline style attributes);
+      // the stylesheet derives the hover, soft and line shades from it with color-mix
+      if (p.accent === 'custom' && p.accentHex) { root.style.setProperty('--accent', p.accentHex); root.style.setProperty('--accent-ink', CG.inkFor(p.accentHex)); }
+      else { root.style.removeProperty('--accent'); root.style.removeProperty('--accent-ink'); }
+    }
+  };
+
+  // ---- clearance: the level badge shown next to every person, in the role's fixed colour
+  CG.levelBadge = function (lvl, opts) {
+    var r = CG.ROLES[lvl] || CG.ROLES[1], pips = CG.h('span', { class: 'pips', 'aria-hidden': 'true' });
+    for (var i = 1; i <= 4; i++) pips.appendChild(CG.h('i', { class: i <= lvl ? 'on' : '' }));
+    return CG.h('span', { class: 'lvl lvl-' + r.key + (opts && opts.large ? ' large' : ''), title: 'Clearance level ' + lvl + ' of 4: ' + r.label },
+      CG.h('b', { text: 'L' + lvl }), CG.h('span', { class: 'lvl-name', text: r.label }), pips, CG.h('span', { class: 'sr-only', text: 'clearance level ' + lvl + ' of 4' }));
+  };
+
   CG.status = function (s) { return CG.h('span', { class: 'dot ' + s, role: 'img', 'aria-label': s }); };
   CG.when = function (iso) { var d = new Date(iso); return isNaN(d) ? String(iso || '-') : d.toLocaleString(); };
 
@@ -278,7 +577,7 @@
       fresh.reverse().forEach(N.popup);
       N.paint();
       if (N.panel) N.paintPanel();
-    }, function (e) { if (gen === N.gen && e && e.status === 404) N.stop(); });
+    }, function (e) { if (gen === N.gen && e && e.status === 404) { N.stop(); if (N.bell) N.bell.hidden = true; } });      // no notifications on this server
   };
 
   function kindOf(n) { return KINDS[n.kind] || ['Notice', 'neutral']; }
@@ -365,5 +664,6 @@
   };
   document.addEventListener('keydown', function (e) { if (e.key === 'Escape') { if (N.detail) N.closeDetail(); else N.hidePanel(); } });
   document.addEventListener('click', function (e) { if (N.panel && !N.panel.contains(e.target) && !(N.bell && N.bell.contains(e.target)) && !(N.detail && N.detail.contains(e.target))) N.hidePanel(); });
+
 
 })();

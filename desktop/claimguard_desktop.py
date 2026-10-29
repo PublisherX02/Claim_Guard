@@ -11,14 +11,9 @@ port bound to this PC only, with generated demo accounts that exist for the life
 """
 import argparse
 import atexit
-import base64
-import hashlib
-import hmac
 import http.client
-import json
 import os
 import socket
-import struct
 import subprocess
 import sys
 import tempfile
@@ -97,28 +92,6 @@ def wait_until_up(port, seconds=90):
     return False
 
 
-def totp_now(secret, step=30, digits=6):
-    """The current authenticator code for a base32 seed (RFC 6238, SHA-1), so the window needs no extra package."""
-    key = base64.b32decode(secret.upper() + '=' * (-len(secret) % 8))
-    mac = hmac.new(key, struct.pack('>Q', int(time.time()) // step), hashlib.sha1).digest()
-    offset = mac[-1] & 15
-    return str((struct.unpack('>I', mac[offset:offset + 4])[0] & 0x7FFFFFFF) % 10 ** digits).zfill(digits)
-
-
-class DemoBridge:
-    """Exposed to the page only in the local demo (as window.pywebview.api): hands the sign-in form a generated demo login."""
-
-    def __init__(self, accounts_file):
-        self.accounts_file = Path(accounts_file)
-
-    def demo_login(self, level):
-        accounts = json.loads(self.accounts_file.read_text(encoding='utf-8'))
-        for badge, a in accounts.items():
-            if a['level'] == int(level):
-                return {'badge': badge, 'password': a['password'], 'code': totp_now(a['secret'])}
-        return None
-
-
 def die_with_us(child):
     """Windows: tie the child to a job object that kills it when this process ends for any reason (even a forced kill)."""
     if sys.platform != 'win32':
@@ -157,8 +130,9 @@ def bundled_engine():
 
 
 def start_local_demo():
-    """Run the server with demo data on a free local port. Returns (base url, bridge). The server is the Rust build (cg serve --demo),
-    started as a child process that stops with the window; a source checkout without it falls back to the Python server."""
+    """Run the server with demo data on a free local port. Returns the base url. The server is the Rust build (cg serve --demo),
+    started as a child process that stops with the window; a source checkout without it falls back to the Python server. Either one
+    hands the sign-in page its demo staff (GET /demo/people, /demo/login/{level}) to requests from this PC only."""
     port = free_port()
     data_dir = Path(tempfile.mkdtemp(prefix='claimguard-demo-'))
     found = bundled_engine()
@@ -181,7 +155,7 @@ def start_local_demo():
     base = f'http://127.0.0.1:{port}'
     if not wait_until_up(port):
         raise SystemExit('the local demo did not start; see ' + str(data_dir / 'server.log'))
-    return base, DemoBridge(data_dir / 'demo_accounts.json')
+    return base
 
 
 def main(argv=None):
@@ -191,9 +165,8 @@ def main(argv=None):
     parser.add_argument('--browser', action='store_true', help='open the system browser instead of a window')
     args = parser.parse_args(argv)
 
-    bridge = None
     if args.local_demo:
-        base, bridge = start_local_demo()
+        base = start_local_demo()
     else:
         try:
             base = clean_server_url(args.server) if args.server else saved_server()
@@ -215,7 +188,7 @@ def main(argv=None):
             input('Demo running. Press Enter to stop.')
         return 0
     import webview
-    webview.create_window(TITLE, url, width=1280, height=820, min_size=(900, 600), js_api=bridge)
+    webview.create_window(TITLE, url, width=1280, height=820, min_size=(900, 600))
     webview.start()
     return 0
 

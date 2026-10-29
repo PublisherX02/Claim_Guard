@@ -4,9 +4,12 @@ imports this module: there the workers are the Celery processes and the accounts
 
 The accounts get generated passwords and authenticator seeds that live only in memory and in the dictionary returned to the caller.
 """
+import copy
+import re
 import secrets
 import threading
 import time
+from datetime import date, timedelta
 from urllib.parse import parse_qs, urlparse
 
 import pyotp
@@ -17,8 +20,10 @@ from . import relay, routing_config as rc
 from .jobs import run_job
 from .tasks import make_app, publisher
 
-DEMO_ACCOUNTS = ((1, 'CG-1001', 'Demo Viewer'), (2, 'CG-2002', 'Demo Reviewer Amal'), (2, 'CG-2003', 'Demo Reviewer Omar'),
-                 (3, 'CG-3003', 'Demo Senior Layla'), (3, 'CG-3004', 'Demo Senior Karim'), (4, 'CG-4004', 'Demo Administrator'))
+# Synthetic employees, one or two per clearance level, so the demo shows each level's own console (docs/62).
+DEMO_ACCOUNTS = ((1, 'CG-1001', 'Nadia Haddad'), (2, 'CG-2002', 'Amal Bennani'), (2, 'CG-2003', 'Omar Saidi'),
+                 (3, 'CG-3003', 'Layla Mansour'), (3, 'CG-3004', 'Karim Zaidi'), (4, 'CG-4004', 'Sami Khoury'))
+DEMO_TITLES = {1: 'Claims analyst (read-only)', 2: 'Claims officer', 3: 'Senior claims officer', 4: 'Claims operations supervisor'}
 
 
 def _password(badge):
@@ -34,7 +39,7 @@ def seed_accounts(stack):
     for level, badge, name in DEMO_ACCOUNTS:
         password = _password(badge)
         _, uri = stack.service.provision_user(badge, name, password, level, created_by='demo', must_change_password=False)
-        out[badge] = {'level': level, 'name': name, 'password': password, 'secret': parse_qs(urlparse(uri).query)['secret'][0]}
+        out[badge] = {'level': level, 'name': name, 'title': DEMO_TITLES[level], 'password': password, 'secret': parse_qs(urlparse(uri).query)['secret'][0]}
     return out
 
 
@@ -113,9 +118,111 @@ class WorkerLoop:
         self.thread.join(timeout=3)
 
 
+HISTORY_DONORS = 60      # the last claims of the sample become earlier visits of returning patients (never fed to "Simulate new claims")
+
+
+def _shift(day, days):
+    return (date.fromisoformat(day) - timedelta(days=days)).isoformat() if isinstance(day, str) else day
+
+
+def earlier_visit(claim, patient_of, months_back):
+    """A synthetic earlier claim of the same patient: `claim` re-addressed to the patient of `patient_of`, with its submission and service dates
+    moved back so it lands `months_back` months before that claim. Everything else (services, amounts, provider) is the donor's own."""
+    visit = copy.deepcopy(claim)
+    target = date.fromisoformat(patient_of['submission_date']) - timedelta(days=30 * months_back)
+    days = (date.fromisoformat(visit['submission_date']) - target).days
+    visit['submission_date'] = target.isoformat()
+    for line in visit.get('lines') or []:
+        line['service_date'] = _shift(line.get('service_date'), days)
+    visit['patient_id'], visit['member_id'] = patient_of['patient_id'], patient_of['member_id']
+    for doc in visit.get('attachments') or []:              # the documents belong to the same patient and move with the visit
+        if isinstance(doc, dict):
+            doc['patient_id'] = patient_of['patient_id']
+            doc['service_date'] = _shift(doc.get('service_date'), days)
+            if isinstance(doc.get('text'), str) and isinstance(doc['service_date'], str):
+                doc['text'] = re.sub(r'\d{4}-\d{2}-\d{2}', doc['service_date'], doc['text'])
+    cov = visit.get('coverage')
+    if isinstance(cov, dict):
+        cov['beneficiary_patient_id'], cov['member_id'] = patient_of['patient_id'], patient_of['member_id']
+    return visit
+
+
+def seed_returning_patients(queue, loaded, donors):
+    """Give every third loaded claim's patient two or three earlier claims, so "Show this patient's other claims" (and the cross-claim advisory
+    checks) have something to show in the demo: the sample itself has one claim per patient. Returns how many visits were accepted."""
+    donors, accepted = list(donors), 0
+    for i, claim in enumerate(loaded[::3]):
+        for months in range(1, 2 + i % 2 + 1):
+            if not donors:
+                return accepted
+            try:
+                queue.intake.submit(earlier_visit(donors.pop(), claim, months))
+                accepted += 1
+            except (ValueError, KeyError):
+                continue
+    return accepted
+
+
 def start_demo(stack, claims, limit=60):
-    """Seed accounts, put the reviewers on shift, load claims and start the worker loop. Returns (accounts, loop)."""
+    """Seed accounts, put the reviewers on shift, load claims, give some patients earlier claims and start the worker loop. Returns (accounts, loop)."""
     accounts = seed_accounts(stack)
     configure_shift(stack.queue, [b for b, a in accounts.items() if a['level'] in (2, 3)])
     load_claims(stack.queue, claims, limit)
+    seed_returning_patients(stack.queue, claims[:limit], claims[-HISTORY_DONORS:])
     return accounts, WorkerLoop(stack.queue).start()
+
+
+class ArrivalFeed:
+    """The demo's intake log, for the console's notification bell (GET /demo/feed) and its "Simulate new claims" button
+    (POST /demo/arrivals). It wraps the intake's submit, so every new claim counts whichever way it came in: the button, the
+    supervisor's Submit page or a file import. A resubmission of a claim already stored (same version) is not news and is not logged.
+    The pool is the sample claims the demo did not load at start."""
+
+    def __init__(self, queue, pool, keep=40):
+        self.queue, self.pool, self.keep = queue, list(pool), keep
+        self.lock = threading.Lock()
+        self.seq, self.recent = 0, []
+        original = queue.intake.submit
+
+        def submit(claim):
+            claim_id = claim.get('claim_id') if isinstance(claim, dict) else None
+            before = self._version(claim_id)
+            receipt = original(claim)
+            after = self._version(claim_id)
+            if after is not None and after != before:
+                self._log(claim_id, receipt.get('lane'))
+            return receipt
+
+        queue.intake.submit = submit
+
+    def _version(self, claim_id):
+        try:
+            doc = self.queue.store.get(claim_id) if isinstance(claim_id, str) else None
+        except ValueError:
+            return None
+        return doc['version'] if doc else None
+
+    def _log(self, claim_id, lane):
+        with self.lock:
+            self.seq += 1
+            self.recent.append({'seq': self.seq, 'claim_id': claim_id, 'lane': lane, 'at': time.time()})
+            del self.recent[:-self.keep]
+
+    def snapshot(self, last=20):
+        with self.lock:
+            return {'seq': self.seq, 'recent': [dict(r) for r in self.recent[-last:]]}
+
+    def arrive(self, n):
+        """Send the next n sample claims through the real intake. Returns how many were accepted."""
+        accepted = 0
+        while accepted < n:
+            with self.lock:
+                if not self.pool:
+                    break
+                claim = self.pool.pop(0)
+            try:
+                self.queue.intake.submit(claim)
+            except ValueError:
+                continue
+            accepted += 1
+        return accepted

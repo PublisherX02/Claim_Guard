@@ -1,0 +1,11 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 400 110" role="img" aria-label="ClaimGuard Claims administration">
+  <title>ClaimGuard · Claims administration (on navy)</title>
+  <g transform="translate(4 7) scale(1.5)">
+    <path d="M32 3.5 56 11.4v18.4c0 14.7-10 24.7-24 30.5C18 54.5 8 44.5 8 29.8V11.4z" fill="#FFFFFF"/>
+    <path d="M24 17h12.6l6.4 6.4V43a2.2 2.2 0 0 1-2.2 2.2H24a2.2 2.2 0 0 1-2.2-2.2V19.2A2.2 2.2 0 0 1 24 17z" fill="#15294C"/>
+    <path d="M36.6 17v4.2a2.2 2.2 0 0 0 2.2 2.2H43z" fill="#4A6396"/>
+    <path d="M26.6 32.6l4.4 4.4 7.6-8.2" fill="none" stroke="#FFFFFF" stroke-width="3.6" stroke-linecap="round" stroke-linejoin="round"/>
+  </g>
+  <text x="112" y="60" font-family="'IBM Plex Sans','Segoe UI Variable Display','Segoe UI',Inter,Arial,sans-serif" font-size="44" font-weight="700" letter-spacing="-0.6" fill="#FFFFFF">ClaimGuard</text>
+  <text x="114" y="87" font-family="'IBM Plex Sans','Segoe UI Variable Text','Segoe UI',Inter,Arial,sans-serif" font-size="13.5" font-weight="600" letter-spacing="3.4" fill="#9FB0CC">CLAIMS ADMINISTRATION</text>
+</svg>

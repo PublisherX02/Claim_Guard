@@ -54,7 +54,7 @@
           qty: h('textarea', { rows: '6', 'aria-label': id + ' maximum quantity per line', value: showPairs(p.max_quantity_per_line) })
         };
         editors[id] = e;
-        body.appendChild(h('div', { class: 'card stack' }, h('h2', { text: id + (p.payer_id ? ' (payer ' + p.payer_id + ')' : '') }),
+        body.appendChild(h('div', { class: 'card stack policycard' }, h('h2', null, h('span', { class: 'rid', text: id }), p.payer_id ? ' payer ' + p.payer_id : null),
           h('div', { class: 'importgrid' },
             h('div', { class: 'field' }, h('label', { text: 'Currency' }), e.currency),
             h('div', { class: 'field' }, h('label', { text: 'Days allowed to submit' }), e.window)),
