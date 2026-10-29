@@ -139,6 +139,17 @@ What was checked after the bump, and what was not:
   up that way, `pdfminer.six`, now pinned explicitly). The numbers come from `pip-audit` at the time; GitHub's own alert list was
   not available to this tool, so confirm on the repository's security page after the push.
 
+### 6.1 GitHub's alert list of 2026-10-29 (110 open alerts)
+
+| Manifest | Alerts | Change | Checked |
+|---|---|---|---|
+| `deploy/ocr/requirements.txt` | 48 (pillow, pypdf) | pillow 12.3.0 to 13.0.0, pypdf 6.20.1 to 6.21.4 | The 18 checks of `rust/tools/ocr_service_test.py` pass on Python 3.12 with the new pins |
+| `comparison/architecture_b/requirements.txt` | 41 (Pillow) | Pillow 12.3.0 to 13.0.0 | The pins resolve together on Python 3.12 (dry run). Not run: the comparison itself |
+| `deploy/embed/requirements.txt` | 19 (transformers, sentence-transformers) | transformers 4.47.1 to 5.10.4, sentence-transformers 5.2.3 to 5.6.0, and torch 2.5.1 to 2.14.1 in `deploy/embed/Dockerfile` (transformers 5 does not import on torch 2.5.1) | Import and weight loading of bge-m3 work on CPU with these versions. **Not verified:** that the vectors equal the old ones to the precision the 0.485 refusal threshold needs, and the Docker build. The old-versus-new comparison was stopped by memory pressure. Run `rust/tools/rag_parity.py` against the rebuilt sidecar before relying on it; this change is its own commit and can be reverted alone |
+| `rust/Cargo.lock`, `cg-access/Cargo.toml` | 2 (jsonwebtoken) | 9.3.1 to 10.4.0, features `rust_crypto` only | 61 `cg-access` tests pass, the workspace compiles, `cargo audit` reports no vulnerability (one unmaintained-crate warning, bincode) |
+
+`pip-audit` was not completed on these files in this pass. Confirm on the repository's security page after the merge.
+
 ## 7. Evidence, and how to re-run it
 
 | Claim | Command |
