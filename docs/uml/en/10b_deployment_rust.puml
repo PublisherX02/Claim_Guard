@@ -1,0 +1,89 @@
+@startuml 10b_deployment_rust
+!include ../style.iuml
+title Deployment diagram: the Rust build on one server (deploy/rust/compose.yml)
+skinparam nodeFontStyle bold
+
+node "Reviewer's browser" as BR <<device>> {
+  artifact "Console\n(httpOnly cookie + CSRF token)" as CLI
+}
+
+node "Windows PC (demo)" as PC <<device>> {
+  artifact "ClaimGuard.exe --local-demo\n(window + private demo server)" as EXE
+}
+
+node "Server (Linux, Docker Compose)" as HOST <<device>> {
+
+  node "Network: edge" as EDGE <<network>> {
+    node "proxy (Caddy)\nports 80 and 443 only" as PX <<container>> {
+      component "TLS, body limits,\nunbuffered event stream" as CADDY
+    }
+  }
+
+  node "api (cg serve --queue --behind-proxy)" as API <<container>> {
+    component "Reviewer API and console" as APIC
+  }
+
+  node "worker (cg worker)\nexactly one instance" as WK <<container>> {
+    component "Relay, deal, expire, reconcile,\nstream consumer, ledger signer" as WKC
+  }
+
+  node "Network: data (internal, no route out)" as DATA <<network>> {
+    node "mongo (MongoDB 7)" as MG <<container>> {
+      database "queue, access\nand patient key databases" as MDB
+    }
+    node "redis (Redis 7)" as RD <<container>> {
+      database "stream cg:queue:claims" as RDS
+    }
+  }
+
+  node "Network: reader (internal)" as RNET <<network>> {
+    node "reader (profile documents)\nread-only, capabilities dropped,\nmemory and process limits" as RDR <<container>> {
+      component "Tesseract, optional vision model" as OCR
+    }
+  }
+
+  node "Network: search (internal)" as SNET <<network>> {
+    node "embed (profile search)" as EMB <<container>> {
+      component "bge-m3 embeddings" as EMBC
+    }
+  }
+
+  node "vllm (profile ai)\nmodel server" as VL <<container>> {
+    artifact "explanation model\n(gemma-3-4b-it by default)" as GEM
+  }
+
+  folder "Volumes" as VOL {
+    artifact "claimguard_data\n(audit and security logs)" as DATAV
+    artifact "audit_mirror\n(second copy of the logs)" as MIRV
+  }
+}
+
+cloud "Time-Stamp Authority\n(optional, via the egress network)" as TSA <<external service>>
+
+CLI --> CADDY : HTTPS
+CADDY --> APIC : proxied
+APIC --> MDB
+APIC --> RDS : publish
+APIC --> OCR : documents
+APIC --> EMBC : questions
+APIC --> DATAV
+WKC --> MDB
+WKC --> RDS : consume
+WKC --> GEM : explanation templates
+WKC --> DATAV
+WKC --> MIRV
+WKC ..> TSA : anchor timestamp
+EXE ..> APIC : same server, started locally
+
+note bottom of PX
+  Only the proxy publishes ports. The database and the
+  broker sit on a network with no route to the internet;
+  the reader and the embedding service on networks that
+  only the API (and the model server) share.
+end note
+
+note right of WK
+  The signing seed of the ledger is given to the
+  worker only, never to the API.
+end note
+@enduml

@@ -1,6 +1,6 @@
 @startuml 09_components
 !include ../style.iuml
-title Component diagram (overview): ClaimGuard AI
+title Component diagram (overview): ClaimGuard AI, Python reference (the Rust build is diagram 09c)
 
 actor "Reviewer or\nAdministrator" as H
 

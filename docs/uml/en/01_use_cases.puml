@@ -1,9 +1,9 @@
 @startuml 01_use_cases
 !include ../style.iuml
-title Use case diagram: ClaimGuard AI
+title Use case diagram: ClaimGuard AI (core model, UC00 to UC26, and the later additions UC30 to UC40)
 left to right direction
 
-actor "Claim source\n(operator tool)" as SRC
+actor "Claim source\n(operator tool or file)" as SRC
 actor "Observer\n(level 1)" as L1
 actor "Reviewer\n(level 2)" as L2
 actor "Senior reviewer\n(level 3)" as L3
@@ -18,10 +18,11 @@ rectangle "ClaimGuard AI" {
   rectangle "Automatic checking" as P1 {
     usecase "UC01\nSubmit a claim" as UC01
     usecase "UC02\nCheck the 15 official rules" as UC02
-    usecase "UC03\nRaise advisory checks\n(E001..E103)" as UC03
+    usecase "UC03\nRaise advisory checks\n(E001..E106)" as UC03
     usecase "UC04\nDraft an explanation" as UC04
     usecase "UC05\nTriage the claim\n(green / A / B)" as UC05
     usecase "UC16\nResubmit a corrected claim\n(new version)" as UC16
+    usecase "UC30\nImport a claim from a file\n(PDF, scan, photo, FHIR,\nCSV, JSONL)" as UC30
   }
 
   rectangle "Human review" as P2 {
@@ -31,6 +32,12 @@ rectangle "ClaimGuard AI" {
     usecase "UC13\nDecide a finding" as UC13
     usecase "UC14\nVerify a claim\nwith no findings" as UC14
     usecase "UC15\nCountersign a high-severity\nfinding" as UC15
+    usecase "UC35\nAsk the rulebook\n(cited passages)" as UC35
+    usecase "UC36\nRequest missing information" as UC36
+    usecase "UC37\nSee the patient's other claims" as UC37
+    usecase "UC38\nTry a correction (what-if)\nand recheck" as UC38
+    usecase "UC39\nReceive live updates" as UC39
+    usecase "UC40\nConfirm findings in bulk\n(off by default)" as UC40
   }
 
   rectangle "Control and administration" as P3 {
@@ -41,6 +48,10 @@ rectangle "ClaimGuard AI" {
     usecase "UC24\nReplay a failed task" as UC24
     usecase "UC25\nManage users" as UC25
     usecase "UC26\nVerify the audit trail" as UC26
+    usecase "UC31\nDecide on a quarantined batch" as UC31
+    usecase "UC32\nEdit the payer rules\n(versioned)" as UC32
+    usecase "UC33\nApprove a dangerous action\n(second administrator)" as UC33
+    usecase "UC34\nVerify the signed ledger\n(checkpoint, inclusion proof)" as UC34
   }
 
   usecase "UC00\nAuthenticate\n(badge, password, one-time code)" as UC00
@@ -48,6 +59,9 @@ rectangle "ClaimGuard AI" {
 
 SRC --> UC01
 SRC --> UC16
+SRC --> UC30
+UC30 ..> UC01 : <<include>>
+UC38 ..> UC16 : <<include>>
 UC16 ..> UC01 : <<include>>
 UC01 ..> UC02 : <<include>>
 UC01 ..> UC05 : <<include>>
@@ -56,9 +70,14 @@ UC04 .> UC02 : <<extend>>
 AI -- UC04
 
 L1 --> UC10
+L1 --> UC35
 L2 --> UC12
 L2 --> UC13
 L2 --> UC14
+L2 --> UC36
+L2 --> UC37
+L2 --> UC38
+L2 --> UC39
 L3 --> UC15
 L4 --> UC20
 L4 --> UC21
@@ -67,6 +86,13 @@ L4 --> UC23
 L4 --> UC24
 L4 --> UC25
 L4 --> UC26
+L4 --> UC31
+L4 --> UC32
+L4 --> UC33
+L4 --> UC34
+UC32 ..> UC33 : <<include>>\n(when two administrators exist)
+UC34 .> UC26 : <<extend>>
+UC40 .> UC13 : <<extend>>\n(rule reviewers almost always uphold)
 
 UC11 .> UC10 : <<extend>>\n(permission pii.unmask)
 UC15 .> UC13 : <<extend>>\n(high severity)
@@ -77,15 +103,17 @@ UC20 ..> UC00 : <<include>>
 UC25 ..> UC00 : <<include>>
 
 note bottom of SRC
-  Claims enter through the administrator's
-  command-line tool (queue_admin): there is no
-  HTTP route for submitting claims.
+  Claims enter through the administrator's tool
+  (cg queue submit), through the HTTP routes
+  POST /queue/submit and /queue/import/* (level 4),
+  or as a corrected version (UC16).
 end note
 
 note bottom of AI
-  The production model is not wired into the
-  queue yet: by default the deterministic
-  text is kept.
+  The Rust build picks the model with QUEUE_AI_PROVIDER
+  (vllm, or ollama on a laptop; on premises only).
+  Without a provider the deterministic text is kept.
+  The Python reference wires no production model.
 end note
 
 note bottom of L4

@@ -1,6 +1,6 @@
 @startuml 12_data_model_mongodb
 !include ../style.iuml
-title NoSQL data model (MongoDB): collections, embedded documents and references
+title NoSQL data model (MongoDB): collections, embedded documents and references (Rust build)
 hide empty members
 
 package "Work queue database" {
@@ -84,6 +84,43 @@ package "Work queue database" {
     --
     quotas of the AI step
   }
+  class "batch_events" as BE <<collection>> {
+    {static} index : batch_id
+    --
+    batch_id, kind (created, sample_verified,\nflagged, decision), at
+    append-only: a batch's status is the\nfold of its events
+  }
+  class "request_events" as RE <<collection>> {
+    {static} index : claim_id
+    --
+    request_id, claim_id,\nkind (sent, declined), at
+  }
+  class "notifications" as NT <<collection>> {
+    {static} unique index : id
+    {static} index : (to, at), claim_id, at
+    --
+    id, to (badge), claim_id, at
+  }
+  class "notification_cursors" as NC <<collection>> {
+    {static} unique index : badge
+  }
+  class "jobs" as JB <<collection>> {
+    {static} unique index : name
+    --
+    name, runs, failures, last_ok_at\n(health of the worker loops)
+  }
+  class "reliability" as RL <<collection>> {
+    {static} unique index : version
+    --
+    versioned reliability records
+  }
+}
+
+package "Patient key database (separate)" {
+  class "patient_keys" as PK <<collection>> {
+    _id : keyed hash of the patient id
+    wrapped : the patient's data key,\nwrapped by the master key
+  }
 }
 
 package "Access database" {
@@ -108,6 +145,20 @@ package "Access database" {
     {static} unique index : jti
     {static} TTL : expires_at
   }
+  class "known_clients" as KC <<collection, TTL>> {
+    {static} unique index : (badge_id, client)
+    {static} TTL : expires_at
+    --
+    seen_ts: a client remembered per person,\nforgotten after thirty days
+  }
+  class "approvals" as AP <<collection>> {
+    {static} unique index : id
+    {static} unique pending : (action, target)
+    --
+    id, action, target, summary, payload
+    requested_by, requested_at, expires_at
+    status, decided_by, decided_at, note
+  }
 }
 
 CLAIMS *-- CL
@@ -128,6 +179,19 @@ DEALS ..> CLAIMS : claim_id, version
 DL ..> CLAIMS : claim_id, version
 UT ..> US : badge_id
 RT ..> US : jti of a user's token
+CO -[hidden]down-> BE
+BE -[hidden]down-> RE
+RE -[hidden]down-> NT
+NT -[hidden]down-> NC
+NC -[hidden]down-> JB
+JB -[hidden]down-> RL
+KC ..> US : badge_id
+AP ..> US : requested_by, decided_by
+NT ..> US : to
+NC ..> US : badge
+BE ..> CLAIMS : batch_id (members)
+RE ..> CLAIMS : claim_id
+PK ..> CLAIMS : keyed hash of claim.patient_id
 
 note bottom of CLAIMS
   One document per version of a claim. Everything that

@@ -1,0 +1,71 @@
+@startuml 09c_components_rust
+!include ../style.iuml
+title Component diagram: the Rust build (current system)
+
+actor "Reviewer,\nobserver or\nadministrator" as H
+
+package "Server process: cg serve --queue" as SRV {
+  component "Console\n(web pages embedded in the binary)" as UI
+  component "Reviewer API\n(cg-api)" as API
+  component "Intake gate and extractors\n(cg-ingest)" as ING
+  component "Access service\n(cg-access: sign-in, rights,\nmasking, security log)" as ACC
+  component "Work queue service\n(cg-queue: triage, decisions, sign-off,\ncopilot, what-if and recheck, batches)" as QUEUE
+  component "Checking engine\n(cg-engine: 15 YARA-X rules,\nadvisory checks E001..E106,\npayer table, rulebook search)" as ENG
+  component "Audit log, signed ledger\n(cg-audit)" as AUD
+  component "External timestamp\n(cg-timestamp, optional)" as TS
+}
+
+package "Worker process: cg worker (exactly one)" as WRK {
+  component "Dispatcher and loops\n(relay, deal, expire, reconcile)" as DISP
+  component "Stream consumer\n(process claim, explanation step)" as CONS
+  component "Ledger signer\n(holds the Ed25519 seed)" as SIGN
+}
+
+database "MongoDB\n(cg-mongo: dossiers, decisions,\nbatches, requests, users,\napprovals, patient keys)" as MDB
+database "Redis Streams\n(cg-redis: message broker)" as RDS
+component "Document reader\n(container, no network:\nTesseract, optional vision model)" as RD
+component "Embedding service\n(bge-m3, container, no network)" as EMB
+cloud "Model server\n(vLLM in production,\nOllama on a laptop;\non premises only)" as MOD
+cloud "Time-Stamp Authority\n(RFC 3161, optional)" as TSA
+folder "Audit logs and mirror\n(files)" as FS
+
+H --> UI : HTTPS via the proxy\n(cookie + CSRF)
+UI --> API
+API ..> ACC : authenticate, permissions
+API ..> ING : files and records
+API ..> QUEUE : inbox, decisions,\nbatches, recheck
+API ..> ENG : knowledge search,\npayer rules
+API ..> AUD : ledger status, proofs
+ING ..> RD : bytes of a PDF or picture
+API ..> EMB : question vectors
+ACC ..> MDB
+ACC ..> FS : security log
+QUEUE ..> ENG : evaluate
+QUEUE ..> MDB
+QUEUE ..> RDS : publish
+QUEUE ..> AUD : review log
+AUD ..> FS
+AUD ..> TS
+TS ..> TSA
+DISP ..> MDB : deal, leases
+CONS ..> RDS : consume, acknowledge
+CONS ..> MDB
+CONS ..> MOD : explanation templates
+SIGN ..> FS : signed checkpoints
+
+note right of RD
+  The API never parses a PDF or decodes a picture:
+  only the reader does. The reader and the embedding
+  service are on networks with no route out.
+end note
+
+note bottom of CONS
+  The model never sees a claim value. Without a
+  model provider the engine's own text is kept.
+end note
+
+note bottom of ENG
+  The 15 rules give the official verdict. Advisory
+  checks (E001..E005, E101..E106) are advice only.
+end note
+@enduml

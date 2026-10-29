@@ -1,0 +1,57 @@
+@startuml 14_sequence_import_file
+!include ../style.iuml
+title Sequence diagram: importing a claim from a file (preview first, then submit)
+autonumber
+skinparam maxMessageSize 230
+
+actor "Administrator\n(level 4)" as AD
+participant "Console" as UI
+participant "Reviewer API\n(POST /queue/import/file)" as API
+participant "Gate\n(cg-ingest)" as GT
+participant "Reader container\n(no network)" as RD
+participant "Extractor\n(draft claim)" as EX
+participant "Security\nlog" as LOG
+participant "Intake\n(POST /queue/submit)" as IN
+
+AD -> UI : choose a file
+UI -> API : raw bytes + file name\n(cookie, CSRF, permission routing.manage)
+API -> GT : inspect(bytes)\n(type read from the bytes, size, pixel cap,\nactive content, polyglot checks)
+alt refused by the gate
+  GT --> API : refusal code and reason
+  API -> LOG : import refused
+  API --> UI : 422 refused
+else not a PDF, PNG or JPEG
+  GT --> API : unsupported type
+  API -> API : read as JSON, JSONL or FHIR bundles\n(each record accepted or quarantined with its reason;\nat most 500 records)
+  API -> LOG : import records (hash, size, outcome)
+  API --> UI : items and summary
+else a document (PDF, PNG, JPEG)
+  alt no reader configured or reader down
+    API --> UI : 503 (nothing is guessed)
+  else two documents are already being read
+    API --> UI : 429 busy
+  else reader available
+    API -> RD : bytes and type (shared token)
+    RD -> RD : refuse JavaScript, launch actions,\nembedded files, encryption;\nPDF text layer, or Tesseract\n(+ optional vision model as second reader)
+    RD --> API : pages, text, confidence, second reading
+    API -> EX : extract(pages, hash, catalogue)
+    EX --> API : draft claim: value, evidence and\nconfidence of every field, warnings
+    API -> LOG : import document (hash, engine, draft valid?)
+    API --> UI : draft shown beside the page
+  end
+end
+
+== A person confirms: the system never decides on a converted claim ==
+AD -> UI : compare the page with the draft,\ncorrect the fields
+UI -> API : POST /queue/import/validate (edited claim)
+API --> UI : valid, or the reason\n(same transport check as intake)
+AD -> UI : confirm and submit
+UI -> API : POST /queue/submit
+API -> IN : validate again, check the 15 rules,\ntriage, store (see the processing sequence)
+IN --> UI : job id, then the triage receipts (polling)
+
+note over RD
+  The server never parses a PDF or decodes a picture:
+  only the reader does, in its own container.
+end note
+@enduml

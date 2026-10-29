@@ -1,6 +1,6 @@
 @startuml 11_packages
 !include ../style.iuml
-title Package diagram: real dependencies of the code (src folder)
+title Package diagram: Python reference (src folder; the Rust crates are diagram 11b)
 left to right direction
 
 package "access\n(identity, rights, API)" as ACC
