@@ -11,7 +11,7 @@
 | Diagrams relabelled | 09, 09b, 10, 11 are kept and titled as the Python reference. |
 | Diagrams added | 09c (components, Rust), 10b (deployment, Rust), 11b (the twelve crates), 14 (file import), 15 (what-if, correct and recheck), 16 (batch with audit sample, quarantine and decision). There are now 20 diagrams in `docs/figures/uml/en/`. |
 | `README.md` | The "not built" paragraph was out of date (it said no web screen, no HTTP submission, recheck 501, model not wired, no encryption at rest) and was rewritten; the diagram counts and the document list were updated. |
-| `docs/33` (French) | A note at the top says its diagrams are the 2026-10-06 snapshot and points to the English addendum. |
+| `docs/33` and the French diagrams | Deleted at the owner's request: `docs/33_Cahier_des_Charges_et_Modelisation_UML.md`, the 13 French `.puml` files in `docs/uml/` and their images in `docs/figures/uml/`. Only the English set remains (`docs/uml/en/`, `docs/figures/uml/en/`, and the shared `docs/uml/style.iuml`). |
 
 ## How it was checked
 
@@ -19,7 +19,6 @@ Each statement in 10.1 and each route in 10.2 was read from the Rust sources (`c
 
 ## Not done
 
-- The French diagram set (`docs/uml/`) was not redrawn.
 - Diagrams 05, 06 and 07 were searched for statements that changed and left as they are. They were not re-verified step by step against the Rust code.
 - `POST /claims/{id}/recheck` still returns 501 in the code; the diagrams show the working route.
 - No new tests were run: the change is documentation and diagram sources only.
