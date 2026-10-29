@@ -1,6 +1,6 @@
 @startuml 10_deployment
 !include ../style.iuml
-title Deployment diagram: demonstration machine and target
+title Deployment diagram: Python reference (the Rust build is diagram 10b)
 skinparam nodeFontStyle bold
 
 node "Reviewer's browser" as BR <<device>> {

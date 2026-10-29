@@ -1,5 +1,7 @@
 # 33 | Cahier des charges et modélisation UML de ClaimGuard AI
 
+> **Mise à jour du 2026-10-29 :** les diagrammes de ce document sont l'état du 2026-10-06. Depuis, le système Rust est devenu le système livré (import de fichiers, grand livre signé, lots, règles de payeur éditables, assistant du relecteur, contrôles d'historique). L'anglais est à jour : [SPECIFICATION.md](../SPECIFICATION.md), section 10 (addendum), et 20 diagrammes dans `docs/uml/en/`. Les diagrammes français (`docs/uml/`) n'ont pas été redessinés. Voir [docs/62](62_UML_Update_and_Specification_Addendum.md).
+
 > **Référence complète en anglais : [SPECIFICATION.md](../SPECIFICATION.md).** Ce document français est la première version, écrite pour l'enseignant d'UML. La version anglaise va plus loin : les 20 cas d'utilisation y ont chacun un scénario principal, des scénarios secondaires, des extensions et des scénarios d'échec, et elle contient un catalogue de pannes et un quatorzième diagramme (pannes et reprise). En cas de différence, la version anglaise fait foi. Corrections apportées depuis la première version : la route de recontrôle `recheck` n'est **pas** réalisée (elle répond 501) ; une correction passe par le redépôt de la réclamation, qui crée une nouvelle version ; les états `received` et `rechecked` de la table du code ne sont jamais utilisés.
 
 *Document en français, destiné à l'enseignant d'UML de l'équipe. Il décrit le système, fixe son cahier des charges, présente les diagrammes UML déjà dessinés et pose les questions sur lesquelles nous attendons ses conseils.*

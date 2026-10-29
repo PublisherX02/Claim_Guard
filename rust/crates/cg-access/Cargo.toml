@@ -15,7 +15,7 @@ sha1 = "0.10"
 thiserror.workspace = true
 bcrypt = "0.15"
 fernet = { version = "0.2", default-features = false, features = ["rustcrypto"] }
-jsonwebtoken = "9"
+jsonwebtoken = { version = "10.3", default-features = false, features = ["rust_crypto"] }
 rand = "0.8"
 base32 = "0.5"
 base64 = "0.22"

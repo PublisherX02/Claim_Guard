@@ -57,6 +57,13 @@ package "Input data (one claim)" {
   }
 }
 
+class ImportDraft <<from a PDF, scan or photo>> {
+  +value : Value (for every field)
+  +evidence : Text (where on the page)
+  +confidence : Number
+  +warnings : List
+}
+
 package "Fictional reference data (rules folder)" {
   class Provider {
     +provider_id : Text
@@ -161,7 +168,8 @@ RuleResult ..> ResultStatus
 RuleResult ..> Severity
 Explanation ..> ExplanationSource
 ExtensionResult --|> RuleResult
-Claim "1" -- "0..8" ExtensionResult : advisory checks
+Claim "1" -- "0..11" ExtensionResult : advisory checks
+ImportDraft "0..1" ..> "1" Claim : becomes, once a person confirms
 
 note right of RuleResult
   Exactly 15 results per claim (one per official
@@ -170,8 +178,8 @@ note right of RuleResult
 end note
 
 note bottom of ExtensionResult
-  Eight advisory checks (E001..E005, E101..E103):
-  advice only, never mixed into the 15
-  official results.
+  Eleven advisory checks (E001..E005, E101..E106;
+  E104..E106 compare with the patient's earlier claims):
+  advice only, never mixed into the 15 official results.
 end note
 @enduml

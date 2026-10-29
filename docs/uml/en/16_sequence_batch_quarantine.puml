@@ -1,0 +1,50 @@
+@startuml 16_sequence_batch_quarantine
+!include ../style.iuml
+title Sequence diagram: a batch with an audit sample, quarantine and the administrator's decision
+autonumber
+skinparam maxMessageSize 230
+
+actor "Administrator\n(level 4)" as AD
+participant "Queue\nservice" as QS
+participant "Intake" as IN
+database "Store\n(claims, batch_events)" as DB
+actor "Reviewer" as RV
+
+AD -> QS : submit a batch (1 to 1,000 claims)
+loop each claim
+  QS -> IN : validate, check the 15 rules, triage
+end
+QS -> QS : draw exactly max(1, ceil(percent x green / 100))\ngreen claims from a recorded seed (the audit sample)
+QS -> DB : batch event "created"\n(submitted, accepted, green, sampled, seed)
+alt auto_clear_green is on (off by default)
+  QS -> DB : sampled claims -> ready (to officers);\nother green claims decided by system:auto-clear
+else off
+  QS -> DB : every green claim -> ready (to officers)
+end
+
+== Officers verify the sampled green claims ==
+RV -> QS : verify a sampled claim (no finding)
+alt the officer finds a problem in a sampled green claim
+  QS -> DB : batch event "flagged" (claim, category)
+  QS -> DB : batch status -> quarantined\n(the system's clearances of the batch are held)
+else nothing found
+  QS -> DB : batch event "sample_verified"
+end
+
+== The administrator decides ==
+AD -> QS : view the batch\n(number, sampled claims flagged, general reasons)
+alt release
+  QS -> DB : event "decision" release -> status released
+else review_n or review_all
+  QS -> DB : a random draw of the system-cleared claims:\ndecided -> ready (auto_cleared = false)
+  QS -> DB : status -> in_review
+  RV -> QS : decide the claims sent back
+  QS -> DB : all sent back are decided -> status review_done
+end
+
+note over DB
+  A batch has no mutable record: its status is the fold of
+  its append-only events (created, sample_verified,
+  flagged, decision). Claims keep their own records.
+end note
+@enduml

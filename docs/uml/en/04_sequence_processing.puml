@@ -11,8 +11,8 @@ participant "Triage" as TR
 participant "Advisory\nchecks" as EXT
 database "Store\n(MongoDB)" as DB
 participant "Security\nlog" as LOG
-queue "Broker\n(Redis)" as BR
-participant "Task\n(Celery)" as TK
+queue "Broker\n(Redis Streams)" as BR
+participant "Worker task\n(stream consumer)" as TK
 participant "AI step" as IA
 participant "Language\nmodel" as LLM
 participant "Dispatcher" as DI
@@ -20,7 +20,7 @@ participant "Queue\nservice" as QS
 actor "Reviewer" as RV
 
 == Intake (synchronous) ==
-SRC -> IN : submit(claim)\n(queue_admin tool: no HTTP route)
+SRC -> IN : submit(claim)\n(cg queue submit, or POST /queue/submit\nor an import by an administrator)
 IN -> IN : validate the transport (exact keys, non-empty strings,\nvalid dates, unique line ids, safe claim id)
 alt claim invalid
   IN --> SRC : refusal with the reason
@@ -77,8 +77,8 @@ end
 
 note over IA, LLM
   The model never sets a status, a rule or the review flag:
-  it can only add words. The production model is not yet
-  wired into the queue: without a model, the
-  "explanation_skipped" branch applies.
+  it can only add words. The Rust build selects the model
+  with QUEUE_AI_PROVIDER (vllm or ollama); without a
+  provider, the "explanation_skipped" branch applies.
 end note
 @enduml

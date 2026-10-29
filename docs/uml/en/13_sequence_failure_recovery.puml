@@ -7,7 +7,7 @@ skinparam maxMessageSize 230
 participant "Intake" as IN
 queue "Broker\n(Redis)" as BR
 participant "Relay\nsweep" as RL
-participant "Task\n(Celery)" as TK
+participant "Worker task\n(stream consumer)" as TK
 database "Store\n(MongoDB)" as DB
 participant "Dispatcher" as DI
 participant "Reconciler" as RC

@@ -1,0 +1,62 @@
+@startuml 11b_crates_rust
+!include ../style.iuml
+title Package diagram: the Rust workspace (arrows are the path dependencies of each Cargo.toml)
+
+package "rust/crates" {
+  [cg-core] as CORE
+  [cg-audit] as AUD
+  [cg-engine] as ENG
+  [cg-access] as ACC
+  [cg-timestamp] as TS
+  [cg-ingest] as ING
+  [cg-queue] as Q
+  [cg-mongo] as MG
+  [cg-redis] as RD
+  [cg-sim] as SIM
+  [cg-api] as API
+  [cg-cli] as CLI
+}
+
+AUD --> CORE
+ENG --> CORE
+ENG --> AUD
+ACC --> CORE
+ACC --> AUD
+TS --> AUD
+ING --> CORE
+Q --> CORE
+Q --> AUD
+Q --> ACC
+Q --> ENG
+MG --> CORE
+MG --> ACC
+MG --> Q
+RD --> Q
+SIM --> Q
+API --> CORE
+API --> AUD
+API --> ACC
+API --> ENG
+API --> Q
+API --> TS
+API --> ING
+CLI --> CORE
+CLI --> ENG
+CLI --> AUD
+CLI --> ACC
+CLI --> API
+CLI --> Q
+CLI --> RD
+CLI --> MG
+CLI --> TS
+CLI --> ING
+CLI --> SIM
+
+note bottom of CORE
+  A crate never reaches up: the engine knows nothing of the web,
+  the web layer nothing of the database. cg-core depends on no
+  other crate. The database and the broker (cg-mongo, cg-redis)
+  implement the store and broker contracts defined in cg-queue
+  and cg-access; only cg-cli joins everything.
+end note
+@enduml

@@ -89,7 +89,7 @@ Level 4 does **not** generalise level 1. This is deliberate: whoever tunes the q
 
 **In scope.** Ingestion of three formats; 15 official rules; 8 advisory checks; triage and lanes; bounded AI explanation; fair and replayable dealing; decisions with two-person sign-off; two-factor sign-in and four levels; identifier masking; audit and security logs; dashboard, versioned configuration and feedback report; asynchronous tasks with retries; measured evaluation (public sets, mutation testing, fuzzing).
 
-**Not built** (each is repeated in part 9): a web screen for reviewers (the API exists, no front end); submitting claims over HTTP; wiring the production language model into the queue's AI step; routing by model confidence (a deliberate choice); a working `recheck` endpoint (it answers 501); write-once storage and an external timestamp for the audit log; encryption of claim data at rest.
+**Not built** (each is repeated in part 9; several of these statements are out of date for the Rust build, see section 10.1): a web screen for reviewers (the API exists, no front end); submitting claims over HTTP; wiring the production language model into the queue's AI step; routing by model confidence (a deliberate choice); a working `recheck` endpoint (it answers 501); write-once storage and an external timestamp for the audit log; encryption of claim data at rest.
 
 **Out of scope.** Reimbursement, payment, diagnosis, real data, submission to a real insurer.
 
@@ -790,7 +790,7 @@ Part 6 gives each use case its own failures. This part is the system-wide view: 
 
 ## 8. UML model
 
-Fourteen diagrams, each answering one question. Sources: `docs/uml/en/*.puml`; images: `docs/figures/uml/en/`.
+Fourteen diagrams, each answering one question. Sources: `docs/uml/en/*.puml`; images: `docs/figures/uml/en/`. Section 10.3 lists the diagrams updated or added afterwards (02, 03, 09c, 10b, 11b, 14, 15, 16). In all there are now 20 diagrams.
 
 | No | UML type | Question | Source |
 |---|---|---|---|
@@ -925,6 +925,8 @@ Four scenarios: the broker is down (outbox and relay sweep every 10 s), a task f
 
 ### 9.2 What is not built, stated plainly
 
+*Written on 2026-10-15 for the Python reference and the first Rust port. Section 10.1 says which of these items no longer hold.*
+
 - **Console limits.** The web console exists (FR-20, docs/35) but has had no manual accessibility audit or phone test, refreshes by polling, and has no recheck screen.
 - **No HTTP submission.** Claims enter through `queue_admin submit` (FR-21).
 - **Production model not wired into the queue.** The AI step takes an injected model; with none, the deterministic text is kept (FR-06 partial). The offline flow does use a local or hosted model.
@@ -967,3 +969,61 @@ java -jar plantuml.jar -tpng -charset UTF-8 -o ../../figures/uml/en *.puml
 ```
 
 The images were produced with PlantUML 1.2026.8. `docs/uml/style.iuml` sets the common look.
+
+---
+
+## 10. Addendum (2026-10-29): what changed after sections 1 to 9 were written
+
+Sections 1 to 9 were checked against the code on 2026-10-15. The system kept growing for two more weeks (the Rust build became the shipped system; file intake, the signed ledger, editable payer rules, batches, the reviewer copilot and the history checks were added). This addendum records which statements above no longer hold, adds the use cases that did not exist, and lists the diagrams updated or added. **Where it differs from sections 1 to 9, the addendum prevails.** Each statement below was checked against the Rust sources named in the last column.
+
+### 10.1 Statements of sections 3 and 9.2 that no longer hold
+
+| Statement above | Now | Evidence |
+|---|---|---|
+| "Submitting claims over HTTP" is not built; claims enter through `queue_admin submit` (FR-21, 9.2) | Built in the Rust build: `POST /api/v1/queue/submit` (the answer is a job id, polled with `GET /queue/submit/{job}`), plus `POST /queue/import/file`, `/queue/import/csv` and `/queue/import/validate`. All need `routing.manage` (level 4). The command-line tool remains | `rust/crates/cg-api/src/lib.rs`, `import.rs`; docs/45, docs/53 |
+| "A web screen for reviewers (the API exists, no front end)" (section 3) | The console exists (section 9.2 already said so) and the Rust server embeds it. It now has a "Correct and recheck" card; the "no recheck screen" limit no longer holds | docs/35, docs/38, docs/51 |
+| The production language model is not wired into the queue (FR-06, 9.2) | In the Rust build the model is chosen by `QUEUE_AI_PROVIDER`: `vllm` (production) or `ollama` (laptop), over plain HTTP, on premises only. With no provider the engine's own text is kept. The Python reference still wires none | `rust/crates/cg-queue/src/model.rs`; docs/40 |
+| The `recheck` route is not built and answers 501 (FR-13, 9.2, UC16 failure scenarios) | Still true of the base claims route `POST /claims/{id}/recheck`. The working path is the queue route: `POST /work/claims/{id}/whatif` (a dry run, nothing stored) then `POST /work/claims/{id}/recheck`, which saves the correction as version n+1 and closes version n. Requires `claims.recheck`; clearing a high-severity finding also requires `claims.decide_high` | `cg-api/src/lib.rs` (recheck 781 to 787; work routes), `cg-queue/src/service.rs`; docs/51 |
+| State `rechecked` is unused (9.2, diagram 08) | Used: after a recheck the old version goes leased, decided, rechecked. Two more transitions exist: triaged to decided (a green claim cleared by `system:auto-clear`, off by default) and decided to ready (a batch decision sends system-cleared claims back). `rechecked` to `triaged` is still never taken, because intake creates the new version as a separate document | `cg-queue/src/service.rs` (700, 869), `flow.rs` (462), `states.rs` |
+| Claim data is not encrypted at rest (9.2) | In the Rust build `DATA_KEY` encrypts the claim data, people's names and the audit log files on disk, and each patient has a wrapped key (collection `patient_keys`) so a patient can be erased from backups | docs/40 section 2, docs/59; `cg-mongo/src/keys.rs` |
+| No external timestamp for the audit log (9.2) | An RFC 3161 timestamp of each log anchor is built in the Rust build (`cg-timestamp`), optional and off by default (`TSA_URL`). Ed25519-signed Merkle checkpoints with inclusion proofs were added. Write-once storage is still not claimed (docs/58) | docs/38, docs/45 section 2 |
+| Eight advisory checks (E001 to E005, E101 to E103) | Eleven: E104 (invoice number reused), E105 (many claims in a week) and E106 (same service and day at another provider) were added, with a patient history view | `cg-engine/src/extensions.rs`; docs/61 |
+| Ingestion of three formats | Also PDF, scan and phone photo, through a gate in the server and a reader in an isolated container; the result is a draft a person confirms. The system never decides on a converted claim | docs/44, docs/45 section 1 |
+
+### 10.2 Use cases added after the first model
+
+| ID | Use case | Primary actor | Entry point | Permission | Status |
+|---|---|---|---|---|---|
+| UC30 | Import a claim from a file (PDF, scan, photo, FHIR, CSV, JSONL) | Administrator | `POST /queue/import/file`, `/queue/import/csv`, `/queue/import/validate`, then `/queue/submit` | `routing.manage` | Done; documents need the reader container (docs/45 section 1) |
+| UC31 | Decide on a quarantined batch | Administrator | `GET /queue/batches`, `/queue/batches/{id}`; `POST /queue/batches/{id}/decision` (`release`, `review_n`, `review_all`) | `routing.manage` | Done (docs/53) |
+| UC32 | Edit the payer rules (versioned, with a reason) | Administrator | `GET` and `POST /rules/payer`, `POST /rules/payer/validate` | `routing.manage` | Done; with two or more administrators the change waits for UC33 (docs/45 section 4) |
+| UC33 | Approve a dangerous action | A second administrator | `GET /approvals`; `POST /approvals/{id}/approve`, `/reject`, `/cancel` | `users.manage` | Done (docs/40 section 5b) |
+| UC34 | Verify the signed ledger (checkpoint, inclusion proof) | Administrator | `GET /ledger`, `/ledger/proof` | `audit.view` | Done (docs/45 section 2) |
+| UC35 | Ask the rulebook (cited passages, refuses what it cannot answer) | Observer and above | `GET /knowledge/search` | `claims.view` | Done (docs/45 section 5, docs/52, docs/55, docs/60) |
+| UC36 | Request missing information | Reviewer and above | `POST /work/claims/{id}/info-request` | `claims.decide` | Done; nothing is delivered, the system has no outgoing channel (docs/53) |
+| UC37 | See the patient's other claims | Reviewer and above | `GET /work/claims/{id}/history` | `claims.decide` | Done (docs/61) |
+| UC38 | Try a correction (what-if) and recheck | Reviewer and above | `POST /work/claims/{id}/whatif`, `/recheck` | `claims.recheck` | Done; includes UC16 (docs/51) |
+| UC39 | Receive live updates | Any signed-in user | `GET /work/events` (server-sent events), `/work/changes`, `/work/notifications` | signed in (notices need `claims.decide`) | Done (docs/45 section 3) |
+| UC40 | Confirm findings in bulk | Reviewer and above | `POST /work/bulk-confirm` | `claims.decide` | Done; limited to what the configuration allows (`bulk_confirm_skip_lower`, off by default) (docs/50) |
+
+### 10.3 Diagrams updated or added
+
+| No | Change | Source |
+|---|---|---|
+| 01 | Updated: use cases UC30 to UC40 added; notes on submission and on the model corrected | `01_use_cases.puml` |
+| 04, 13 | Wording updated: worker task (stream consumer), Redis Streams, submission by HTTP or import, model selected by `QUEUE_AI_PROVIDER` | `04_sequence_processing.puml`, `13_sequence_failure_recovery.puml` |
+| 08 | Updated: the transitions of 10.1 added and the note on unused states corrected | `08_states_dossier.puml` |
+| 09, 09b, 10 | Kept as the Python reference (titles say so); 09b names both task runners | `09_components.puml`, `09b_components_queue.puml`, `10_deployment.puml` |
+| 09c | New: components of the Rust build (server, worker, reader, embedding service, model server, broker, databases) | `09c_components_rust.puml` |
+| 10b | New: deployment of the Rust build from `deploy/rust/compose.yml` (proxy, API, one worker, MongoDB, Redis Streams, reader, embedding service, model server, networks, volumes) | `10b_deployment_rust.puml` |
+| 11b | New: the twelve crates of `rust/crates`, arrows taken from each `Cargo.toml` | `11b_crates_rust.puml` |
+| 12 | Updated: nine collections added (`batch_events`, `request_events`, `notifications`, `notification_cursors`, `jobs`, `reliability`, `approvals`, `known_clients`, `patient_keys`) | `12_data_model_mongodb.puml` |
+| 14 | New: import of a claim from a file, preview then submit | `14_sequence_import_file.puml` |
+| 15 | New: what-if, then correct and recheck as a new version | `15_sequence_correct_recheck.puml` |
+| 16 | New: batch with an exact audit sample, quarantine and the administrator's decision | `16_sequence_batch_quarantine.puml` |
+| 02 | Updated: eleven advisory checks (E104 to E106 added) and the `ImportDraft` class (a draft from a PDF, scan or photo that a person confirms before it becomes a claim) | `02_classes_domain.puml` |
+| 03 | Updated: classes `Batch`, `InfoRequestEvent`, `Notification`, `Approval`, `PayerRulesVersion` and `LedgerCheckpoint`; enum `BatchStatus`; `rechecked` added to `DossierState`; `batch_id`, `audit_sample` and `auto_cleared` added to `QueueDossier` | `03_classes_queue_access.puml` |
+| 11 | Kept as the Python reference (the title says so); the Rust crates are 11b | `11_packages.puml` |
+| 05, 06, 07 | Not redrawn. Searched for the statements that changed (task runner, HTTP submission, recheck, model wiring, advisory-check count); none appear. Not re-verified step by step against the Rust code | |
+
+The French set (`docs/uml/`) and the French chapter (docs/33) were not updated and remain the 2026-10-06 snapshot.

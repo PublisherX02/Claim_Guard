@@ -1,4 +1,4 @@
 # The document reader's own dependencies (a separate container from the server). Pinned; checked with pip-audit.
 pypdfium2==5.14.0
-pillow==12.3.0
-pypdf==6.20.1
+pillow==13.0.0
+pypdf==6.21.4

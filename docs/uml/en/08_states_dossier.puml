@@ -1,6 +1,6 @@
 @startuml 08_states_dossier
 !include ../style.iuml
-title State machine diagram: life cycle of a dossier in the queue
+title State machine diagram: life cycle of a dossier in the queue (Rust build)
 hide empty description
 
 [*] --> triaged : intake writes the dossier directly in this state\n(the event log records received -> triaged)
@@ -25,14 +25,19 @@ state "Active dossier" as Active {
 }
 
 leased --> decided : every finding resolved
+triaged --> decided : green lane with auto_clear_green on\n(off by default): decided by system:auto-clear
+decided --> ready : batch decision review_n or review_all:\nthe system's clearance is withdrawn (auto_cleared = false)
+decided --> rechecked : correct and recheck:\nthe old version is closed after the correction
 Active --> dead_lettered : failure after the retries\n(back-off between attempts)
 dead_lettered --> triaged : replayed by the administrator (level 4)\n(once only)
 decided --> [*]
 
 note right of decided
-  A decided dossier is never changed. A corrected claim
-  submitted again is a NEW document (version n+1) that
-  starts at "triaged"; the old version stays "decided".
+  A dossier decided by a person is never changed. A
+  corrected claim is a NEW document (version n+1) that
+  starts at "triaged"; the old version ends at "rechecked"
+  (after a recheck) or stays "decided". Only a clearance
+  made by the system itself can go back to "ready".
 end note
 
 note bottom of ready
@@ -41,9 +46,10 @@ note bottom of ready
 end note
 
 note as N1
-  <b>Defined in the code's transition table but never used:</b>
+  <b>In the transition table but never taken:</b>
   "received" (only the origin of the first logged event) and
-  "rechecked" (decided -> rechecked -> triaged). No code path
-  moves a dossier into "rechecked" today.
+  "rechecked -> triaged": the new version is created by
+  intake as a separate document, so the old version stays
+  at "rechecked".
 end note
 @enduml

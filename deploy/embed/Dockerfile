@@ -4,7 +4,7 @@
 FROM python:3.12-slim@sha256:f77ac9e44ae96ef2c90b8053ea08c31f8be030f824196b0ae4db6d462c84e51f
 WORKDIR /app
 COPY deploy/embed/requirements.txt /app/requirements.txt
-RUN pip install --no-cache-dir --index-url https://download.pytorch.org/whl/cpu torch==2.5.1 \
+RUN pip install --no-cache-dir --index-url https://download.pytorch.org/whl/cpu torch==2.14.1 \
  && pip install --no-cache-dir -r /app/requirements.txt
 # The model is fetched at build time at this exact revision; nothing is fetched when the container runs. The weights ship only as a pickle file (no safetensors at this revision),
 # so the build refuses any file whose SHA-256 differs from the one checked when the model was chosen, and transformers loads it with weights_only=True (no code runs on load) (docs/57).

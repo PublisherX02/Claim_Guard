@@ -1,0 +1,52 @@
+@startuml 15_sequence_correct_recheck
+!include ../style.iuml
+title Sequence diagram: what-if, then correct and recheck (a new version)
+autonumber
+skinparam maxMessageSize 230
+
+actor "Reviewer\n(level 2 or 3)" as RV
+participant "Reviewer API\n(/work/claims/{id}/...)" as API
+participant "Queue\nservice" as QS
+participant "Rule engine" as MR
+participant "Intake and\ntriage" as IN
+database "Store\n(MongoDB)" as DB
+participant "Review log\n(hash chain, signed)" as RL
+participant "Security\nlog" as LOG
+
+RV -> API : open a claim from the inbox\n(lease held, identifiers masked)
+
+== Try a correction: nothing is stored ==
+RV -> API : POST whatif (proposed changes)\n(permission claims.recheck)
+API -> QS : whatif
+QS -> MR : evaluate the corrected copy
+MR --> QS : 15 results
+QS -> LOG : claim_whatif (badge, claim, version,\nnumber of changes)
+QS --> RV : each rule before and after
+
+== Correct and recheck ==
+RV -> API : POST recheck (changes, reason,\ntick: values checked against the source)
+API -> QS : recheck
+alt the correction clears a high-severity finding\nand the reviewer lacks claims.decide_high
+  QS --> RV : refused
+else allowed
+  QS -> IN : submit the corrected claim as version n+1
+  alt same content as an earlier version
+    IN --> QS : nothing new stored
+    QS --> RV : refused (no new version)
+  else new content
+    IN -> MR : evaluate, then triage (lane, score)
+    IN -> DB : new document, version n+1, state triaged
+    QS -> DB : decision mark_corrected_for_recheck\nfor each cleared finding (only if the lease is valid)
+    QS -> RL : review decisions and a recheck_run event\n(links both versions by input hash)
+    QS -> LOG : claim_rechecked
+    QS -> DB : version n: leased -> decided -> rechecked
+    QS --> RV : diff, new lane and score,\nfindings still flagged
+  end
+end
+
+note over DB
+  The original version is never edited. The new version
+  goes through the same queue as any claim, and the same
+  rules apply to it (two seniors for high severity).
+end note
+@enduml

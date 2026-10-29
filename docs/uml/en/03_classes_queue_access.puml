@@ -12,6 +12,9 @@ package "Work queue" {
     +state_at : Timestamp
     +escalated : Boolean
     +decided_by : Text
+    +batch_id : Text
+    +audit_sample : Boolean
+    +auto_cleared : Boolean
   }
   class TriageReceipt {
     +lane : Lane
@@ -69,6 +72,34 @@ package "Work queue" {
     +on_shift : List
     +exclusions : List
   }
+  class Batch <<status = fold of its events>> {
+    +batch_id : Text
+    +created_at : Timestamp
+    +submitted : Integer
+    +accepted : Integer
+    +green : Integer
+    +sampled : Integer
+    +percent : Integer
+    +auto_clear : Boolean
+    +seed : Integer
+    +status : BatchStatus
+    +flagged_claims : Set
+    +verified_claims : Set
+    +categories : Table
+    +decisions : List
+  }
+  class InfoRequestEvent {
+    +request_id : Text
+    +claim_id : Text
+    +kind : sent | declined
+    +at : Timestamp
+  }
+  class Notification {
+    +id : Text
+    +to : Text (badge)
+    +claim_id : Text
+    +at : Timestamp
+  }
   class DeadLetter {
     +dead_id : Text
     +claim_id : Text
@@ -89,6 +120,33 @@ package "Access and traceability" {
     +locked : Boolean
     +password_hash : Text
     +totp_secret_enc : Text
+  }
+  class Approval {
+    +id : Text
+    +action : Text
+    +target : Text
+    +summary : Text
+    +requested_by : Text
+    +requested_at : Timestamp
+    +expires_at : Timestamp
+    +status : Text
+    +decided_by : Text
+    +note : Text
+  }
+  class PayerRulesVersion <<hash-chained log>> {
+    +version : Integer
+    +requested_by : Text
+    +approved_by : Text
+    +reason : Text (10 to 300 characters)
+    +diff : List
+  }
+  class LedgerCheckpoint <<Ed25519-signed>> {
+    +log_name : Text
+    +row_count : Integer
+    +head_hash : Text
+    +merkle_root : Text
+    +at : Timestamp
+    +signature : Text
   }
   class Session <<signed token, not stored>> {
     +jti : Text
@@ -112,7 +170,15 @@ enum DossierState {
   leased
   awaiting_countersign
   decided
+  rechecked
   dead_lettered
+}
+enum BatchStatus {
+  open
+  quarantined
+  in_review
+  review_done
+  released
 }
 enum Lane {
   green
@@ -154,6 +220,15 @@ User "1" -- "0..*" Session : opens
 AuditEvent "*" ..> User : traces
 AuditEvent "*" ..> QueueDossier : traces
 DeadLetter "*" ..> QueueDossier : concerns
+Batch "1" o-- "1..1000" QueueDossier : groups
+Batch ..> BatchStatus
+Batch "*" ..> User : decided by an administrator
+InfoRequestEvent "*" ..> QueueDossier : about
+Notification "*" --> "1" User : to
+Approval "*" --> "1" User : requested by
+Approval "*" --> "0..1" User : decided by another
+PayerRulesVersion "*" ..> Approval : applied after (two or more administrators)
+LedgerCheckpoint "*" ..> AuditEvent : vouches for the log up to a row
 
 note right of Lease
   A reviewer decides only the dossiers dealt to
@@ -161,7 +236,8 @@ note right of Lease
 end note
 
 note bottom of DossierState
-  The table of the code also defines "received" and
-  "rechecked"; neither is ever stored (see diagram 08).
+  The table of the code also defines "received", which
+  is never stored. "rechecked" is stored on the old
+  version after a correct-and-recheck (see diagram 08).
 end note
 @enduml
