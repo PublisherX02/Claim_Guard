@@ -27,7 +27,7 @@ pub struct FileClaimStore {
     digests: BTreeMap<String, Digest>,
 }
 
-fn digest(id: &str, results: &Value) -> Digest {
+fn digest(id: &str, claim: &Value, results: &Value) -> Digest {
     let list = results.as_array().map(Vec::as_slice).unwrap_or(&[]);
     let flagged: Vec<&Value> = list.iter().filter(|r| r["status"].as_str().is_some_and(|s| FLAGGED.contains(&s))).collect();
     let top = flagged.iter().filter_map(|r| r["severity"].as_str()).max_by_key(|s| if *s == "high" { 2 } else { 1 });
@@ -37,7 +37,9 @@ fn digest(id: &str, results: &Value) -> Digest {
         *c = json!(c.as_i64().unwrap_or(0) + 1);
     }
     Digest {
-        row: json!({"claim_id": id, "counts": counts, "max_severity": top, "flagged": !flagged.is_empty()}),
+        row: json!({"claim_id": id, "counts": counts, "max_severity": top, "flagged": !flagged.is_empty(),
+            "provider_id": claim["provider_id"], "submission_date": claim["submission_date"],
+            "currency": claim["currency"], "total_amount": claim["total_amount"]}),
         statuses: list.iter().map(|r| r["status"].as_str().unwrap_or("").to_string()).collect(),
         rules: list.iter().map(|r| (r["rule_id"].as_str().unwrap_or("").to_string(), r["status"].as_str().unwrap_or("").to_string())).collect(),
     }
@@ -56,10 +58,10 @@ impl FileClaimStore {
         let mut s = FileClaimStore { order: vec![], claims: BTreeMap::new(), results: BTreeMap::new(), digests: BTreeMap::new() };
         for (c, r) in claims {
             let id = c["claim_id"].as_str().unwrap_or("").to_string();
+            s.digests.insert(id.clone(), digest(&id, &c, &r));
             if s.claims.insert(id.clone(), c).is_none() {
                 s.order.push(id.clone());
             }
-            s.digests.insert(id.clone(), digest(&id, &r));
             s.results.insert(id, r);
         }
         s

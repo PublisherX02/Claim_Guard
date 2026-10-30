@@ -198,7 +198,7 @@ class ClaimStoreTests(unittest.TestCase):
     def test_summaries_list_every_claim_with_counts_and_no_identifiers(self):
         rows = self.store.summaries(limit=200)
         self.assertEqual(len(rows), 50)
-        self.assertEqual(set(rows[0]), {'claim_id', 'counts', 'max_severity', 'flagged'})
+        self.assertEqual(set(rows[0]), {'claim_id', 'counts', 'max_severity', 'flagged', 'provider_id', 'submission_date', 'currency', 'total_amount'})
         raws = {i for c in public_claims() for i in raw_ids_in(c)}
         self.assertEqual(masking.leaks(rows, raws), set())
 
