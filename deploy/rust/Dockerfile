@@ -10,7 +10,9 @@ WORKDIR /app
 COPY rust ./rust
 # the console files are compiled into the server (include_bytes), so they must be at the same relative path
 COPY src/access/ui ./src/access/ui
-RUN cd rust && cargo build --release -p cg-cli --locked && strip target/release/cg
+# a small build machine can limit the compiler's parallelism:  docker build --build-arg CARGO_FLAGS="-j 2" ...
+ARG CARGO_FLAGS=""
+RUN cd rust && cargo build --release -p cg-cli --locked $CARGO_FLAGS && strip target/release/cg
 RUN mkdir -p /out/data /out/mirror
 
 # A distroless base: the C library, the compiler runtime and certificates, and nothing else. No shell, no package manager, no mount or

@@ -902,3 +902,12 @@ html[data-bigfocus="on"] .side :focus-visible { outline-color: #ffffff !importan
 
 /* Final release: the correction table's wrapper has a small negative margin; never let it create a page-level horizontal scrollbar. */
 html, body { overflow-x: clip; }
+
+/* ---- review fixes: copilot folded, "why" line, find box, phone bars, one bell ---- */
+.copilot-more { margin: .35rem 0 .6rem; }
+.copilot-more > summary { cursor: pointer; font-weight: 600; }
+.finding .why { margin: .15rem 0 .5rem; padding: .45rem .7rem; border-radius: var(--radius-s); background: var(--med-soft); }
+.findbox { min-width: 15rem; }
+.tablewrap td .bar { flex: 1 1 auto; min-width: 6rem; align-self: center; }
+@media (max-width: 860px) { .idbar .bell { display: none; } }
+@media (max-width: 640px) { .tablewrap td.empty-cell, .tablewrap td[data-empty="1"] { display: none; } }
