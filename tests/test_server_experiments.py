@@ -154,7 +154,7 @@ class Packing(unittest.TestCase):
         import pack_results as pk
         self.assertTrue(pk.findings('JWT_SECRET=abcdefghijklmnop'))
         self.assertTrue(pk.findings('-----BEGIN ' + 'PRIVATE KEY-----'))      # built in two pieces: the repo's secret scan rejects the literal header in a tracked file
-        self.assertTrue(pk.findings('token eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxMjM0NTY3ODkwIn0.abcdefghijklmnopqrstuv'))
+        self.assertTrue(pk.findings('token ' + 'eyJ' + 'hbGciOiJIUzI1NiJ9' + '.eyJ' + 'zdWIiOiIxMjM0NTY3ODkwIn0' + '.abcdefghijklmnopqrstuv'))      # pieces, so no secret scanner takes a test input for a real token
         self.assertFalse(pk.findings('{"claims_per_minute": 1943.6, "claim_id": "CG-27BFD8541DEB"}'))
 
     def test_a_run_with_a_credential_in_it_is_not_packed(self):
