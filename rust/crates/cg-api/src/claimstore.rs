@@ -171,8 +171,13 @@ pub fn ui_files() -> BTreeMap<&'static str, (&'static [u8], &'static str)> {
         ("views-import.js", (&include_bytes!("../../../../src/access/ui/views-import.js")[..], js)),
         ("views-rules.js", (&include_bytes!("../../../../src/access/ui/views-rules.js")[..], js)),
         ("views-ask.js", (&include_bytes!("../../../../src/access/ui/views-ask.js")[..], js)),
+        ("views-me.js", (&include_bytes!("../../../../src/access/ui/views-me.js")[..], js)),
+        ("notify.js", (&include_bytes!("../../../../src/access/ui/notify.js")[..], js)),
         ("style.css", (&include_bytes!("../../../../src/access/ui/style.css")[..], "text/css; charset=utf-8")),
         ("icon.svg", (&include_bytes!("../../../../src/access/ui/icon.svg")[..], "image/svg+xml")),
+        ("icon-light.svg", (&include_bytes!("../../../../src/access/ui/icon-light.svg")[..], "image/svg+xml")),
+        ("logo.svg", (&include_bytes!("../../../../src/access/ui/logo.svg")[..], "image/svg+xml")),
+        ("logo-dark.svg", (&include_bytes!("../../../../src/access/ui/logo-dark.svg")[..], "image/svg+xml")),
         ("vendor/qrcode.js", (&include_bytes!("../../../../src/access/ui/vendor/qrcode.js")[..], js)),
     ])
 }

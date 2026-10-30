@@ -204,6 +204,34 @@ class QueueService:
         doc = self.dispatcher.next_for(principal.badge)
         return None if doc is None else self._view(perms, doc)
 
+    HISTORY_ROWS = 50
+
+    def patient_history(self, principal, claim_id):
+        """The patient's other claims, one summary row each (newest first, at most HISTORY_ROWS), for the person who holds this claim. It is a
+        read of other claims, so it is a button not a default, only the holder may ask, and each use is written to the security log. A row
+        carries no patient identifier, no notes and no line detail: the claim id, dates, provider, total, state and which rules were flagged."""
+        self._require(principal, 'claims.decide')
+        doc = self._mine(principal, claim_id, self.clock())
+        patient = doc['claim'].get('patient_id')
+        rows = []
+        if isinstance(patient, str) and patient:
+            ids = {c['claim_id'] for c in self.store.claims_for_patient(patient) if isinstance(c.get('claim_id'), str) and c['claim_id'] != claim_id}
+            for cid in ids:
+                d = self.store.get(cid)
+                if d is None:
+                    continue
+                c = d['claim']
+
+                def flagged(results):
+                    return [r.get('rule_id') for r in results or [] if r.get('status') in ('FAIL', 'UNABLE_TO_ASSESS')]
+                rows.append({'claim_id': cid, 'version': d['version'], 'submission_date': c.get('submission_date'), 'provider_id': c.get('provider_id'),
+                             'total_amount': c.get('total_amount'), 'currency': c.get('currency'), 'state': d['state'], 'lane': d['receipt']['lane'],
+                             'flagged': flagged(d.get('results')), 'advisory_flagged': flagged(d.get('advisory'))})
+        rows.sort(key=lambda r: (r['submission_date'] or '', r['claim_id']), reverse=True)
+        shown = rows[:self.HISTORY_ROWS]
+        self.access.record('patient_history_viewed', badge_id=principal.badge, claim_id=claim_id, n=len(shown))
+        return {'claim_id': claim_id, 'count': len(rows), 'shown': len(shown), 'claims': shown}
+
     def heartbeat(self, principal):
         self._require(principal, 'claims.decide')
         now = self.clock()

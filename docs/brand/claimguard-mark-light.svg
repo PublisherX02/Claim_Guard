@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-label="ClaimGuard">
+  <title>ClaimGuard (on navy)</title>
+  <path d="M32 3.5 56 11.4v18.4c0 14.7-10 24.7-24 30.5C18 54.5 8 44.5 8 29.8V11.4z" fill="#FFFFFF"/>
+  <path d="M24 17h12.6l6.4 6.4V43a2.2 2.2 0 0 1-2.2 2.2H24a2.2 2.2 0 0 1-2.2-2.2V19.2A2.2 2.2 0 0 1 24 17z" fill="#15294C"/>
+  <path d="M36.6 17v4.2a2.2 2.2 0 0 0 2.2 2.2H43z" fill="#4A6396"/>
+  <path d="M26.6 32.6l4.4 4.4 7.6-8.2" fill="none" stroke="#FFFFFF" stroke-width="3.6" stroke-linecap="round" stroke-linejoin="round"/>
+</svg>

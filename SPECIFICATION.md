@@ -1,6 +1,6 @@
 # SPECIFICATION: requirements (cahier des charges) and UML model of ClaimGuard AI
 
-This is the complete specification of the system: what it must do, for whom, under which rules, what happens when something goes wrong, and how it is modelled in UML. It sits beside [BLUEPRINT.md](BLUEPRINT.md), which looks at the same system as an *information system* (quality characteristics, business canvas, realisation steps). Read BLUEPRINT.md for the "why and how we build it" and this file for the "exactly what it does". A French summary written for our UML professor is in [docs/33_Cahier_des_Charges_et_Modelisation_UML.md](docs/33_Cahier_des_Charges_et_Modelisation_UML.md); this English file is the complete reference and goes further (every use case has a main scenario, secondary scenarios, extensions and failure scenarios).
+This is the complete specification of the system: what it must do, for whom, under which rules, what happens when something goes wrong, and how it is modelled in UML. It sits beside [BLUEPRINT.md](BLUEPRINT.md), which looks at the same system as an *information system* (quality characteristics, business canvas, realisation steps). Read BLUEPRINT.md for the "why and how we build it" and this file for the "exactly what it does". This file is the complete reference and goes further (every use case has a main scenario, secondary scenarios, extensions and failure scenarios).
 
 **How to read it.**
 
@@ -962,7 +962,7 @@ Four scenarios: the broker is down (outbox and relay sweep every 10 s), a task f
 
 ### 9.4 Regenerating the images
 
-The sources are in `docs/uml/en/` (English) and `docs/uml/` (French). With Java and the `plantuml.jar` file (published on Maven Central; verify its SHA-1 checksum), from `docs/uml/en/`:
+The sources are in `docs/uml/en/`. With Java and the `plantuml.jar` file (published on Maven Central; verify its SHA-1 checksum), from `docs/uml/en/`:
 
 ```
 java -jar plantuml.jar -tpng -charset UTF-8 -o ../../figures/uml/en *.puml
@@ -1026,4 +1026,4 @@ Sections 1 to 9 were checked against the code on 2026-10-15. The system kept gro
 | 11 | Kept as the Python reference (the title says so); the Rust crates are 11b | `11_packages.puml` |
 | 05, 06, 07 | Not redrawn. Searched for the statements that changed (task runner, HTTP submission, recheck, model wiring, advisory-check count); none appear. Not re-verified step by step against the Rust code | |
 
-The French set (`docs/uml/`) and the French chapter (docs/33) were not updated and remain the 2026-10-06 snapshot.
+The French chapter (docs/33) and the French diagram set were removed on 2026-10-29; the English set is the only one.
