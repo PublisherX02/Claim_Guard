@@ -190,6 +190,11 @@ class ReviewPageFixes(unittest.TestCase):
         self.assertEqual(done.returncode, 0, done.stderr)
         return done.stdout.strip()
 
+
+    def test_the_claims_list_shows_provider_date_and_amount(self):
+        src = (UI_DIR / 'views-work.js').read_text(encoding='utf-8')
+        for label in ("label: 'Provider'", "label: 'Submitted'", "label: 'Amount'"):
+            self.assertIn(label, src)
     def test_the_copilot_sentence_is_kept_for_the_finding_card_without_its_prefix(self):
         out = self._node("""var m = window.CG.copilotWhy({ summary: { items: [{ rule_id: 'R013', sentence: 'R013 failed (medium severity): unit price 2210 is above the limit of 2200 for SVC-IMAGE.' }] } });
             console.log(JSON.stringify(m)); console.log(JSON.stringify(window.CG.copilotWhy({ summary: { cleared: true, items: [{ rule_id: 'R001', sentence: 'x' }] } })));""")
