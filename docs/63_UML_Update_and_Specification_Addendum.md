@@ -1,4 +1,4 @@
-# 62 | UML update and specification addendum (2026-10-29)
+# 63 | UML update and specification addendum (2026-10-29)
 
 **Why.** The UML diagrams were last changed on 2026-10-06 and `SPECIFICATION.md` was checked on 2026-10-15. The Rust build then became the shipped system and gained features the model did not show. This note records what was changed, how, and what was not.
 

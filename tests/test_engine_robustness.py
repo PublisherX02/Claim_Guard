@@ -1,3 +1,4 @@
+import logging
 import unittest, sys, json, copy, random
 from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
@@ -98,6 +99,8 @@ class IsolationTests(Base):
         yara_engine.DETAIL_FUNCS['R007'] = lambda claim, cfg: 1 / 0
         try:
             errors = []
+            logging.disable(logging.NOTSET)  # another test file may have left logging switched off; this one needs the warning
+            logging.getLogger('yara_engine').disabled = False
             with self.assertLogs('yara_engine', level='WARNING'):
                 results = {r['rule_id']: r for r in evaluate(c, self.cfg, errors)}
         finally:
