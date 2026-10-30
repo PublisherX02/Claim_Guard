@@ -40,7 +40,8 @@
       var tr = CG.h('tr', { class: cls.trim(), tabindex: opts.onRow ? '0' : null }, columns.map(function (c) {
         var v = c.get(row);
         // data-label lets the phone layout show each cell with its column name (style.css turns rows into cards under 640 px)
-        return CG.h('td', { class: c.num ? 'num' : '', 'data-label': c.label || '' }, v === null || v === undefined || v === '' ? CG.h('span', { class: 'muted', text: '-' }) : v);
+        var none = v === null || v === undefined || v === '';
+        return CG.h('td', { class: c.num ? 'num' : '', 'data-label': c.label || '', 'data-empty': none ? '1' : '0' }, none ? CG.h('span', { class: 'muted', text: '-' }) : v);
       }));
       if (opts.onRow) {
         tr.addEventListener('click', function () { opts.onRow(row); });

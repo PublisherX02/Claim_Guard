@@ -101,11 +101,22 @@
       ], lines, { rowClass: function (l) { return hit.indexOf(l.line_id) >= 0 ? 'hit' : ''; } }));
   }
 
-  function evidenceTable(list, claim) {
+  // rows about a line the finding names are highlighted and listed first, so the value that caused the flag is the first thing read
+  function evidenceTable(list, claim, lineIds) {
     if (!list || !list.length) return null;
-    return h('div', { class: 'evidence' }, CG.table([
-      { label: 'Where', get: function (e) { return h('span', null, h('span', { text: CG.pathLabel(e.path, claim) }), h('span', { class: 'path', text: e.path })); } },
-      { label: 'Value seen', get: function (e) { return h('span', { class: 'val', text: CG.fmtValue(e.value) }); } }], list));
+    var idx = [];
+    (lineIds || []).forEach(function (id) { ((claim && claim.lines) || []).forEach(function (l, i) { if (l.line_id === id) idx.push(i); }); });
+    function isHit(e) { return idx.some(function (i) { return String(e.path).indexOf('/lines/' + i + '/') === 0; }); }
+    function table(rows, mark) {
+      return CG.table([
+        { label: 'Where', get: function (e) { return h('span', null, h('span', { text: CG.pathLabel(e.path, claim) }), h('span', { class: 'path', text: e.path })); } },
+        { label: 'Value seen', get: function (e) { return h('span', { class: 'val', text: CG.fmtValue(e.value) }); } }], rows, { rowClass: function (e) { return mark && isHit(e) ? 'hit' : ''; } });
+    }
+    var hits = idx.length ? list.filter(isHit) : [], rest = idx.length ? list.filter(function (e) { return !isHit(e); }) : [];
+    // the values about the named line come first and are highlighted; the rest of the evidence is one click away so the decision is not pushed down
+    if (!hits.length || !rest.length) return h('div', { class: 'evidence' }, table(list, hits.length > 0));
+    return h('div', { class: 'evidence' }, table(hits, true),
+      h('details', { class: 'evidence-rest' }, h('summary', { class: 'small', text: rest.length + ' other value' + (rest.length > 1 ? 's' : '') + ' the engine looked at' }), table(rest, false)));
   }
 
   function decisionForm(finding, ctx, refresh) {
@@ -160,6 +171,7 @@
           h('div', { class: 'rtitle', text: CG.ruleName(f.rule_id) || f.rule_id })),
         f.affected_line_ids && f.affected_line_ids.length ? h('span', { class: 'lines', text: (f.affected_line_ids.length > 1 ? 'Lines ' : 'Line ') + f.affected_line_ids.join(', ') }) : null));
     var body = h('div', { class: 'fbody' }, f.explanation ? h('p', { class: 'explain', text: f.explanation }) : null);
+    if (flagged && ctx.why && ctx.why[f.rule_id]) body.appendChild(h('p', { class: 'why' }, h('b', { text: 'Why it was flagged: ' }), ctx.why[f.rule_id]));
     card.appendChild(body);
     if (!flagged) return card;
     if (CG.prefs.get('showAi') && f.ai_explanation && f.ai_explanation.text !== f.explanation) {      // the built-in template restates the line above: show the box only when it adds something
@@ -168,7 +180,7 @@
         h('p', { text: f.ai_explanation.text })));
     }
     if (f.corrective_action && CG.prefs.get('showTodo')) body.appendChild(h('div', { class: 'todo-box' }, h('b', { text: 'What the rulebook says to do' }), f.corrective_action));
-    var ev = evidenceTable(f.evidence, claim);
+    var ev = evidenceTable(f.evidence, claim, f.affected_line_ids);
     if (ev) {
       var det = h('details', null, h('summary', { text: 'Evidence the engine used (' + f.evidence.length + ')' }), ev);
       if (CG.prefs.get('evidenceOpen') && f.evidence.length <= 6) det.open = true;      // a long list stays one click away so the decision is not pushed down
@@ -252,6 +264,7 @@
       tick(); CG.every(1000, tick);
     }
     // patient history: the card sits under the lines, and a button next to the claim number jumps there and loads it, so it is easy to find
+    ctx.why = ctx.mode === 'work' && CG.copilotWhy ? CG.copilotWhy(view.copilot) : {};
     var hist = ctx.mode === 'work' ? historyCard(ctx) : null;
     var histJump = hist ? h('button', { class: 'btn histjump', type: 'button', onclick: function () {
       var col = hist.parentNode;              // bring the card to the top of the claim, right under this button, then load it
@@ -267,15 +280,16 @@
       actions: [histJump, lease] }));
 
     // progress: what is left to do on this claim, in numbers
-    var openCount = flagged.filter(function (f) { return f.allowed_actions && f.allowed_actions.length; }).length;
+    var readOnly = !CG.has('claims.decide');
+    var openCount = flagged.filter(function (f) { return readOnly ? f.review_state !== 'resolved' : (f.allowed_actions && f.allowed_actions.length); }).length;
     var others = view.findings.length - flagged.length;
     if (flagged.length) {
       var done = flagged.length - openCount, bar = h('div', { class: 'bar', role: 'progressbar', 'aria-valuemin': '0', 'aria-valuemax': String(flagged.length), 'aria-valuenow': String(done), 'aria-label': 'Findings decided' }, h('i'));
       bar.firstChild.style.width = (100 * done / flagged.length) + '%';
       root.appendChild(h('div', { class: 'progress' },
         h('div', { class: 'stats' },
-          h('span', { class: 'stat todo' }, h('b', { text: String(openCount) }), openCount === 1 ? 'finding for you to decide' : 'findings for you to decide'),
-          h('span', { class: 'stat done' }, h('b', { text: String(done) }), 'settled or with someone else'),
+          h('span', { class: 'stat todo' }, h('b', { text: String(openCount) }), readOnly ? (openCount === 1 ? 'finding still open (read-only)' : 'findings still open (read-only)') : (openCount === 1 ? 'finding for you to decide' : 'findings for you to decide')),
+          h('span', { class: 'stat done' }, h('b', { text: String(done) }), readOnly ? 'settled' : 'settled or with someone else'),
           h('span', { class: 'stat' }, h('b', { text: String(others) }), 'rules passed or not applicable')), bar));
     }
     if (!CG.has('claims.decide')) root.appendChild(h('div', { class: 'notice info readonly' }, CG.icon('lock'), h('span', { text: 'Read-only view. You can read every finding and its evidence; reviewers record the decisions.' })));
@@ -481,9 +495,9 @@
           return h('span', { title: r.rules.map(function (x) { return x + ' ' + CG.ruleName(x); }).join('\n') }, CG.chip(r.sev), ' ', r.rules.length === 1 ? [h('span', { class: 'rid', text: r.rules[0] }), ' ' + CG.ruleName(r.rules[0])] : r.rules.map(function (x) { return h('span', { class: 'rid', text: x }); }));
         } },
         { key: 'todo', label: 'To decide', num: true, get: function (r) { return r.open || (r.flagged ? 0 : 'verify'); } },
-        { key: 'priority', label: 'Priority', num: true, get: function (r) { return r.score; } },
+        { key: 'priority', label: 'Priority', num: true, get: function (r) { return h('span', { title: 'Priority score: a higher number is looked at sooner. It comes from severity and how long the claim has waited.', text: String(r.score) }); } },
         { key: 'stage', label: 'Stage', get: function (r) { return r.stage ? CG.chip(r.stage, 'B') : null; } },
-        { key: 'lease', label: 'Lease', get: function (r) { return r.left ? CG.fmtDuration(r.left - Date.now() / 1000) : null; } }
+        { key: 'lease', label: 'Time left', get: function (r) { return r.left ? h('span', { title: 'Your hold on this claim. When it runs out the claim goes back to the pool for someone else.', text: CG.fmtDuration(r.left - Date.now() / 1000) }) : null; } }
       ].filter(function (c) { return !c.key || hiddenCols.indexOf(c.key) < 0; }), items.map(inboxRow), { onRow: function (r) { location.hash = '#/work/' + encodeURIComponent(r.id); } })));
     }
     function tile(n, label, hl) { return h('div', { class: 'tile' + (hl ? ' hl-' + hl : '') }, h('div', { class: 'n', text: String(n) }), h('div', { class: 'l', text: label })); }
@@ -546,6 +560,7 @@
       RULE_CHOICES.map(function (r) { return h('option', { value: r, text: r + ' · ' + CG.ruleName(r) }); }));
     var handed = CG.state.claimsFilter; CG.state.claimsFilter = null;      // a filter chosen on the Home page
     if (handed && handed.status) status.value = handed.status;
+    var find = h('input', { type: 'search', 'aria-label': 'Find a claim by number', placeholder: 'Claim number, e.g. CG-1CB0', class: 'findbox', autocomplete: 'off' });
     var out = h('div', { class: 'card' }), pager = h('div', { class: 'row savebar' }), offset = 0, limit = 25;
     function load() {
       var q = '?limit=' + limit + '&offset=' + offset + (status.value ? '&status=' + encodeURIComponent(status.value) : '') + (rule.value ? '&rule_id=' + encodeURIComponent(rule.value) : '');
@@ -568,10 +583,19 @@
         pager.appendChild(h('span', { class: 'muted small', text: 'Showing ' + (offset + 1) + ' to ' + (offset + rows.length) }));
       }, CG.fail);
     }
+    // typing narrows the rows on this page at once; Enter on a full claim number opens that claim
+    find.addEventListener('input', function () {
+      var q = find.value.trim().toUpperCase();
+      Array.prototype.forEach.call(out.querySelectorAll('tbody tr'), function (tr) { tr.hidden = !!q && tr.textContent.toUpperCase().indexOf(q) < 0; });
+    });
+    find.addEventListener('keydown', function (e) {
+      var q = find.value.trim().toUpperCase();
+      if (e.key === 'Enter' && /^CG-[0-9A-Z]{6,}$/.test(q)) location.hash = '#/claim/' + encodeURIComponent(q);
+    });
     status.addEventListener('change', function () { offset = 0; load(); });
     rule.addEventListener('change', function () { offset = 0; load(); });
     root.appendChild(CG.pageHead({ title: 'All claims', sub: CG.has('claims.decide') ? 'Every claim and its results. Your own work is in My inbox.' : 'Every claim and its results, read-only.' }));
-    root.appendChild(h('div', { class: 'row', role: 'search' }, h('div', null, status), h('div', null, rule)));
+    root.appendChild(h('div', { class: 'row', role: 'search' }, h('div', null, find), h('div', null, status), h('div', null, rule)));
     root.appendChild(h('div', { class: 'sectionhead' })); root.appendChild(out); root.appendChild(pager);
     load();
   };

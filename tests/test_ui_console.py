@@ -178,6 +178,46 @@ class PersonalTemplates(unittest.TestCase):
         self.assertEqual(sorted(open_routes), ['brand', 'customize', 'home'])
 
 
+class ReviewPageFixes(unittest.TestCase):
+    """The second walkthrough: the decision stays near the top, a viewer is told the truth, and the cause of a flag is shown with its evidence."""
+
+    def _node(self, body):
+        node = shutil.which('node')
+        if node is None:
+            self.skipTest('node is not installed')
+        script = "global.window = { CG: { h: function () { return {}; }, chip: function () {}, fmtValue: String } }; require(%r); %s" % (str(UI_DIR / 'views-fix.js'), body)
+        done = subprocess.run([node, '-e', script], capture_output=True, text=True)
+        self.assertEqual(done.returncode, 0, done.stderr)
+        return done.stdout.strip()
+
+    def test_the_copilot_sentence_is_kept_for_the_finding_card_without_its_prefix(self):
+        out = self._node("""var m = window.CG.copilotWhy({ summary: { items: [{ rule_id: 'R013', sentence: 'R013 failed (medium severity): unit price 2210 is above the limit of 2200 for SVC-IMAGE.' }] } });
+            console.log(JSON.stringify(m)); console.log(JSON.stringify(window.CG.copilotWhy({ summary: { cleared: true, items: [{ rule_id: 'R001', sentence: 'x' }] } })));""")
+        first, second = out.splitlines()
+        self.assertEqual(first, '{"R013":"unit price 2210 is above the limit of 2200 for SVC-IMAGE."}')
+        self.assertEqual(second, '{}')
+
+    def test_the_long_copilot_guidance_sits_behind_a_disclosure(self):
+        text = (UI_DIR / 'views-fix.js').read_text(encoding='utf-8')
+        self.assertIn("class: 'copilot-more'", text)
+        self.assertIn('What to check, step by step', text)
+
+    def test_a_viewer_is_not_told_that_an_unreviewed_finding_is_settled(self):
+        text = (UI_DIR / 'views-work.js').read_text(encoding='utf-8')
+        self.assertIn("review_state !== 'resolved'", text)
+        self.assertIn('still open (read-only)', text)
+
+    def test_evidence_about_the_named_line_is_highlighted_and_listed_first(self):
+        text = (UI_DIR / 'views-work.js').read_text(encoding='utf-8')
+        self.assertIn("'/lines/' + i + '/'", text)
+        self.assertIn('f.affected_line_ids', text)
+
+    def test_the_phone_layout_shows_a_bar_and_one_bell(self):
+        css = (UI_DIR / 'style.css').read_text(encoding='utf-8')
+        self.assertIn('.tablewrap td .bar', css)
+        self.assertIn('.idbar .bell { display: none; }', css)
+
+
 class DemoStaff(unittest.TestCase):
     """The demo's staff list for the sign-in page: names and levels, never a password or seed, and only for this PC."""
 

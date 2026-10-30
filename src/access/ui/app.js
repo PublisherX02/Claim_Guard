@@ -156,7 +156,7 @@
         h('div', { class: 'mebtns' },
           h('button', { class: 'btn small railbtn', type: 'button', title: CG.prefs.get('rail') ? 'Expand the menu' : 'Collapse the menu to icons', 'aria-label': CG.prefs.get('rail') ? 'Expand the menu' : 'Collapse the menu to icons', onclick: function () {
             CG.prefs.save({ rail: !CG.prefs.get('rail') }); if (CG.rerender) CG.rerender();
-          } }, CG.icon(CG.prefs.get('rail') ? 'menu' : 'x')),
+          } }, CG.icon('menu')),
           CG.prefs.get('idbar') ? null : CG.notify.bell(),
           h('button', { class: 'btn small grow', type: 'button', title: 'Sign out', onclick: signOut }, CG.icon('logout'), h('span', { text: 'Sign out' }))),
         h('p', { class: 'synthetic', text: 'Synthetic data only. A passed pre-check is not a payer approval.' })));

@@ -10,6 +10,13 @@
   function detail(e) { return (e && e.data && e.data.detail) ? e.data.detail : (e && e.message) || 'Something went wrong.'; }
 
   // ---- the copilot: summary and one suggestion per finding ----------------------------------------------------------------
+  function copilotSentence(it) { return String(it.sentence).replace(/^R\d{3}\s+(failed|could not be assessed)\s+\((high|medium)\s+severity\):\s*/, ''); }
+  // rule id -> the specific sentence ("unit price 2210 is above the limit of 2200"), so the finding card can show it next to the evidence
+  CG.copilotWhy = function (copilot) {
+    var m = {};
+    if (copilot && copilot.summary && !copilot.summary.cleared) (copilot.summary.items || []).forEach(function (it) { m[it.rule_id] = copilotSentence(it); });
+    return m;
+  };
   CG.copilotPanel = function (copilot, onTry) {
     if (!copilot || !copilot.summary) return null;
     var s = copilot.summary;
@@ -19,12 +26,15 @@
     if (s.cleared) return card;
     var by = {};
     (copilot.suggestions || []).forEach(function (x) { by[x.rule_id] = x; });
-    card.appendChild(h('ol', { class: 'plain steps' }, (s.items || []).map(function (it) {
+    // The long guidance sits behind one disclosure so the findings and the decision stay near the top of the page; the one-click helper stays visible.
+    var items = s.items || [];
+    var guide = h('details', { class: 'copilot-more' }, h('summary', { text: 'What to check, step by step (' + items.length + ')' }));
+    guide.appendChild(h('ol', { class: 'plain steps' }, items.map(function (it) {
       var sug = by[it.rule_id] || {};
       var edits = sug.proposed_edits || [];
       return h('li', null,
         h('div', { class: 'row' }, h('b', { class: 'mono', text: it.rule_id }), CG.chip(it.severity), CG.chip(KIND[it.kind] || it.kind, 'info')),
-        h('p', { text: String(it.sentence).replace(/^R\d{3}\s+(failed|could not be assessed)\s+\((high|medium) severity\):\s*/, '') }),
+        h('p', { text: copilotSentence(it) }),
         (sug.options && sug.options.length) ? h('p', { class: 'muted small', text: 'Closest catalogue codes (not applied): ' + sug.options.join(', ') }) : null,
         edits.length && onTry ? h('div', { class: 'row' },
           h('button', { class: 'btn small', type: 'button', text: 'Try this in a what-if', onclick: function () { onTry(edits); } }),
@@ -32,16 +42,17 @@
     })));
     var all = [], seen = {};
     (copilot.suggestions || []).forEach(function (x) { (x.proposed_edits || []).forEach(function (e) { if (!seen[e.path]) { seen[e.path] = 1; all.push(e); } }); });
+    if (s.next_steps && s.next_steps.length) {
+      guide.appendChild(h('h3', { text: 'In this order' }));
+      guide.appendChild(h('ul', { class: 'plain' }, s.next_steps.map(function (t) { return h('li', { text: t }); })));
+    }
+    guide.appendChild(h('p', { class: 'muted small', text: 'A proposed value is only ever worked out from other values on this claim (a missing amount from the other two on its line, a total from its lines, an authorization the claim itself carries, or the policy currency). Anything that is not on the claim is asked for, never invented, and no identifier can be edited here.' }));
+    card.appendChild(guide);
     if (all.length && onTry) {
       card.appendChild(h('div', { class: 'row' },
         h('button', { class: 'btn primary', type: 'button', text: 'Fill in all ' + all.length + ' proposed value' + (all.length > 1 ? 's' : '') + ' for me', onclick: function () { onTry(all, true); } }),
         h('span', { class: 'muted small', text: 'The system fills the values in and shows what would happen. Nothing is saved until you check them against the bill, tick the box and confirm.' })));
     }
-    if (s.next_steps && s.next_steps.length) {
-      card.appendChild(h('h3', { text: 'In this order' }));
-      card.appendChild(h('ul', { class: 'plain' }, s.next_steps.map(function (t) { return h('li', { text: t }); })));
-    }
-    card.appendChild(h('p', { class: 'muted small', text: 'A proposed value is only ever worked out from other values on this claim (a missing amount from the other two on its line, a total from its lines, an authorization the claim itself carries, or the policy currency). Anything that is not on the claim is asked for, never invented, and no identifier can be edited here.' }));
     return card;
   };
 
