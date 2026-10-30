@@ -46,8 +46,11 @@ class FileClaimStore:
                 continue
             flagged = [r for r in results if r['status'] in FLAGGED]
             top = max((r['severity'] for r in flagged), key=lambda s: SEVERITY_ORDER.get(s, 0), default=None)
+            claim = self._claims[claim_id]
             rows.append({'claim_id': claim_id, 'counts': dict(Counter(r['status'] for r in results)),
-                         'max_severity': top, 'flagged': bool(flagged)})
+                         'max_severity': top, 'flagged': bool(flagged),
+                         'provider_id': claim.get('provider_id'), 'submission_date': claim.get('submission_date'),
+                         'currency': claim.get('currency'), 'total_amount': claim.get('total_amount')})
         return rows[offset:offset + limit]
 
     def get(self, claim_id):

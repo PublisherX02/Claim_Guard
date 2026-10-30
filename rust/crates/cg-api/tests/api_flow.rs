@@ -196,6 +196,10 @@ fn claim_views_are_masked_by_level_and_unmask_is_audited() {
     let (low, senior, admin) = (t.login("CG-1001"), t.login("CG-3003"), t.login("CG-4004"));
     let list = j(&t.get("/api/v1/claims?limit=5", &low));
     let id = list["claims"][0]["claim_id"].as_str().unwrap().to_string();
+    let row = &list["claims"][0];
+    for k in ["provider_id", "submission_date", "currency", "total_amount"] {
+        assert!(!row[k].is_null(), "the list row carries {k}");
+    }
     let view = t.get(&format!("/api/v1/claims/{id}"), &low);
     assert_eq!(view.status, 200);
     let text = String::from_utf8(view.body.clone()).unwrap();
