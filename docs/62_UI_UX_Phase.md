@@ -237,3 +237,22 @@ Customize → **Accessibility** (second tab), kept per badge like every other se
 - **Colour vision:** status colours for red-green (orange, olive, blue), blue-yellow (red, magenta, teal) or greyscale, in light and dark mode; every text colour keeps WCAG AA contrast (4.9:1 or more on cards and page). **Shapes on statuses** (always on with a colour-vision mode) adds ▲ high, ◆ medium, ✕ fail, ? unable to assess, ✓ pass, and solid, dashed or dotted edges on findings, tiles and highlighted lines, so colour is never the only signal. Shapes are hidden from screen readers, which already read the word.
 - **Reading:** "Easy to read" typeface (OpenDyslexic, Lexend or Atkinson Hyperlegible when installed, otherwise Verdana; nothing is downloaded), text size, text spacing (Wide = WCAG 1.4.12 values), and a reading ruler that follows the pointer.
 - **Seeing and moving around:** high contrast, a strong two-colour focus ring, underlined links, animation off.
+
+## 14. Second walkthrough (2026-10-30)
+
+After the final release, the console was walked through again in Chrome as a viewer and a reviewer, and the saved phone screenshots were read. What was found, and what was changed (all in `src/access/ui/`; no server route, permission or API changed):
+
+| Finding | Change |
+|---|---|
+| On a claim with findings the copilot text filled the first screen and the decision was about two and a half screens down | The copilot's step-by-step guidance is folded ("What to check, step by step"); the headline and the one-click "Fill in all proposed values" stay visible |
+| The specific cause ("unit price 2210 is above the limit of 2200") was only in the copilot | Each finding card shows it as "Why it was flagged" |
+| Evidence listed every value, including other lines, and nothing pointed at the one that caused the flag | Rows about the line the finding names are highlighted and listed first; the other values are one click away |
+| A viewer was told "0 findings for you to decide, 1 settled or with someone else" about an unreviewed finding | A viewer sees "1 finding still open (read-only)" |
+| The claims list could only be filtered by status and rule | A "Find a claim by number" box narrows the page as you type; Enter on a full claim number opens it |
+| Inbox "Priority" and the lease time were unexplained | Tooltips; the column is now "Time left" |
+| Phone: the supervisor's Fill bar was empty, there were two bells, empty cells took a line each | The bar shows, one bell, empty cells are hidden (the reviewer claim page is about 5% shorter) |
+| The sidebar's collapse button was an unlabelled X | A menu icon with the tooltip "Collapse the menu to icons" |
+
+**Checked:** the console review script on the rebuilt Rust server (4 roles, desktop and phone width): 0 issues; 25 console tests, the Python suite (1531 passed, 112 skipped) and the Rust suite (457 passed).
+
+**Not done:** provider, amount and date columns in the claims list need extra fields from both servers (a test pins the four fields now returned), so they stay on the list of later ideas. Still untested: real users, the native window on screen, Arabic documents, and keyboard-only use.
