@@ -39,6 +39,7 @@ Re-run the same command with the extra option. `.env` is kept, so the secrets do
 - Documents: the `reader` container is healthy; import a PDF or a photo in the console. With a vision model, `install.sh` also confirms that the reader sees it. If the reader warns about the vision model, documents still work with Tesseract only.
 - Model server (`ai`): `nvidia-smi` shows the card's memory in use matching `VLLM_GPU_UTIL` (and `VLLM_VLM_GPU_UTIL` when the vision server is on); `docker compose ... exec worker cg model-check` accepts all 15 rules.
 - Console: sign in as the administrator, open System health (every check green), Audit (the signed ledger verifies), then take a claim as a reviewer.
+- Measurements: once the stack is healthy and before real data goes in, run the server experiments (`experiments/server/run_all.py`, plan in [docs/65](65_Server_Experiment_Plan.md)). They measure the model server, the pipeline, memory, search, documents, restarts and exposure, and write the results chapter [docs/66](66_Server_Experiment_Results.md).
 
 ## Known limits
 - **Not run on the build PC (so first runs on this server):** the `embed` image build, the production deployment itself, and a real vLLM model. docs/64 section 4 lists them. If an image fails to build, send the last 40 lines of `docker compose ... build <service>`.
