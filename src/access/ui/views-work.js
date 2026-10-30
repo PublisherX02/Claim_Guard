@@ -572,6 +572,9 @@
         else {
           var cols = [
             { label: 'Claim', get: function (r) { return h('span', { class: 'mono cid', text: r.claim_id }); } },
+            { label: 'Provider', get: function (r) { return r.provider_id || null; } },
+            { label: 'Submitted', get: function (r) { return r.submission_date || null; } },
+            { label: 'Amount', get: function (r) { return typeof r.total_amount === 'number' ? CG.money(r.total_amount, r.currency) : null; } },
             { label: 'Results', get: function (r) { return Object.keys(r.counts || {}).sort().map(function (k) { return r.counts[k] + ' ' + k.replace(/_/g, ' ').toLowerCase(); }).join(', '); } },
             { label: 'Highest severity', get: function (r) { return r.max_severity ? CG.chip(r.max_severity) : null; } },
             { label: 'Flagged', get: function (r) { return r.flagged ? CG.chip('flagged', 'high') : 'no'; } }
