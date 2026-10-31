@@ -68,3 +68,7 @@ rust/target/release/cg serve --demo --port 8765 --data-dir <empty folder>     # 
 python -m venv venv && venv/Scripts/pip install -r requirements-dev.txt pytest && venv/Scripts/python -m pytest tests
 cd rust && cargo test --workspace -j 2 && cargo audit
 ```
+
+## 7. After this release
+
+`desktop-v1.1.0` (2026-10-31) added the administrator data center, the daily JSON report and the movable claim panels; see [docs/67](67_Admin_Data_Center_and_Movable_Panels.md) for what was tested and not tested. The audit above describes v1.0.0 and has not been repeated for v1.1.0. CI also began failing on four new `pyasn1` advisories; `pyasn1` 0.6.5 fixes them.

@@ -3,6 +3,8 @@
 Three pages in the console, for administrators only. Nothing here decides anything about a claim. They answer three questions:
 **is anything broken, what happened and who did it, and can every step of one claim be followed from intake to decision?**
 
+A fourth administrator page, **Data center** (`#/board`), shows the live flow of claims, rule violations and operator productivity and offers the daily JSON report; it is described in [docs/67](67_Admin_Data_Center_and_Movable_Panels.md).
+
 | Page | Address | Who sees it (permission) | Reads |
 |---|---|---|---|
 | System health | `#/health` | level 4, `queue.view` | `GET /api/v1/ops/health` |
