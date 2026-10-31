@@ -169,12 +169,22 @@ impl PayerRules {
     }
 
     fn events(&self) -> Result<Vec<Value>, String> {
-        Ok(cg_audit::read_rows(&self.log_path).map_err(|e| e.to_string())?.iter().filter_map(|r| serde_json::from_str::<Value>(r).ok()).filter(|r| r["event"]["event_type"] == EVENT).collect())
+        let mut out = Vec::new();
+        cg_audit::for_each_row(&self.log_path, |r| {
+            if let Ok(v) = serde_json::from_str::<Value>(r) {
+                if v["event"]["event_type"] == EVENT {
+                    out.push(v);
+                }
+            }
+            Ok(())
+        })
+        .map_err(|e| e.to_string())?;
+        Ok(out)
     }
 
     /// Reads the log again (another process, the API, may have added a version) and switches the engine to the newest table. True when it changed.
     pub fn refresh(&self) -> Result<bool, String> {
-        let rows = cg_audit::read_rows(&self.log_path).map_err(|e| e.to_string())?.len() as u64;
+        let rows = cg_audit::count_rows(&self.log_path).map_err(|e| e.to_string())?;
         let mut st = self.state.lock().unwrap_or_else(|e| e.into_inner());
         if rows == st.rows_seen && (st.version > 0 || rows == 0) {
             return Ok(false);

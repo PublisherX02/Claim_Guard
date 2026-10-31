@@ -14,7 +14,7 @@
 //! Not covered, and said so: rows removed after the NEWEST surviving checkpoint (the HMAC anchor and the mirror cover the live tail), and someone who holds
 //! both the log writer's files and the signing seed.
 
-use crate::{read_rows, verify, AuditError};
+use crate::{for_each_row, verify, AuditError};
 use base64::{engine::general_purpose::URL_SAFE_NO_PAD as B64, Engine};
 pub use ed25519_dalek::{SigningKey, VerifyingKey};
 use ed25519_dalek::{Signature, Signer, Verifier};
@@ -184,10 +184,12 @@ pub fn checkpoints_path_of(log: &Path) -> PathBuf {
 
 fn row_hashes(log: &Path) -> Result<Vec<String>, AuditError> {
     verify(log)?; // the chain must be intact before anything is signed over it
-    read_rows(log)?
-        .iter()
-        .map(|r| serde_json::from_str::<Value>(r).ok().and_then(|v| v["hash"].as_str().map(str::to_string)).ok_or_else(|| AuditError::Invalid("a row has no hash".into())))
-        .collect()
+    let mut hashes = Vec::new();
+    for_each_row(log, |r| {
+        hashes.push(serde_json::from_str::<Value>(r).ok().and_then(|v| v["hash"].as_str().map(str::to_string)).ok_or_else(|| AuditError::Invalid("a row has no hash".into()))?);
+        Ok(())
+    })?;
+    Ok(hashes)
 }
 
 /// Signs the log as it is now and appends the checkpoint to `<log>.checkpoints.jsonl`. Refuses to sign a log whose chain does not verify.
