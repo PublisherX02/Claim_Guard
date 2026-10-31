@@ -47,6 +47,8 @@
     var err = h('div', { role: 'alert' });
     var btn = h('button', { class: 'btn primary block', type: 'submit', text: 'Sign in' });
     var demo = h('div');
+    var changed = CG.state.signedInAfterChange; CG.state.signedInAfterChange = null;
+    if (changed) { if (typeof changed === 'string') badge.value = changed; err.appendChild(h('div', { class: 'notice good', text: 'Your password is changed. Sign in with the new password and the next code from your authenticator (the code you just used cannot be used twice).' })); }
     var form = h('form', { class: 'stack', novalidate: true },
       h('div', { class: 'field' }, h('label', { for: 'f-badge', text: 'Badge number' }), badge),
       h('div', { class: 'field' }, h('label', { for: 'f-pass', text: 'Password' }), h('div', { class: 'pw' }, pass, reveal)),
@@ -59,7 +61,7 @@
           CG.state.me = me; CG.prefs.apply();
           location.hash = r.must_change_password || me.must_change_password ? '#/password' : firstPage();
         });
-      }, function (e2) { btn.disabled = false; btn.textContent = 'Sign in'; err.appendChild(h('div', { class: 'notice bad', text: e2.message })); pass.value = ''; code.value = ''; });
+      }).catch(function (e2) { btn.disabled = false; btn.textContent = 'Sign in'; err.appendChild(h('div', { class: 'notice bad', text: e2.message })); pass.value = ''; code.value = ''; });
     }
     form.addEventListener('submit', submit);
     app.appendChild(authFrame(h('div', null, h('h2', { text: 'Sign in' }), form), demo));
@@ -122,9 +124,14 @@
     form.addEventListener('submit', function (e) {
       e.preventDefault(); CG.clear(err);
       if (newp.value !== again.value) { err.appendChild(h('div', { class: 'notice bad', text: 'The two new passwords differ.' })); return; }
+      var go = form.querySelector('button[type=submit]'); go.disabled = true;
       CG.api('POST', '/auth/change-password', { old_password: oldp.value, new_password: newp.value }).then(function () {
-        return CG.api('GET', '/auth/me').then(function (me) { CG.state.me = me; CG.toast('Password changed.', 'good'); location.hash = firstPage(); });
-      }, function (e2) { err.appendChild(h('div', { class: 'notice bad', text: e2.data && e2.data.detail ? e2.data.detail : e2.message })); });
+        // The server ends the session when the password changes, so the old session cannot be used again: go to a clean sign-in page.
+        var badge = CG.state.me ? CG.state.me.badge_id : '';
+        CG.state.me = null; CG.notes.stop(); CG.stopTimers(); CG.notify.stop(); CG.prefs.apply();
+        CG.state.signedInAfterChange = badge || true;
+        if (location.hash === '#/login') loginView(); else location.hash = '#/login';
+      }, function (e2) { go.disabled = false; err.appendChild(h('div', { class: 'notice bad', text: e2.data && e2.data.detail ? e2.data.detail : e2.message })); });
     });
     app.appendChild(authFrame(h('div', null, h('h2', { text: 'Choose a new password' }), h('p', { class: 'muted', text: 'Your account uses a temporary password. Set your own to continue.' }), h('div', { class: 'card' }, form))));
   }

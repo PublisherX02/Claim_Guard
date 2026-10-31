@@ -66,7 +66,7 @@ def main():
         from ocr_service_test import make_pdfs
         hostile = out / 'hostile.pdf'
         hostile.write_bytes(make_pdfs(None)['js'])
-        photo = sorted(docs.glob('*_B_photo.jpg'))[0]
+        photo = sorted(docs.glob(os.environ.get('IMPORT_PHOTO_GLOB', '*_B_photo.jpg')))[0]   # the default is the hardest picture; a cleaner one can be chosen
         scan = sorted(docs.glob('*_A_scan.png'))[0]
         jsonl = out / 'three_claims.jsonl'
         jsonl.write_text(''.join(l + chr(10) for l in (ROOT / 'data/stress/claims.jsonl').read_text(encoding='utf-8').split(chr(10))[:3] if l.strip()), encoding='utf-8')
@@ -95,8 +95,8 @@ def main():
             check('the administrator sees "Import from files" in the menu', 'Import from files' in nav)
             before = pg.evaluate("async () => { const r = await fetch('/api/v1/queue/dashboard'); const d = await r.json(); return Object.values(d.counts).reduce((a, b) => a + b, 0); }")
             pg.goto('http://127.0.0.1:%d/#/import' % SERVER_PORT)
-            pg.wait_for_selector('input[type=file]')
-            pg.set_input_files('input[type=file]', [str(photo), str(jsonl), str(hostile)])
+            pg.wait_for_selector('input[aria-label^="Files to import"]')
+            pg.set_input_files('input[aria-label^="Files to import"]', [str(photo), str(jsonl), str(hostile)])
             pg.click('text=Read the file(s)')
             pg.wait_for_selector('.importdoc', timeout=180000)
             pg.wait_for_function("() => document.querySelectorAll('.card h2').length >= 2 && !document.body.innerText.includes('Reading ')", timeout=180000)
