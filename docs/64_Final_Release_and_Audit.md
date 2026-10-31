@@ -71,4 +71,4 @@ cd rust && cargo test --workspace -j 2 && cargo audit
 
 ## 7. After this release
 
-`desktop-v1.1.0` (2026-10-31) added the administrator data center, the daily JSON report and the movable claim panels; see [docs/67](67_Admin_Data_Center_and_Movable_Panels.md) for what was tested and not tested. The audit above describes v1.0.0 and has not been repeated for v1.1.0. CI also began failing on four new `pyasn1` advisories; `pyasn1` 0.6.5 fixes them.
+`desktop-v1.1.0` (2026-10-31) added the administrator data center, the daily JSON report and the movable claim panels; see [docs/67](67_Admin_Data_Center_and_Movable_Panels.md) for what was tested and not tested. The audit above describes v1.0.0. For v1.1.0 the console review (every role, desktop and phone width) and the black-box pen test (125 checks, 0 failed) were re-run on the new build, and CI is green; the fuzz, mutation and Docker-stack tests were not repeated (docs/67 section 5). CI also began failing on four new `pyasn1` advisories; `pyasn1` 0.6.5 fixes them.
