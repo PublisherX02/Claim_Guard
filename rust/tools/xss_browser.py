@@ -27,7 +27,7 @@ INSPECT = """() => {
   document.querySelectorAll('link').forEach(e => { if (!/style\\.css$|icon\\.svg$/.test(e.getAttribute('href') || '')) bad.push('link ' + e.getAttribute('href')); });
   document.querySelectorAll('*').forEach(e => { for (const a of e.attributes) { if (/^on/i.test(a.name)) bad.push('handler ' + e.tagName + '.' + a.name); } });
   document.querySelectorAll('a[href],form[action]').forEach(e => { const u = (e.getAttribute('href') || e.getAttribute('action') || '').trim().toLowerCase(); if (u.startsWith('javascript:') || u.startsWith('data:')) bad.push('url ' + u.slice(0, 40)); });
-  document.querySelectorAll('img').forEach(e => { if (!/icon\\.svg$/.test(e.getAttribute('src') || '')) bad.push('img ' + e.getAttribute('src')); });
+  document.querySelectorAll('img').forEach(e => { if (!/icon(-light)?\\.svg$/.test(e.getAttribute('src') || '')) bad.push('img ' + e.getAttribute('src')); });
   return { bad, xss: window.__xss === undefined ? null : window.__xss, text: document.body.innerText };
 }"""
 

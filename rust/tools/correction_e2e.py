@@ -102,11 +102,11 @@ def main():
         pg.wait_for_selector('.copilot', timeout=10000)
         pg.wait_for_timeout(500)
         pg.screenshot(path=str(out / '1_copilot.png'), full_page=True)
-        text = pg.inner_text('.copilot')
+        text = pg.text_content('.copilot')   # the step-by-step list is collapsed, and inner_text leaves out what is hidden
         check('the copilot names R007 and R012', 'R007' in text and 'R012' in text, text[:200])
-        check('the copilot offers a what-if for the proposed amounts', pg.locator('.copilot button:has-text("Try this")').count() >= 1)
+        check('the copilot offers a what-if for the proposed amounts', pg.locator('.copilot button:has-text("Fill in all")').count() >= 1)
         # 3. try the proposed correction in a what-if
-        pg.locator('.copilot button:has-text("Try this")').first.click()
+        pg.locator('.copilot button:has-text("Fill in all")').first.click()
         pg.wait_for_selector('.fixpanel table', timeout=10000)
         pg.wait_for_timeout(800)
         pg.screenshot(path=str(out / '2_whatif.png'), full_page=True)
