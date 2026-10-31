@@ -207,3 +207,16 @@ Health panel: degraded (0.01 s). Audit verification: HTTP 200. Ledger: HTTP 200.
 ## 11. How to read this
 
 A FAIL is a finding, not an error in the scripts: write what was changed (a setting, a model, a limit) and run the failing experiment again, keeping both runs. Targets and their reasons are in docs/65 section 2. Everything here used synthetic claims; real hospital paper, handwriting and Arabic documents are still untested.
+
+## 12. Review notes (added after the run)
+
+The 16-page report `docs/reports/ClaimGuard_Server_Report.pdf` explains the run. What the scoreboard above does not say:
+
+* **S6, "internal ports closed" = no (port 8080):** the scan went through Cloudflare, which answers on 8080 itself. On the server `ss -tlnp` shows only Caddy on 80 and 443. The scan therefore tested Cloudflare's edge; the server's own exposure (firewall, direct access by its address, encryption between Cloudflare and Caddy) is checked separately: docs/47, "Behind Cloudflare".
+* **S7, "no failing probe" = no:** the `signals` probe counts failed sign-ins and the test accounts produced several; it clears after about an hour. `timestamp` is "unknown" because no timestamp authority (`TSA_URL`) is set.
+* **S4, photos 50 %:** only Tesseract ran. The vision model (`baidu/Unlimited-OCR`, 88.1 % on photos on the build PC) was not part of the install, which only adds it when `CG_VLM_MODEL` is given. It does not fit on the 10 GB card beside the explanation model: docs/47, "The vision model".
+* **S0, API memory 90 % of its limit:** the API keeps claims in memory; it was killed at the old 768 MB limit with about 7,000 queued claims and reached 2.77 GiB with about 8,500. The limit is now 3 GB as a stopgap; the growth is being investigated.
+* **S0, GPU 77 %:** vLLM reserves 85 % of the card (the value that worked; 0.55 did not start), so the 77 % is not free room.
+* **S0, sampling:** the memory timeline has no samples between about minute 70 and 115, so the memory-growth criterion (under 100 MiB an hour) is not verified by this run.
+* **S5, "0 lost":** counted as the queue total before and after, not claim by claim; a loss could be hidden by a claim that was refused to the client yet stored. The old read-back could not see queued claims at all (see the correction in `s05_resilience.py`).
+* **Raw files:** `outputs/` is not committed by design (`.gitignore`); the figures and this chapter are the record. The first `report.md` in the run folder was an early partial and was removed.
