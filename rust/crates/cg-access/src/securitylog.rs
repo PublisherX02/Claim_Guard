@@ -104,14 +104,16 @@ impl SecurityLog {
         if !self.path.exists() {
             return Ok(vec![]);
         }
+        // one row at a time: the log grows with every event, and only the last `max_rows` are kept
         let mut recent: VecDeque<Value> = VecDeque::new();
-        for line in cg_audit::read_rows(&self.path)? {
-            let row: Value = serde_json::from_str(&line).map_err(|e| AuditError::Invalid(e.to_string()))?;
+        cg_audit::for_each_row(&self.path, |line| {
+            let row: Value = serde_json::from_str(line).map_err(|e| AuditError::Invalid(e.to_string()))?;
             if recent.len() == max_rows {
                 recent.pop_front();
             }
             recent.push_back(json!({"sequence": row["sequence"], "recorded_at": row["recorded_at"], "event": row["event"]}));
-        }
+            Ok(())
+        })?;
         Ok(recent.into_iter().collect())
     }
 
