@@ -23,6 +23,7 @@ A new page, **Queue > Data center** (`#/board`), for anyone holding `queue.view`
 * **unprocessed**: a claim not yet decided when the numbers are read, whenever it arrived (the backlog). Received through awaiting-countersign count.
 * **violated**: a rule whose result on a received claim is FAIL. UNABLE_TO_ASSESS is counted on its own.
 * an operator's **claims**: distinct claims on which that badge recorded a decision inside the window. The system's own automatic request-for-information is never credited to a person.
+* decisions are counted when they go through the queue (the console's route, `POST /work/claims/{id}/findings/{rule}/decision`). A decision made through the direct reviewer route (`POST /claims/{id}/findings/{rule}/decision`, which bypasses the queue) is audited but is not in these numbers.
 * **claims per hour**: claims decided divided by the hours between the operator's first and last decision, at least one hour.
 
 ### Endpoints (Rust server, `cg-api`; arithmetic in `cg-queue/src/stats.rs`)
@@ -50,4 +51,11 @@ See section 4 of the pull request. The Rust arithmetic has unit tests in `stats.
 
 * No per-user layout on the server (see above).
 * The Python server has no stats or report route.
-* The draggable layout was driven in Chrome against the local demo with scripted pointer and keyboard events (drag across columns, arrow keys, saved after a reload, Reset layout). It was **not** tried with a real touch screen or by eye at phone width: screenshots of the browser timed out in the test session.
+* The draggable layout was driven in Chrome against the local demo with scripted pointer and keyboard events (drag across columns, arrow keys, saved after a reload, Reset layout). It was **not** tried with a real touch screen.
+
+## 5. Re-run after the release (v1.1.0 build, 2026-10-31)
+
+* `rust/tools/console_review.py` (a real Chrome, every demo role, every page it may see, desktop 1440 px and phone 390 px, claim opened in the work view; fails on console errors, HTTP errors, uncaught exceptions, sideways scroll) now also opens `#/board`: **0 issues**, 42 screenshots. The Data center was looked at in both widths (cards, bars and the line chart fit at 390 px; the tab strip scrolls sideways inside itself).
+* `rust/tools/pentest.py` (black box, real sockets, own demo instance) with the two new routes listed as administrator-only: **125 checks, 0 failed**.
+* CI on the merged main: build, Python 3.10/3.12/3.14, rules accuracy, Rust tests and `cargo audit`, security: all green.
+* End to end on the demo: one operator confirmed the findings of 2 inbox claims through the queue route; the board then read processed 2 (by a person 2), unprocessed 60 to 58, that operator 2 claims / 2 confirmed, inbox 6 to 4, and the report download returned 200.

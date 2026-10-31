@@ -54,3 +54,7 @@ Numbers are those recorded in docs/45 sections 1 and 5; the script is `rust/tool
 - Latency was measured on one laptop, not on the target server, and throughput under load is unmeasured.
 - Document reading is evaluated on 240 synthetic documents only (docs/45); real paper, handwriting and Arabic are untested.
 - The advisory extension rules (E001-E103) are outside the official score.
+
+## Addendum: the v1.1.0 build (2026-10-31)
+
+`cargo test -j 2 --workspace --locked` on the v1.1.0 source: **463 passed, 0 failed, 1 ignored** (457 at v1.0.0; the six new tests cover the data-center arithmetic, permissions on the new routes, the audit of every report download and the absence of any patient identifier in the report). The black-box penetration test was re-run with the two new routes: 125 checks, 0 failed. The console review (every role, desktop and phone width, 0 issues) and the CI jobs are recorded in [docs/67](67_Admin_Data_Center_and_Movable_Panels.md) section 5. Accuracy, latency, fuzz and mutation figures above are unchanged and were not re-measured.
