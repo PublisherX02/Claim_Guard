@@ -323,6 +323,42 @@ fn the_dashboard_counts_the_pool_and_names_shortages() {
 }
 
 #[test]
+fn the_board_numbers_and_the_daily_report_follow_what_happened() {
+    let q = q();
+    let admin = q.p("CG-4004");
+    let id = q.ready("medium");
+    q.ready("high");
+    // `since` of 0 is clamped to the last 48 hours, which covers the test clock
+    let s = q.queue.stats(&admin, Some(0.0)).unwrap();
+    assert_eq!((s["claims"]["received"].as_i64(), s["claims"]["processed"].as_i64(), s["claims"]["unprocessed"].as_i64()), (Some(2), Some(0), Some(2)));
+    // a claim the queue holds for a person has at least one finding, either a failed rule or one the engine could not assess
+    assert!(s["rule_violations"]["total"].as_i64().unwrap() + s["rule_violations"]["unable_to_assess"].as_i64().unwrap() >= 2, "{}", s["rule_violations"]);
+    assert_eq!(s["operators"]["worked"], 0);
+    assert_eq!(s["operators"]["on_shift"], 5, "everyone on shift shows, even before their first decision");
+
+    q.lease_to(&id, "CG-2002");
+    let who = q.p("CG-2002");
+    for (rule, _) in q.flagged_rules(&id) {
+        q.queue.decide_finding(&who, &id, &rule, "confirm_issue", "checked the invoice").unwrap();
+    }
+    let s = q.queue.stats(&admin, Some(0.0)).unwrap();
+    assert_eq!((s["claims"]["processed"].as_i64(), s["claims"]["unprocessed"].as_i64()), (Some(1), Some(1)));
+    assert_eq!(s["operators"]["worked"], 1);
+    let op = s["operators"]["list"].as_array().unwrap().iter().find(|o| o["badge_id"] == "CG-2002").unwrap();
+    assert_eq!(op["claims_processed"], 1);
+    assert!(op["confirmed"].as_i64().unwrap() >= 1);
+
+    assert!(matches!(q.queue.stats(&who, None), Err(QueueError::Forbidden(_))), "only people who may see the queue read these numbers");
+    assert!(matches!(q.queue.daily_report(&who, None), Err(QueueError::Forbidden(_))));
+    let before = q.security_kinds().iter().filter(|k| *k == "queue_admin").count();
+    let r = q.queue.daily_report(&admin, Some(0.0)).unwrap();
+    assert_eq!((r["report"]["generated_by"].as_str(), r["report"]["format"].as_str()), (Some("CG-4004"), Some("claimguard-daily-report/1")));
+    assert_eq!(r["claims"]["processed"], 1);
+    assert_eq!(q.security_kinds().iter().filter(|k| *k == "queue_admin").count(), before + 1, "downloading the report is audited");
+    assert!(!r.to_string().contains("PAT-"), "the report holds counts and badges, no patient identifier");
+}
+
+#[test]
 fn configuration_changes_are_versioned_validated_conflict_checked_and_logged() {
     let q = q();
     let admin = q.p("CG-4004");

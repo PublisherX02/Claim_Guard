@@ -22,6 +22,7 @@ pub mod shadow;
 pub mod routing_config;
 pub mod service;
 pub mod states;
+pub mod stats;
 pub mod store;
 pub mod triage;
 pub mod workload;

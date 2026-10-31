@@ -1075,6 +1075,36 @@ impl QueueService {
         self.require(principal, "queue.view")?;
         Ok(feedback_report(&*self.store, 20, 0.5, 0.95))
     }
+
+    /// The live board's numbers (`stats.rs`) from `since` (the caller's start of day, clamped to the last 48 hours) until now.
+    pub fn stats(&self, principal: &Principal, since: Option<f64>) -> R<Value> {
+        self.require(principal, "queue.view")?;
+        Ok(self.stats_snapshot(since))
+    }
+
+    /// The daily report: the same numbers with who asked and when, written to the audit trail because it leaves the console as a file.
+    pub fn daily_report(&self, principal: &Principal, since: Option<f64>) -> R<Value> {
+        self.require(principal, "queue.view")?;
+        let mut report = self.stats_snapshot(since);
+        let (from, until) = (report["window"]["since"].as_f64().unwrap_or(0.0), report["window"]["until"].as_f64().unwrap_or(0.0));
+        self.access.record("queue_admin", json!({"actor": principal.badge(), "command": "daily_report_download", "since": from, "until": until}))?;
+        report["report"] = json!({"generated_at": until, "generated_by": principal.badge(), "format": "claimguard-daily-report/1"});
+        Ok(report)
+    }
+
+    fn stats_snapshot(&self, since: Option<f64>) -> Value {
+        const BIG: usize = 100_000;
+        let now = self.now();
+        let since = since.unwrap_or(now - now.rem_euclid(86_400.0)).clamp(now - 48.0 * 3600.0, now);
+        let docs: Vec<Value> = crate::states::STATES.iter().flat_map(|s| self.store.by_state(s, BIG).unwrap_or_default()).collect();
+        let cfg = self.routing_config();
+        let on_shift: Vec<crate::stats::OnShift> = (self.dispatcher.agents)()
+            .into_iter()
+            .filter(|a| a.active && cfg.on_shift.contains(&a.badge_id))
+            .map(|a| crate::stats::OnShift { inbox: self.store.inbox_load(&a.badge_id).map(|l| l.0).unwrap_or(0), badge: a.badge_id })
+            .collect();
+        crate::stats::build(&docs, &on_shift, since, now)
+    }
 }
 
 /// `audit.append`'s and `review_workflow.validate_decision`'s checks, on the fields the queue builds itself.

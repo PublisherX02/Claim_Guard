@@ -9,7 +9,7 @@
   // [route, label, permission (null: every signed-in person), icon]
   var NAV = [
     ['Work', [['#/home', 'Home', null, 'home'], ['#/inbox', 'My inbox', 'claims.decide', 'inbox'], ['#/claims', 'All claims', 'claims.view', 'list'], ['#/ask', 'Ask the rulebook', 'claims.view', 'book']]],
-    ['Queue', [['#/queue', 'Overview', 'queue.view', 'grid'], ['#/import', 'Import from files', 'routing.manage', 'upload'], ['#/submit', 'Submit claims', 'routing.manage', 'send'], ['#/batches', 'Batches', 'routing.manage', 'layers'], ['#/config', 'Routing settings', 'routing.manage', 'sliders'], ['#/rules', 'Payer rules', 'routing.manage', 'scale']]],
+    ['Queue', [['#/board', 'Data center', 'queue.view', 'pulse'], ['#/queue', 'Overview', 'queue.view', 'grid'], ['#/import', 'Import from files', 'routing.manage', 'upload'], ['#/submit', 'Submit claims', 'routing.manage', 'send'], ['#/batches', 'Batches', 'routing.manage', 'layers'], ['#/config', 'Routing settings', 'routing.manage', 'sliders'], ['#/rules', 'Payer rules', 'routing.manage', 'scale']]],
     ['Administration', [['#/health', 'System health', 'queue.view', 'pulse'], ['#/audit', 'Audit and traceability', 'audit.view', 'shield'], ['#/users', 'Users', 'users.manage', 'users']]],
     ['You', [['#/customize', 'Customize', null, 'palette'], ['#/brand', 'Brand', null, 'star']]]
   ];
@@ -213,6 +213,7 @@
     [/^#\/work\/(.+)$/, 'claims.decide', function (m, el) { CG.views.work(el, decodeURIComponent(m[1])); }, '#/inbox'],
     [/^#\/claims$/, 'claims.view', function (m, el) { CG.views.claims(el); }, '#/claims'],
     [/^#\/claim\/(.+)$/, 'claims.view', function (m, el) { CG.views.claim(el, decodeURIComponent(m[1])); }, '#/claims'],
+    [/^#\/board$/, 'queue.view', function (m, el) { CG.views.board(el); }, '#/board'],
     [/^#\/queue$/, 'queue.view', function (m, el) { CG.views.queue(el); }, '#/queue'],
     [/^#\/import$/, 'routing.manage', function (m, el) { CG.views.importClaims(el); }, '#/import'],
     [/^#\/submit$/, 'routing.manage', function (m, el) { CG.views.submit(el); }, '#/submit'],
