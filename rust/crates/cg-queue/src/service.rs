@@ -44,7 +44,7 @@ pub const CONFIRM_REASON: &str = "Confirmed: the finding matches the evidence.";
 /// Recorded on a finding confirmed in bulk after a light review. Such decisions are left out of the reliability evidence (`reliability::counted_decisions`).
 pub const BULK_REASON: &str = "Confirmed in bulk after a light review.";
 const LIGHT_TTL: f64 = 300.0;
-const CONFIG_FIELDS: [&str; 15] = ["points", "lane_b_flagged", "lane_b_score", "slice_size", "low_water", "lease_seconds", "aging_per_hour", "ai_per_minute", "ai_daily_budget", "on_shift", "exclusions", "auto_clear_green", "audit_percent", "bulk_confirm_skip_lower", "auto_request_info"];
+const CONFIG_FIELDS: [&str; 18] = ["points", "lane_b_flagged", "lane_b_score", "slice_size", "low_water", "lease_seconds", "aging_per_hour", "ai_per_minute", "ai_daily_budget", "on_shift", "exclusions", "auto_clear_green", "audit_percent", "bulk_confirm_skip_lower", "auto_request_info", "schedules", "bands", "utc_offset_minutes"];
 
 #[derive(Debug, thiserror::Error)]
 pub enum QueueError {
@@ -911,7 +911,7 @@ impl QueueService {
     pub fn dashboard_snapshot(&self) -> Value {
         let now = self.now();
         let cfg = self.routing_config();
-        let agents: Vec<Agent> = (self.dispatcher.agents)().into_iter().filter(|a| a.active && cfg.on_shift.contains(&a.badge_id)).collect();
+        let agents: Vec<Agent> = (self.dispatcher.agents)().into_iter().filter(|a| a.active && cfg.is_on_shift(&a.badge_id, now)).collect();
         let senior: Vec<&Agent> = agents.iter().filter(|a| a.permissions.contains("claims.decide_high")).collect();
         let junior: Vec<&Agent> = agents.iter().filter(|a| a.permissions.contains("claims.decide")).collect();
         let (mut oldest, mut waiting) = ([0.0_f64; 2], [0_i64; 2]);
@@ -1100,7 +1100,7 @@ impl QueueService {
         let cfg = self.routing_config();
         let on_shift: Vec<crate::stats::OnShift> = (self.dispatcher.agents)()
             .into_iter()
-            .filter(|a| a.active && cfg.on_shift.contains(&a.badge_id))
+            .filter(|a| a.active && cfg.is_on_shift(&a.badge_id, now))
             .map(|a| crate::stats::OnShift { inbox: self.store.inbox_load(&a.badge_id).map(|l| l.0).unwrap_or(0), badge: a.badge_id })
             .collect();
         crate::stats::build(&docs, &on_shift, since, now)

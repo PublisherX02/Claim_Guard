@@ -934,3 +934,20 @@ html, body { overflow-x: clip; }
 .layoutbar { display: flex; flex-wrap: wrap; gap: .5rem 1rem; align-items: center; justify-content: space-between; margin: .6rem 0; }
 .decisions > .sectionhead { margin-right: 2.4rem; }
 @media (prefers-reduced-motion: reduce) { .movable.dragging { box-shadow: none; } }
+
+/* operator bubbles on the routing settings page: press to put someone on shift; a ring marks someone inside their working hours */
+.bubbles { display: flex; flex-wrap: wrap; gap: .5rem; margin: .5rem 0 1rem; }
+.bubble { display: inline-flex; align-items: center; gap: .45rem; padding: .35rem .8rem; border-radius: 999px; border: 1px solid var(--line-strong); background: var(--surface); color: var(--text); font: inherit; cursor: pointer; min-height: 2.25rem; }
+.bubble:hover { background: var(--surface-2); }
+.bubble .dot { width: .6rem; height: .6rem; border-radius: 50%; background: var(--line-strong); }
+.bubble .tag { font-size: .7rem; font-weight: 650; padding: .02rem .4rem; border-radius: 999px; background: var(--surface-3); color: var(--muted); }
+.bubble[aria-pressed="true"] { background: var(--ok-soft); border-color: var(--ok); color: var(--text); }
+.bubble[aria-pressed="true"] .dot { background: var(--ok); }
+.bubble[aria-pressed="true"] .tag { background: var(--ok); color: var(--surface); }
+.bubble.auto { border-color: var(--info); box-shadow: 0 0 0 2px var(--info-soft); }
+.bubble.auto .dot { background: var(--info); }
+.bubble.small { padding: .15rem .65rem; min-height: 2rem; }
+.opset { border: 1px solid var(--line); border-radius: var(--radius-s); padding: .5rem .8rem; margin-bottom: .5rem; background: var(--surface); }
+.opset .opsum { margin-left: .6rem; color: var(--muted); }
+.opset .row { margin-top: .5rem; align-items: center; }
+.row.days { gap: .4rem; flex-wrap: wrap; }
