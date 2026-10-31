@@ -101,7 +101,7 @@ pub fn plan_deal(ready: &[Snap], agents: &[Agent], loads: &HashMap<String, (i64,
     if !agents.iter().all(|a| seen.insert(&a.badge_id)) {
         return Err("an agent appears twice".into());
     }
-    let considered: Vec<&Agent> = agents.iter().filter(|a| a.active && cfg.on_shift.contains(&a.badge_id)).collect();
+    let considered: Vec<&Agent> = agents.iter().filter(|a| a.active && cfg.is_on_shift(&a.badge_id, now)).collect();
     let load_of = |b: &str| loads.get(b).copied().unwrap_or((0, 0));
     let mut room: HashMap<&str, i64> = considered.iter().map(|a| (a.badge_id.as_str(), cfg.slice_size - load_of(&a.badge_id).0)).collect();
     if let Some(cap) = max_per_agent {
@@ -118,7 +118,7 @@ pub fn plan_deal(ready: &[Snap], agents: &[Agent], loads: &HashMap<String, (i64,
     let rank: HashMap<&str, usize> = pool.iter().enumerate().map(|(i, a)| (a.badge_id.as_str(), i)).collect();
     let mut out = vec![];
     for s in order {
-        let mut ok: Vec<&&Agent> = pool.iter().filter(|a| a.permissions.contains(needed(s)) && room[a.badge_id.as_str()] > 0 && !blocked(a, s)).collect();
+        let mut ok: Vec<&&Agent> = pool.iter().filter(|a| a.permissions.contains(needed(s)) && room[a.badge_id.as_str()] > 0 && !blocked(a, s) && cfg.takes(&a.badge_id, s.score)).collect();
         let fresh: Vec<&&Agent> = ok.iter().filter(|a| !s.avoid.contains(&a.badge_id)).copied().collect();
         if !fresh.is_empty() {
             ok = fresh;
@@ -190,7 +190,7 @@ impl Dispatcher {
         self.reclaim_ineligible(now);
         let cfg = self.routing_config();
         let agents: Vec<Agent> = (self.agents)().into_iter().filter(|a| only.map_or(true, |o| a.badge_id == o)).collect();
-        let mut considered: Vec<Agent> = agents.into_iter().filter(|a| a.active && cfg.on_shift.contains(&a.badge_id)).collect();
+        let mut considered: Vec<Agent> = agents.into_iter().filter(|a| a.active && cfg.is_on_shift(&a.badge_id, now)).collect();
         let loads: HashMap<String, (i64, i64)> = considered.iter().map(|a| (a.badge_id.clone(), self.store.inbox_load(&a.badge_id).unwrap_or((0, 0)))).collect();
         considered.retain(|a| loads[&a.badge_id].0 < cfg.slice_size && (full || loads[&a.badge_id].0 < cfg.low_water));
         let mut pool = self.store.by_state("ready", MAX_POOL).unwrap_or_default();
@@ -379,6 +379,26 @@ mod tests {
         }
         let with_load = HashMap::from([("S1".to_string(), (6, 12))]);
         assert!(plan_deal(&ready, &agents, &with_load, &cfg(&["J1", "S1"], 6), 1, 0.0, None).unwrap().iter().all(|t| t.1 != "S1"), "a full inbox gets nothing");
+    }
+
+    #[test]
+    fn a_scheduled_operator_is_dealt_claims_only_inside_working_hours_and_only_the_difficulty_they_chose() {
+        let monday_0930 = 1_793_611_800.0; // Monday 2026-11-02 09:30 UTC
+        let mut c = cfg(&[], 25);
+        c.schedules.insert("DAY".into(), crate::routing_config::Schedule { days: vec![0], start: 9 * 60, end: 17 * 60 });
+        c.schedules.insert("EASY".into(), crate::routing_config::Schedule { days: vec![0], start: 9 * 60, end: 17 * 60 });
+        c.bands.insert("EASY".into(), vec!["easy".into()]);
+        let agents = [agent("DAY", false), agent("EASY", false), agent("NIGHT", false)];
+        c.schedules.insert("NIGHT".into(), crate::routing_config::Schedule { days: vec![0], start: 20 * 60, end: 23 * 60 });
+        let ready: Vec<Snap> = [2, 6, 12, 2, 6, 12].iter().enumerate().map(|(i, sc)| snap(&format!("C{i}"), *sc, false)).collect();
+        let plan = plan_deal(&ready, &agents, &HashMap::new(), &c, 5, monday_0930, None).unwrap();
+        assert_eq!(plan.len(), 6, "every claim is dealt to someone who is working");
+        assert!(plan.iter().all(|t| t.1 != "NIGHT"), "outside the working hours nothing is dealt");
+        for (id, badge, _) in &plan {
+            let score = ready.iter().find(|r| &r.claim_id == id).unwrap().score;
+            assert!(badge != "EASY" || score < 5, "{id} (score {score}) went to an operator who chose easy claims only");
+        }
+        assert!(plan_deal(&ready, &agents, &HashMap::new(), &c, 5, monday_0930 + 11.0 * 3600.0, None).unwrap().iter().all(|t| t.1 == "NIGHT"), "at 20:30 only the night operator is working");
     }
 
     #[test]

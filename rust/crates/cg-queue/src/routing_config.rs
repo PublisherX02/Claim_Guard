@@ -7,12 +7,70 @@ use serde_json::{json, Map, Value};
 
 pub const STATUSES: [&str; 2] = ["FAIL", "UNABLE_TO_ASSESS"];
 pub const SEVERITIES: [&str; 2] = ["high", "medium"];
-const NAMES: [&str; 23] = [
+const NAMES: [&str; 26] = [
     "version", "points", "lane_b_flagged", "lane_b_score", "slice_size", "low_water", "lease_seconds", "aging_per_hour", "ai_per_minute", "ai_daily_budget", "on_shift", "exclusions",
     "learn_enabled", "route_by_reliability", "reliability_min_decisions", "reliability_min_reviewers", "reliability_reviewer_cap", "doubtful_below", "uncertainty_weight",
-    "auto_clear_green", "audit_percent", "bulk_confirm_skip_lower", "auto_request_info",
+    "auto_clear_green", "audit_percent", "bulk_confirm_skip_lower", "auto_request_info", "schedules", "bands", "utc_offset_minutes",
 ];
 pub const REQUEST_SCOPES: [&str; 3] = ["off", "medium", "all"];
+/// How hard a claim is, from its triage score: `easy` is below half of `lane_b_score`, `hard` is `lane_b_score` or more, `standard` is between.
+pub const BANDS: [&str; 3] = ["easy", "standard", "hard"];
+
+/// The weekly working hours of one operator. Inside them the dispatcher treats the operator as on shift without anyone listing the badge.
+/// `days` are 0 (Monday) to 6 (Sunday), `start` and `end` minutes after midnight in the configured local time. `start > end` is a shift that
+/// runs past midnight: it belongs to the day it starts on.
+#[derive(Debug, Clone, PartialEq)]
+pub struct Schedule {
+    pub days: Vec<u8>,
+    pub start: u16,
+    pub end: u16,
+}
+
+impl Schedule {
+    fn active(&self, weekday: u8, minute: u16) -> bool {
+        if self.start < self.end {
+            self.days.contains(&weekday) && minute >= self.start && minute < self.end
+        } else {
+            (self.days.contains(&weekday) && minute >= self.start) || (self.days.contains(&((weekday + 6) % 7)) && minute < self.end)
+        }
+    }
+
+    fn to_doc(&self) -> Value {
+        json!({"days": self.days, "start": hhmm(self.start), "end": hhmm(self.end)})
+    }
+
+    fn from_doc(badge: &str, v: &Value) -> Result<Schedule, String> {
+        let bad = || format!("the schedule of {badge} needs days (0 to 6), a start and an end time as HH:MM");
+        let o = v.as_object().filter(|o| o.len() == 3).ok_or_else(bad)?;
+        let mut days: Vec<u8> = vec![];
+        for d in o.get("days").and_then(Value::as_array).ok_or_else(bad)? {
+            let d = d.as_u64().filter(|d| *d <= 6).ok_or_else(bad)? as u8;
+            if !days.contains(&d) {
+                days.push(d);
+            }
+        }
+        days.sort();
+        let (start, end) = (parse_hhmm(o.get("start").ok_or_else(bad)?).ok_or_else(bad)?, parse_hhmm(o.get("end").ok_or_else(bad)?).ok_or_else(bad)?);
+        if days.is_empty() || start == end {
+            return Err(format!("the schedule of {badge} needs at least one day and a start different from the end"));
+        }
+        Ok(Schedule { days, start, end })
+    }
+}
+
+fn hhmm(m: u16) -> String {
+    format!("{:02}:{:02}", m / 60, m % 60)
+}
+
+fn parse_hhmm(v: &Value) -> Option<u16> {
+    let s = v.as_str()?;
+    let (h, m) = s.split_once(':')?;
+    if h.len() != 2 || m.len() != 2 {
+        return None;
+    }
+    let (h, m): (u16, u16) = (h.parse().ok()?, m.parse().ok()?);
+    (h < 24 && m < 60).then_some(h * 60 + m)
+}
 
 /// Points per flagged finding: `[status][severity]`, statuses in `STATUSES` order, severities in `SEVERITIES` order.
 #[derive(Debug, Clone, PartialEq)]
@@ -76,6 +134,34 @@ pub struct RoutingConfig {
     /// Findings that only say data is missing (UNABLE_TO_ASSESS): the system records the request for information itself, so a person does not have to.
     /// "off", "medium" (medium-severity findings only) or "all". The random audit sample (`audit_percent`) is still handled by a person.
     pub auto_request_info: String,
+    /// Working hours per badge. An operator inside their hours is on shift in addition to the badges listed in `on_shift`.
+    pub schedules: std::collections::BTreeMap<String, Schedule>,
+    /// The kinds of claim (`BANDS`) a badge is dealt. A badge not listed here gets everything.
+    pub bands: std::collections::BTreeMap<String, Vec<String>>,
+    /// Minutes east of UTC that `schedules` are read in (the administrator's browser sets it when saving).
+    pub utc_offset_minutes: i64,
+}
+
+impl RoutingConfig {
+    /// On shift now: listed by hand, or inside the badge's working hours.
+    pub fn is_on_shift(&self, badge: &str, now: f64) -> bool {
+        if self.on_shift.iter().any(|b| b == badge) {
+            return true;
+        }
+        let Some(s) = self.schedules.get(badge) else { return false };
+        let local = now as i64 + self.utc_offset_minutes * 60;
+        let (days, secs) = (local.div_euclid(86400), local.rem_euclid(86400));
+        s.active(((days + 3).rem_euclid(7)) as u8, (secs / 60) as u16) // 1970-01-01 was a Thursday
+    }
+
+    pub fn band_of(&self, score: i64) -> &'static str {
+        if score >= self.lane_b_score { "hard" } else if score * 2 >= self.lane_b_score { "standard" } else { "easy" }
+    }
+
+    /// Whether this badge may be dealt a claim with this score.
+    pub fn takes(&self, badge: &str, score: i64) -> bool {
+        self.bands.get(badge).is_none_or(|b| b.iter().any(|x| x == self.band_of(score)))
+    }
 }
 
 impl Default for RoutingConfig {
@@ -104,6 +190,9 @@ impl Default for RoutingConfig {
             audit_percent: 5,
             bulk_confirm_skip_lower: 0.0,
             auto_request_info: "off".into(),
+            schedules: Default::default(),
+            bands: Default::default(),
+            utc_offset_minutes: 0,
         }
     }
 }
@@ -169,6 +258,22 @@ pub fn validate(c: &RoutingConfig) -> Result<(), String> {
     if !REQUEST_SCOPES.contains(&c.auto_request_info.as_str()) {
         return Err("auto_request_info must be off, medium or all".into());
     }
+    if c.schedules.len() > 1000 || c.bands.len() > 1000 {
+        return Err("too many schedules or difficulty settings".into());
+    }
+    if !(-840..=840).contains(&c.utc_offset_minutes) {
+        return Err("utc_offset_minutes must be a whole number from -840 to 840".into());
+    }
+    for (b, s) in &c.schedules {
+        if b.is_empty() || s.days.is_empty() || s.days.iter().any(|d| *d > 6) || s.start >= 1440 || s.end >= 1440 || s.start == s.end {
+            return Err(format!("the schedule of {b:?} is not valid"));
+        }
+    }
+    for (b, list) in &c.bands {
+        if b.is_empty() || list.is_empty() || list.iter().any(|x| !BANDS.contains(&x.as_str())) {
+            return Err(format!("the difficulty setting of {b:?} must list at least one of easy, standard, hard"));
+        }
+    }
     Ok(())
 }
 
@@ -181,7 +286,10 @@ pub fn to_doc(c: &RoutingConfig) -> Result<Value, String> {
         "learn_enabled": c.learn_enabled, "route_by_reliability": c.route_by_reliability, "reliability_min_decisions": c.reliability_min_decisions, "reliability_min_reviewers": c.reliability_min_reviewers,
         "reliability_reviewer_cap": c.reliability_reviewer_cap, "doubtful_below": c.doubtful_below, "uncertainty_weight": c.uncertainty_weight,
         "auto_clear_green": c.auto_clear_green, "audit_percent": c.audit_percent, "bulk_confirm_skip_lower": c.bulk_confirm_skip_lower,
-        "auto_request_info": c.auto_request_info}))
+        "auto_request_info": c.auto_request_info,
+        "schedules": c.schedules.iter().map(|(b, s)| (b.clone(), s.to_doc())).collect::<Map<_, _>>(),
+        "bands": c.bands.iter().map(|(b, l)| (b.clone(), json!(l))).collect::<Map<_, _>>(),
+        "utc_offset_minutes": c.utc_offset_minutes}))
 }
 
 /// Fields left out take their default; unknown fields are refused; the result is validated whole.
@@ -215,6 +323,24 @@ pub fn from_doc(doc: &Value) -> Result<RoutingConfig, String> {
     if let Some(v) = float("bulk_confirm_skip_lower")? { c.bulk_confirm_skip_lower = v; }
     if let Some(v) = obj.get("auto_request_info") {
         c.auto_request_info = v.as_str().filter(|s| REQUEST_SCOPES.contains(s)).ok_or("auto_request_info must be off, medium or all")?.to_string();
+    }
+    if let Some(v) = int("utc_offset_minutes", -840, 840)? { c.utc_offset_minutes = v; }
+    if let Some(v) = obj.get("schedules") {
+        let m = v.as_object().ok_or("schedules must be an object of badge to schedule")?;
+        c.schedules = m.iter().map(|(b, s)| Schedule::from_doc(b, s).map(|s| (b.clone(), s))).collect::<Result<_, _>>()?;
+    }
+    if let Some(v) = obj.get("bands") {
+        const MSG: &str = "bands must be an object of badge to a list of difficulties";
+        let m = v.as_object().ok_or(MSG)?;
+        c.bands = m
+            .iter()
+            .map(|(b, l)| {
+                let mut list: Vec<String> = l.as_array().ok_or(MSG)?.iter().map(|x| x.as_str().map(str::to_string).ok_or(MSG)).collect::<Result<_, _>>()?;
+                list.sort_by_key(|x| BANDS.iter().position(|y| y == x).unwrap_or(9));
+                list.dedup();
+                Ok((b.clone(), list))
+            })
+            .collect::<Result<_, String>>()?;
     }
     if let Some(v) = obj.get("on_shift") {
         c.on_shift = v.as_array().ok_or("on_shift must be a tuple of non-empty badge ids")?.iter().map(|b| b.as_str().map(str::to_string).ok_or("on_shift must be a tuple of non-empty badge ids")).collect::<Result<_, _>>()?;
@@ -287,6 +413,42 @@ mod tests {
         assert_eq!(from_doc(&json!({"auto_request_info": "medium"})).unwrap().auto_request_info, "medium");
         for bad in [json!({"auto_request_info": "high"}), json!({"auto_request_info": true}), json!({"auto_request_info": 1}), json!({"audit_percent": 0}), json!({"audit_percent": 101}), json!({"audit_percent": 2.5}), json!({"auto_clear_green": 1}), json!({"auto_clear_green": "yes"}),
                     json!({"bulk_confirm_skip_lower": 0.5}), json!({"bulk_confirm_skip_lower": 0.79}), json!({"bulk_confirm_skip_lower": 1.0}), json!({"bulk_confirm_skip_lower": -0.1}), json!({"bulk_confirm_skip_lower": "x"})] {
+            assert!(from_doc(&bad).is_err(), "{bad}");
+        }
+    }
+
+    #[test]
+    fn working_hours_put_an_operator_on_shift_by_themselves() {
+        // 2026-11-02 is a Monday; 09:30 UTC that day = 1793611800
+        let monday_0930 = 1_793_611_800.0;
+        let c = from_doc(&json!({"schedules": {"CG-1": {"days": [0, 1], "start": "09:00", "end": "17:00"}}, "on_shift": ["CG-9"]})).unwrap();
+        assert!(c.is_on_shift("CG-1", monday_0930) && c.is_on_shift("CG-9", monday_0930));
+        assert!(!c.is_on_shift("CG-1", monday_0930 + 8.0 * 3600.0), "after the end");
+        assert!(!c.is_on_shift("CG-1", monday_0930 + 2.0 * 86400.0), "Wednesday is not a working day");
+        assert!(!c.is_on_shift("CG-2", monday_0930), "nobody else is on shift");
+        let east = from_doc(&json!({"utc_offset_minutes": 60, "schedules": {"CG-1": {"days": [0], "start": "10:00", "end": "17:00"}}})).unwrap();
+        assert!(east.is_on_shift("CG-1", monday_0930), "09:30 UTC is 10:30 at UTC+1");
+        let night = from_doc(&json!({"schedules": {"CG-1": {"days": [0], "start": "22:00", "end": "06:00"}}})).unwrap();
+        assert!(night.is_on_shift("CG-1", monday_0930 + 13.0 * 3600.0), "Monday 22:30");
+        assert!(night.is_on_shift("CG-1", monday_0930 + 20.0 * 3600.0), "Tuesday 05:30 belongs to Monday's night shift");
+        assert!(!night.is_on_shift("CG-1", monday_0930), "Monday morning is before the night shift");
+        assert_eq!(from_doc(&to_doc(&c).unwrap()).unwrap(), c);
+        for bad in [json!({"schedules": {"a": {"days": [], "start": "09:00", "end": "17:00"}}}), json!({"schedules": {"a": {"days": [7], "start": "09:00", "end": "17:00"}}}),
+                    json!({"schedules": {"a": {"days": [1], "start": "9:00", "end": "17:00"}}}), json!({"schedules": {"a": {"days": [1], "start": "09:00", "end": "09:00"}}}),
+                    json!({"schedules": {"a": {"days": [1], "start": "24:00", "end": "09:00"}}}), json!({"utc_offset_minutes": 841}), json!({"schedules": []})] {
+            assert!(from_doc(&bad).is_err(), "{bad}");
+        }
+    }
+
+    #[test]
+    fn difficulty_settings_choose_which_claims_an_operator_is_dealt() {
+        let c = from_doc(&json!({"bands": {"CG-1": ["hard", "easy"], "CG-2": ["standard"]}})).unwrap();
+        assert_eq!(c.bands["CG-1"], vec!["easy", "hard"]);
+        assert_eq!((c.band_of(2), c.band_of(5), c.band_of(9), c.band_of(10)), ("easy", "standard", "standard", "hard"));
+        assert!(c.takes("CG-1", 12) && c.takes("CG-1", 2) && !c.takes("CG-1", 6));
+        assert!(c.takes("CG-2", 6) && !c.takes("CG-2", 2));
+        assert!(c.takes("CG-3", 99), "a badge without a setting gets everything");
+        for bad in [json!({"bands": {"a": []}}), json!({"bands": {"a": ["medium"]}}), json!({"bands": {"a": "easy"}}), json!({"bands": []})] {
             assert!(from_doc(&bad).is_err(), "{bad}");
         }
     }

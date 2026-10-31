@@ -82,10 +82,107 @@
   ];
   var POINTS = [['FAIL', 'high'], ['FAIL', 'medium'], ['UNABLE_TO_ASSESS', 'high'], ['UNABLE_TO_ASSESS', 'medium']];
 
+  var DAY_NAMES = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
+  var BAND_NAMES = [['easy', 'Easy'], ['standard', 'Standard'], ['hard', 'Hard']];
+  function canon(o) { return JSON.stringify(o, function (k, v) { if (v && typeof v === 'object' && !Array.isArray(v)) { var out = {}; Object.keys(v).sort().forEach(function (x) { out[x] = v[x]; }); return out; } return v; }); }
+  function toMin(t) { var m = /^(\d\d):(\d\d)$/.exec(t || ''); return m ? Number(m[1]) * 60 + Number(m[2]) : null; }
+  // the same rule as the server (`Schedule::active`), read in this browser's time, for the "working now" mark only
+  function workingNow(s) {
+    var n = new Date(), day = (n.getDay() + 6) % 7, m = n.getHours() * 60 + n.getMinutes(), a = toMin(s.start), b = toMin(s.end);
+    if (a === null || b === null || !s.days.length) return false;
+    if (a < b) return s.days.indexOf(day) >= 0 && m >= a && m < b;
+    return (s.days.indexOf(day) >= 0 && m >= a) || (s.days.indexOf((day + 6) % 7) >= 0 && m < b);
+  }
+  function scheduleText(s) {
+    if (!s) return 'No working hours: on shift only when switched on';
+    var d = s.days.slice().sort(), run = d.length > 1 && d[d.length - 1] - d[0] === d.length - 1;
+    return (run ? DAY_NAMES[d[0]] + ' to ' + DAY_NAMES[d[d.length - 1]] : d.map(function (x) { return DAY_NAMES[x]; }).join(', ')) + ', ' + s.start + ' to ' + s.end;
+  }
+  function bandText(list) { return !list || list.length === 3 ? 'all claims' : list.map(function (b) { return b; }).join(' + ') + ' claims'; }
+
+  // The operators as bubbles: press one to put that person on shift now. Each has working hours (they are on shift by themselves inside
+  // them) and the difficulty of the claims they get. The server does the dealing; this only edits the settings.
+  function operatorState(cfg, users) {
+    var onNow = {}, sched = JSON.parse(JSON.stringify(cfg.schedules || {})), bands = JSON.parse(JSON.stringify(cfg.bands || {})), open = {};
+    (cfg.on_shift || []).forEach(function (b) { onNow[b] = true; });
+    var people = users.filter(function (u) { return u.active && (u.level === 2 || u.level === 3); }).map(function (u) { return { badge: u.badge_id, name: u.name, level: u.level }; });
+    var known = {}; people.forEach(function (p) { known[p.badge] = true; });
+    Object.keys(onNow).concat(Object.keys(sched), Object.keys(bands)).forEach(function (b) { if (!known[b]) { known[b] = true; people.push({ badge: b, name: '(not an active reviewer)', level: 0 }); } });
+    var box;
+    function bandsOf(b) { return bands[b] || ['easy', 'standard', 'hard']; }
+    function draw(into) {
+      if (into) box = into;
+      CG.clear(box);
+      if (!people.length) { box.appendChild(h('p', { class: 'muted', text: 'There are no reviewers yet. Add people under Users.' })); return; }
+      box.appendChild(h('p', { class: 'muted small', text: 'Press a person to put them on shift now. Give someone working hours and they are on shift by themselves inside those hours, with nobody listing them.' }));
+      box.appendChild(h('div', { class: 'bubbles', role: 'group', 'aria-label': 'Reviewers' }, people.map(function (p) {
+        var auto = sched[p.badge] && workingNow(sched[p.badge]);
+        return h('button', { type: 'button', class: 'bubble' + (auto && !onNow[p.badge] ? ' auto' : ''), 'aria-pressed': onNow[p.badge] ? 'true' : 'false', title: p.name,
+          onclick: function () { if (onNow[p.badge]) delete onNow[p.badge]; else onNow[p.badge] = true; draw(); } },
+          h('span', { class: 'dot', 'aria-hidden': 'true' }), h('b', { class: 'mono', text: p.badge }), h('span', { class: 'small', text: p.name }),
+          onNow[p.badge] ? h('span', { class: 'tag', text: 'on shift' }) : (auto ? h('span', { class: 'tag', text: 'working hours' }) : null),
+          p.level === 3 ? h('span', { class: 'tag', text: 'senior' }) : null);
+      })));
+      box.appendChild(h('h3', { text: 'Working hours and claim difficulty, per person' }));
+      box.appendChild(h('p', { class: 'muted small', text: 'Times are read in this browser\'s time zone (UTC' + (-new Date().getTimezoneOffset() >= 0 ? '+' : '-') + Math.abs(-new Date().getTimezoneOffset() / 60) + '). Easy is a low triage score, hard is a claim in lane B or above, standard is in between.' }));
+      people.forEach(function (p) { box.appendChild(operatorRow(p)); });
+    }
+    function operatorRow(p) {
+      var s = sched[p.badge], d = h('details', { class: 'opset' });
+      if (open[p.badge]) d.open = true;
+      d.addEventListener('toggle', function () { open[p.badge] = d.open; });
+      d.appendChild(h('summary', null, h('b', { class: 'mono', text: p.badge }), ' ', h('span', { class: 'muted', text: p.name }), h('span', { class: 'small opsum', text: scheduleText(s) + ' · ' + bandText(bands[p.badge]) })));
+      var enable = h('input', { type: 'checkbox', 'aria-label': 'Working hours for ' + p.badge }); enable.checked = !!s;
+      enable.addEventListener('change', function () { if (enable.checked) sched[p.badge] = { days: [0, 1, 2, 3, 4], start: '09:00', end: '17:00' }; else delete sched[p.badge]; open[p.badge] = true; draw(); });
+      d.appendChild(h('label', { class: 'row' }, enable, h('span', { text: 'Automatic working hours' })));
+      if (s) {
+        d.appendChild(h('div', { class: 'row days', role: 'group', 'aria-label': 'Working days of ' + p.badge }, DAY_NAMES.map(function (n, i) {
+          return h('button', { type: 'button', class: 'bubble small', 'aria-pressed': s.days.indexOf(i) >= 0 ? 'true' : 'false', text: n, onclick: function () {
+            var at = s.days.indexOf(i); if (at >= 0) s.days.splice(at, 1); else s.days.push(i); s.days.sort(); open[p.badge] = true; draw(); } });
+        })));
+        var from = h('input', { type: 'time', value: s.start, 'aria-label': 'Start time of ' + p.badge }), to = h('input', { type: 'time', value: s.end, 'aria-label': 'End time of ' + p.badge });
+        from.addEventListener('change', function () { s.start = from.value; });
+        to.addEventListener('change', function () { s.end = to.value; });
+        d.appendChild(h('div', { class: 'row' }, h('label', { text: 'From' }), from, h('label', { text: 'to' }), to, h('span', { class: 'muted small', text: 'An end before the start is a night shift that runs past midnight.' })));
+      }
+      d.appendChild(h('div', { class: 'row days', role: 'group', 'aria-label': 'Claim difficulty for ' + p.badge }, h('span', { class: 'muted small', text: 'Gets:' }), BAND_NAMES.map(function (b) {
+        return h('button', { type: 'button', class: 'bubble small', 'aria-pressed': bandsOf(p.badge).indexOf(b[0]) >= 0 ? 'true' : 'false', text: b[1], onclick: function () {
+          var cur = bandsOf(p.badge).slice(), at = cur.indexOf(b[0]);
+          if (at >= 0) { if (cur.length === 1) { CG.toast('Pick at least one kind of claim.', 'bad'); return; } cur.splice(at, 1); } else cur.push(b[0]);
+          cur.sort(function (x, y) { return BAND_NAMES.map(function (n) { return n[0]; }).indexOf(x) - BAND_NAMES.map(function (n) { return n[0]; }).indexOf(y); });
+          if (cur.length === 3) delete bands[p.badge]; else bands[p.badge] = cur;
+          open[p.badge] = true; draw(); } });
+      })));
+      return d;
+    }
+    return {
+      draw: draw,
+      onShiftList: function () {
+        var out = (cfg.on_shift || []).filter(function (b) { return onNow[b]; });
+        people.forEach(function (p) { if (onNow[p.badge] && out.indexOf(p.badge) < 0) out.push(p.badge); });
+        return out;
+      },
+      schedules: function () {
+        var out = {}, bad = null;
+        Object.keys(sched).forEach(function (b) {
+          var s = sched[b];
+          if (!s.days.length) bad = b + ' needs at least one working day (or switch the working hours off).';
+          else if (toMin(s.start) === null || toMin(s.end) === null) bad = b + ' needs a start and an end time.';
+          else if (s.start === s.end) bad = 'The start and end time of ' + b + ' must differ.';
+          out[b] = { days: s.days.slice().sort(), start: s.start, end: s.end };
+        });
+        if (bad) { CG.toast(bad, 'bad'); return null; }
+        return out;
+      },
+      bands: function () { return JSON.parse(JSON.stringify(bands)); }
+    };
+  }
+
   CG.views.config = function (root) {
     root.appendChild(h('h1', { text: 'Routing settings' }));
     var body = h('div'); root.appendChild(body);
-    CG.api('GET', '/queue/config').then(function (d) {
+    Promise.all([CG.api('GET', '/queue/config'), CG.api('GET', '/users').then(function (u) { return u.users || []; }, function () { return []; })]).then(function (both) {
+      var d = both[0], users = both[1];
       var cfg = d.config, inputs = {}, pointInputs = {};
       var numberFields = NUMBERS.map(function (n) {
         inputs[n[0]] = h('input', { type: 'number', step: 'any', value: cfg[n[0]] });
@@ -96,7 +193,8 @@
         pointInputs[key] = h('input', { type: 'number', min: '0', step: '1', value: (cfg.points[p[0]] || {})[p[1]] });
         return h('div', { class: 'field' }, h('label', { text: p[0].replace(/_/g, ' ').toLowerCase() + ', ' + p[1] }), pointInputs[key]);
       });
-      var shift = h('textarea', { placeholder: 'One badge per line, e.g. CG-2002' }); shift.value = (cfg.on_shift || []).join('\n'); shift.rows = Math.max(3, (cfg.on_shift || []).length + 1);
+      var shiftBox = h('div');
+      var shiftState = operatorState(cfg, users);
       var excl = h('textarea', { placeholder: 'One pair per line: reviewer badge, patient id (that reviewer never gets that patient)' }); excl.value = (cfg.exclusions || []).map(function (p) { return p.join(', '); }).join('\n');
       var autoClear = h('input', { type: 'checkbox', id: 'auto-clear-green', 'aria-label': 'Clear clean claims automatically' }); autoClear.checked = !!cfg.auto_clear_green;
       var auditPct = h('input', { type: 'number', min: '1', max: '100', step: '1', value: cfg.audit_percent, 'aria-label': 'Percent of each batch that officers check' });
@@ -121,8 +219,14 @@
         var pts = JSON.parse(JSON.stringify(cfg.points)), pchanged = false;
         POINTS.forEach(function (p) { var v = Number(pointInputs[p[0] + '/' + p[1]].value); if (v !== pts[p[0]][p[1]]) { pts[p[0]][p[1]] = v; pchanged = true; } });
         if (pchanged) changes.points = pts;
-        var badges = shift.value.split('\n').map(function (s) { return s.trim(); }).filter(Boolean);
+        var badges = shiftState.onShiftList();
         if (JSON.stringify(badges) !== JSON.stringify(cfg.on_shift || [])) changes.on_shift = badges;
+        var sched = shiftState.schedules(), bandsNow = shiftState.bands();
+        if (sched === null) return;
+        var offset = -new Date().getTimezoneOffset();
+        if (canon(sched) !== canon(cfg.schedules || {})) changes.schedules = sched;
+        if (Object.keys(sched).length && offset !== (cfg.utc_offset_minutes || 0)) changes.utc_offset_minutes = offset;
+        if (canon(bandsNow) !== canon(cfg.bands || {})) changes.bands = bandsNow;
         var pairs = excl.value.split('\n').map(function (s) { return s.split(',').map(function (x) { return x.trim(); }); }).filter(function (p) { return p.length === 2 && p[0] && p[1]; });
         if (JSON.stringify(pairs) !== JSON.stringify(cfg.exclusions || [])) changes.exclusions = pairs;
         for (k in changes) if (Object.prototype.hasOwnProperty.call(changes, k)) break;
@@ -131,7 +235,8 @@
         CG.api('PATCH', '/queue/config', changes).then(function (r) { CG.toast('Saved as version ' + r.version + '.', 'good'); CG.clear(root); CG.views.config(root); }, CG.fail);
       } });
       body.appendChild(h('p', { class: 'muted', text: 'Version ' + d.stored_version + '. Every change is a new version in the audit trail. You set capacity and the formula here; you never assign a claim to a person.' }));
-      body.appendChild(h('div', { class: 'card' }, h('h2', { text: 'Who is on shift' }), h('div', { class: 'field' }, h('label', { text: 'Badges on shift' }), shift), h('div', { class: 'field' }, h('label', { text: 'Conflict-of-interest exclusions' }), excl)));
+      body.appendChild(h('div', { class: 'card' }, h('h2', { text: 'Who is on shift' }), shiftBox, h('div', { class: 'field' }, h('label', { text: 'Conflict-of-interest exclusions' }), excl)));
+      shiftState.draw(shiftBox);
       body.appendChild(h('div', { class: 'card' }, h('h2', { text: 'Clean claims and the audit sample' }),
         h('div', { class: 'field' }, h('label', { class: 'row' }, autoClear, h('span', { text: 'Clear clean claims automatically' })), h('div', { class: 'muted small', text: 'When on, the system clears the clean claims of a batch itself and officers check only a sample. When off, every claim goes to an officer.' })),
         h('div', { class: 'field' }, h('label', { text: 'Percent of each batch that officers check' }), auditPct, h('div', { class: 'muted small', text: 'At least one claim per batch. One wrong claim found in the sample holds the whole batch for the administrator.' }))));
