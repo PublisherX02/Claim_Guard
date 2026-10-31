@@ -646,6 +646,8 @@ impl Api {
             ["work", "bulk-confirm"] if self.queue.is_some() => if m == "POST" { self.work_bulk_confirm(req) } else { Err(wrong()) },
             ["queue", "dashboard"] if self.queue.is_some() => if m == "GET" { self.q_dashboard(req) } else { Err(wrong()) },
             ["queue", "feedback"] if self.queue.is_some() => if m == "GET" { self.q_feedback(req) } else { Err(wrong()) },
+            ["queue", "stats"] if self.queue.is_some() => if m == "GET" { self.q_stats(req) } else { Err(wrong()) },
+            ["queue", "report"] if self.queue.is_some() => if m == "GET" { self.q_report(req) } else { Err(wrong()) },
             ["queue", "import", "file"] => if m == "POST" { self.import_file(req) } else { Err(wrong()) },
             ["queue", "import", "csv"] => if m == "POST" { self.import_csv(req) } else { Err(wrong()) },
             ["queue", "import", "validate"] => if m == "POST" { self.import_validate(req) } else { Err(wrong()) },
@@ -1250,6 +1252,25 @@ impl Api {
     fn q_dashboard(&self, req: &ApiRequest) -> R {
         let p = self.need(req, "queue.view")?;
         self.queue()?.dashboard(&p).map(|v| ApiResponse::json(200, &v)).map_err(|e| self.qerr(e, req, &p))
+    }
+
+    fn q_stats(&self, req: &ApiRequest) -> R {
+        let p = self.need(req, "queue.view")?;
+        let since = q_float(&query(req), "since")?;
+        self.queue()?.stats(&p, since).map(|v| ApiResponse::json(200, &v)).map_err(|e| self.qerr(e, req, &p))
+    }
+
+    /// The day's report as a file: the same numbers as the board, with a download name that carries the date.
+    fn q_report(&self, req: &ApiRequest) -> R {
+        let p = self.need(req, "queue.view")?;
+        let since = q_float(&query(req), "since")?;
+        let report = self.queue()?.daily_report(&p, since).map_err(|e| self.qerr(e, req, &p))?;
+        let day: String = cg_audit::iso_of(std::time::Duration::from_secs_f64(report["window"]["until"].as_f64().unwrap_or(0.0).max(0.0))).chars().take(10).collect();
+        let mut out = ApiResponse::json(200, &report);
+        out.body = serde_json::to_vec_pretty(&report).unwrap_or(out.body);
+        out.headers.push(("content-disposition".into(), format!("attachment; filename=\"claimguard-report-{day}.json\"")));
+        out.headers.push(("cache-control".into(), "no-store".into()));
+        Ok(out)
     }
 
     fn q_feedback(&self, req: &ApiRequest) -> R {

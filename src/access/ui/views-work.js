@@ -315,25 +315,28 @@
     }
     // two columns: what to decide on the left, the facts to decide it against on the right (stacked on narrow screens or by choice)
     var mainCol = h('div', { class: 'col' }), side = h('aside', { class: 'col', 'aria-label': 'Claim facts' });
+    var tag = CG.panels ? CG.panels.tag : function (el) { return el; };   // each part below can be dragged to where this person likes it (panels.js)
     var hitLines = [];
     flagged.forEach(function (f) { if (f.allowed_actions && f.allowed_actions.length) (f.affected_line_ids || []).forEach(function (l) { if (hitLines.indexOf(l) < 0) hitLines.push(l); }); });
 
-    if (ctx.mode === 'work' && view.allowed_actions && view.allowed_actions.indexOf('verify_clear') >= 0) mainCol.appendChild(greenActions(view, ctx, refresh));
+    if (ctx.mode === 'work' && view.allowed_actions && view.allowed_actions.indexOf('verify_clear') >= 0) mainCol.appendChild(tag(greenActions(view, ctx, refresh), 'green', 'Clear or escalate this claim'));
     var confirmable = flagged.filter(canConfirm);
     if (hotkeyOff) hotkeyOff();
     if (flagged.length) {
-      mainCol.appendChild(h('div', { class: 'sectionhead' }, h('h2', { text: flagged.length + ' flagged finding' + (flagged.length > 1 ? 's' : '') }),
+      var decisions = tag(h('div', { class: 'stack decisions' }), 'decisions', 'Flagged findings and your decision');
+      mainCol.appendChild(decisions);
+      decisions.appendChild(h('div', { class: 'sectionhead' }, h('h2', { text: flagged.length + ' flagged finding' + (flagged.length > 1 ? 's' : '') }),
         ctx.mode === 'work' && confirmable.length > 1 ? confirmAll(confirmable, ctx, refresh) : null));
       // open findings first, then the most severe, so the next thing to do is always at the top
       flagged.slice().sort(function (a, b) {
         var oa = a.allowed_actions && a.allowed_actions.length ? 0 : 1, ob = b.allowed_actions && b.allowed_actions.length ? 0 : 1;
         return oa - ob || (a.severity === 'high' ? 0 : 1) - (b.severity === 'high' ? 0 : 1) || (a.rule_id < b.rule_id ? -1 : 1);
-      }).forEach(function (f) { mainCol.appendChild(findingCard(f, ctx, refresh, view.claim)); });
+      }).forEach(function (f) { decisions.appendChild(findingCard(f, ctx, refresh, view.claim)); });
     }
-    mainCol.appendChild(linesCard(view.claim, hitLines));
-    if (fix) mainCol.appendChild(fix);
+    mainCol.appendChild(tag(linesCard(view.claim, hitLines), 'lines', 'Service lines'));
+    if (fix) mainCol.appendChild(tag(fix, 'fix', 'Fix suggestions'));
 
-    side.appendChild(claimFacts(view.claim));
+    side.appendChild(tag(claimFacts(view.claim), 'facts', 'Claim facts'));
     var passed = view.findings.filter(function (f) { return flagged.indexOf(f) < 0; });
     if (passed.length) {
       var pass = h('details', { class: 'card' }, h('summary', { text: passed.length + ' other rules (passed or not applicable)' }),
@@ -341,7 +344,7 @@
           return h('li', { title: f.explanation || '' }, CG.chip(f.status), ' ', h('span', { class: 'mono small', text: f.rule_id }), ' ', CG.ruleName(f.rule_id));
         })));
       if (CG.prefs.get('showPassed')) pass.open = true;
-      side.appendChild(pass);
+      side.appendChild(tag(pass, 'passed', 'Other rules'));
     }
     if (view.advisory && view.advisory.length) {
       var adv = view.advisory.filter(function (f) { return f.status === 'FAIL' || f.status === 'UNABLE_TO_ASSESS'; });
@@ -349,12 +352,14 @@
         adv.length ? CG.table([{ label: 'Rule', get: function (f) { return h('span', { title: CG.ruleName(f.rule_id), text: f.rule_id }); } }, { label: 'Status', get: function (f) { return CG.chip(f.status); } },
           { label: 'Why', get: function (f) { return f.explanation; } }], adv) : h('p', { class: 'muted', text: 'Nothing flagged.' }));
       if (adv.length) advBox.open = true;
-      side.appendChild(advBox);
+      side.appendChild(tag(advBox, 'advisory', 'Advisory checks'));
     }
-    if (hist) mainCol.appendChild(hist);      // under the lines: the table needs the width
-    else if (CG.has('claims.decide')) mainCol.appendChild(h('div', { class: 'card histcard' }, h('h2', { text: 'Patient history' }),
-      h('p', { class: 'muted', text: 'The patient’s other claims open from your inbox: only the reviewer holding a claim may look at them. Open this claim from My inbox to see them.' })));
-    root.appendChild(h('div', { class: 'worklayout' }, mainCol, side));
+    if (hist) mainCol.appendChild(tag(hist, 'history', 'Patient history'));      // under the lines: the table needs the width
+    else if (CG.has('claims.decide')) mainCol.appendChild(tag(h('div', { class: 'card histcard' }, h('h2', { text: 'Patient history' }),
+      h('p', { class: 'muted', text: 'The patient’s other claims open from your inbox: only the reviewer holding a claim may look at them. Open this claim from My inbox to see them.' })), 'history', 'Patient history'));
+    var layoutEl = h('div', { class: 'worklayout' }, mainCol, side);
+    root.appendChild(layoutEl);
+    if (CG.panels) CG.panels.enable(layoutEl, { main: mainCol, side: side });
   };
 
   // The patient's other claims, asked for on purpose: reading them is logged and only the holder of the claim may. No patient identifier is shown.
