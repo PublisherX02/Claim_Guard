@@ -23,6 +23,15 @@ MODEL="${CG_MODEL:-google/gemma-3-4b-it}"
 case "$MODE" in public) CADDYFILE=Caddyfile.public ;; internal) CADDYFILE=Caddyfile.internal ;; *) echo "mode must be public or internal"; exit 2 ;; esac
 command -v docker >/dev/null || { echo "docker is not installed"; exit 1; }
 docker compose version >/dev/null || { echo "the docker compose plugin is missing"; exit 1; }
+# A minimal server image may lack the small tools this script uses (the first server install stopped on a missing curl and openssl): say so before changing anything.
+for tool in openssl awk sed grep base64 head tr df; do
+  command -v "$tool" >/dev/null || { echo "'$tool' is not installed: on Debian or Ubuntu run  sudo apt-get install -y curl openssl coreutils gawk sed grep"; exit 1; }
+done
+# The images and the models need room: the first install on a 60 GB disk ran out of space while pulling images and had to be enlarged to 99 GB (docs/66).
+FREE_GB="$(df -Pk . | awk 'NR==2 { printf "%d", $4 / 1048576 }')"
+if { [ -n "$AI" ] || [ -n "$DOCS" ] || [ -n "$SEARCH" ]; } && [ "${FREE_GB:-0}" -lt 60 ]; then
+  echo "WARNING: only ${FREE_GB} GB free on this disk. With the model options plan for at least 100 GB in total (images, model weights, the build cache, the database); docs/47."
+fi
 
 secret() { openssl rand -base64 48 | tr -d '\n=' | tr '+/' '-_'; }
 if [ -e .env ]; then
@@ -69,15 +78,33 @@ else
   echo "wrote .env (readable by you only). Back it up somewhere safe: without these secrets the data cannot be read."
 fi
 
-COMPOSE="docker compose -f deploy/rust/compose.yml --env-file .env"
+FILES="-f deploy/rust/compose.yml"
 # GPU for the model server: only when the driver and the container toolkit are both there
 if command -v nvidia-smi >/dev/null && nvidia-smi >/dev/null 2>&1 && docker info 2>/dev/null | grep -qi nvidia; then
-  COMPOSE="docker compose -f deploy/rust/compose.yml -f deploy/rust/compose.gpu.yml --env-file .env"
+  FILES="$FILES -f deploy/rust/compose.gpu.yml"
   echo "GPU found: the model server will use it."
 else
-  { [ "$AI" = "ai" ] || [ "$DOCS" = "docs" ]; } && echo "WARNING: no NVIDIA GPU / container toolkit detected: the models will run on the CPU (slow). Install nvidia-container-toolkit, then re-run."
+  { [ "$AI" = "ai" ] || [ "$DOCS" = "docs" ]; } && echo "WARNING: no NVIDIA GPU / container toolkit detected: the models will run on the CPU (slow). Install nvidia-container-toolkit, then re-run. (In a Proxmox/LXC container see docs/47, 'GPU in a container'.)"
 fi
+# Site-specific changes (another GPU set-up, a container host, extra mounts) go in deploy/rust/compose.local.yml, which is not in the repository: an update
+# that replaces the repository files never overwrites it. The same for a proxy file: deploy/Caddyfile.local, selected with CADDYFILE=Caddyfile.local in .env (docs/47).
+if [ -f deploy/rust/compose.local.yml ]; then
+  FILES="$FILES -f deploy/rust/compose.local.yml"
+  echo "using deploy/rust/compose.local.yml"
+fi
+COMPOSE="docker compose $FILES --env-file .env"
 VLM_IN_ENV="$(grep '^VLLM_VLM_MODEL=' .env 2>/dev/null | cut -d= -f2- || true)"   # no match is normal (no vision model): without `|| true`, set -e -o pipefail ends the script here
+
+# Two model servers share one card: their shares of its memory must fit with room for the card's own use (a sum above 0.95 makes the second server fail to start).
+if [ "$AI" = "ai" ] && [ -n "$VLM_IN_ENV" ]; then
+  GU="$(grep '^VLLM_GPU_UTIL=' .env | cut -d= -f2- || true)"; GU="${GU:-0.85}"
+  VU="$(grep '^VLLM_VLM_GPU_UTIL=' .env | cut -d= -f2- || true)"; VU="${VU:-0.30}"
+  if awk -v a="$GU" -v b="$VU" 'BEGIN { exit !(a + b > 0.95) }'; then
+    echo "The explanation model (VLLM_GPU_UTIL=$GU) and the vision model (VLLM_VLM_GPU_UTIL=$VU) would need more than 95% of the card together."
+    echo "Lower one of them in .env, install without the vision model, or use a card with more memory. On an RTX 3080 (10 GB) the two did not fit side by side: docs/47."
+    exit 1
+  fi
+fi
 if [ "$DOCS" = "docs" ]; then
   COMPOSE="$COMPOSE --profile documents"
   [ -n "$VLM_IN_ENV" ] && COMPOSE="$COMPOSE --profile vision"   # the vision reader has its own vLLM server (one model per server)

@@ -12,3 +12,7 @@ backup/
 
 # raw output of the server experiments (docs/65); the committed record is docs/66 and docs/figures/server/
 outputs/server/
+
+# site-specific deployment files: never overwritten by an update, never committed (docs/47)
+deploy/rust/compose.local.yml
+deploy/Caddyfile.local

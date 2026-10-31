@@ -307,12 +307,15 @@ def build(run, data, samples, figs, rf, runinfo):
             L.append('Answer time of three read requests (seconds), idle before the load and right after it:\n\n' + table(['Request', 'Before p50', 'Before p95', 'After p50', 'After p95'], [[k, fmt(s2['responsive_before'].get(k, {}).get('p50'), 3), fmt(s2['responsive_before'].get(k, {}).get('p95'), 3), fmt(v.get('p50'), 3), fmt(v.get('p95'), 3) + (f" ({v['not_ok']} refused)" if v.get('not_ok') else '')] for k, v in s2['responsive_after'].items()]))
         if s2.get('soak'):
             L.append('Steady load (soak):\n\n' + figs.get('soak', '') + f"\n{len(s2['soak'])} minute(s), {sum(m['claims'] for m in s2['soak'])} claims, {sum(m['errors'] for m in s2['soak'])} failed batches.\n")
+            bad = [(m['minute'], e) for m in s2['soak'] for e in m.get('error_samples', [])]
+            if bad:
+                L.append('Failed batches (minute of the soak, what the server answered): ' + '; '.join(f"minute {k}: {e}" for k, e in bad[:8]) + '.\n')
     if rf.get('n'):
         L.append(f"## 5. S0. Resources during the run\n\n{rf['n']} samples over {rf['duration_s'] / 60:.0f} minutes (container memory and CPU from `docker stats`, GPU from `nvidia-smi`).\n")
         for k in ('gpu', 'mem', 'memtime'):
             L.append(figs.get(k, ''))
         if rf.get('peaks'):
-            L.append(table(['Container', 'Peak memory (MiB)', 'Limit (MiB)', 'Share of limit'], [[n, f"{v / 1024 ** 2:.0f}", f"{rf['limits'][n] / 1024 ** 2:.0f}" if rf['limits'][n] < 64 * GIB else 'none', fmt(v / rf['limits'][n] * 100, 0, ' %') if rf['limits'][n] < 64 * GIB else '-'] for n, v in sorted(rf['peaks'].items(), key=lambda kv: -kv[1])]))
+            L.append(table(['Container', 'Peak memory (MiB)', 'Limit (MiB)', 'Share of limit'], [[n, f"{v / 1024 ** 2:.0f}", f"{rf['limits'][n] / 1024 ** 2:.0f}" if 0 < rf['limits'][n] < 64 * GIB else 'none', fmt(v / rf['limits'][n] * 100, 0, ' %') if 0 < rf['limits'][n] < 64 * GIB else '-'] for n, v in sorted(rf['peaks'].items(), key=lambda kv: -kv[1])]))
         if rf.get('gpu'):
             g = rf['gpu']
             L.append(f"GPU peaks: memory {g['mem_peak_mib']:.0f} of {g['mem_total_mib']:.0f} MiB, utilisation {g['util_peak']:.0f} %, temperature {g['temp_peak']:.0f} C, power {g['power_peak']:.0f} W.\n")

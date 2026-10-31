@@ -28,6 +28,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
 OUT_ROOT = ROOT / 'outputs' / 'server'
+USER_AGENT = 'ClaimGuard-server-bench/1.0 (+docs/65)'   # Cloudflare answers error 1010 to the default Python one
 
 
 def totp(seed, at=None, digits=6, step=30):
@@ -101,7 +102,7 @@ class Api:
     def healthy(self):
         """True when GET /healthz answers 200 (no sign-in needed)."""
         try:
-            with urllib.request.urlopen(urllib.request.Request(self.base + '/healthz'), timeout=3, context=self.ctx) as r:
+            with urllib.request.urlopen(urllib.request.Request(self.base + '/healthz', headers={'user-agent': USER_AGENT}), timeout=3, context=self.ctx) as r:
                 return r.status == 200
         except (urllib.error.URLError, OSError, ValueError):
             return False
@@ -110,6 +111,7 @@ class Api:
         h = {'content-type': 'application/json'} if raw is None else {'content-type': 'application/octet-stream'}
         if auth and self.csrf and method not in ('GET', 'HEAD'):
             h['x-csrf-token'] = self.csrf
+        h['user-agent'] = USER_AGENT
         h.update(headers or {})
         data = raw if raw is not None else (json.dumps(body).encode() if body is not None else None)
         t0 = time.perf_counter()
