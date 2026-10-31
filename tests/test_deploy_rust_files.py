@@ -114,8 +114,16 @@ class RustCompose(unittest.TestCase):
         self.assertIn('--max-num-seqs "$$VLLM_MAX_SEQS"', self.svc['vllm'])
         self.assertRegex(self.svc['vllm'], r'VLLM_MAX_SEQS: \$\{CG_WORKER_CONCURRENCY:-4\}')   # the server's slots follow the worker's pool
         self.assertIn('VLLM_EXTRA_ARGS: ${VLLM_EXTRA_ARGS:---quantization fp8}', self.svc['vllm'])
-        gpu = float(re.search(r'VLLM_GPU_UTIL:-([0-9.]+)', self.svc['vllm']).group(1)) + float(re.search(r'VLLM_VLM_GPU_UTIL:-([0-9.]+)', self.svc['vllm-vision']).group(1))
-        self.assertLess(gpu, 1.0, 'the two servers share one card: their memory shares must stay below the whole card')
+        # The explanation model needed 0.85 of the RTX 3080 (10 GB) on the target server: at 0.55 vLLM stopped with "no memory for the KV cache" (docs/66). So the two
+        # defaults no longer fit one card together; what protects an install is the guard in install.sh (a sum above 0.95 is refused), which this test pins.
+        explain = float(re.search(r'VLLM_GPU_UTIL:-([0-9.]+)', self.svc['vllm']).group(1))
+        vision = float(re.search(r'VLLM_VLM_GPU_UTIL:-([0-9.]+)', self.svc['vllm-vision']).group(1))
+        self.assertLess(explain, 1.0)
+        self.assertLess(vision, 1.0)
+        install = (ROOT / 'deploy' / 'rust' / 'install.sh').read_text(encoding='utf-8')
+        self.assertIn('a + b > 0.95', install, 'the two servers share one card: install.sh must refuse shares that add up to more than 0.95')
+        self.assertIn('/tmp:size=4g,exec', self.svc['vllm'])         # vLLM compiles into /tmp, which Docker mounts noexec by default (docs/66)
+        self.assertIn('/tmp:size=4g,exec', self.svc['vllm-vision'])
 
     def test_the_model_servers_have_no_route_out_and_only_the_download_job_does(self):
         for name in ('vllm', 'vllm-vision'):
@@ -261,6 +269,36 @@ class RustInstall(unittest.TestCase):
         # the document reader is a Python image by design (docs/45); its health probe is the one allowed use
         self.assertNotIn('python', text.lower().replace('# ', ' ').replace('exec -t reader python -c', ''))
         self.assertNotIn('deploy/compose.yml', text.replace('deploy/rust/compose.yml', ''))
+
+
+class FirstServerInstallFixes(unittest.TestCase):
+    """Problems the first install on the target server found (docs/66), pinned so they do not come back."""
+
+    def test_the_embed_image_writes_refs_main_for_the_pinned_revision(self):
+        text = (ROOT / 'deploy' / 'embed' / 'Dockerfile').read_text(encoding='utf-8')
+        pinned = re.search(r"revision='([0-9a-f]{40})'", text).group(1)
+        # a download pinned to a commit hash leaves no refs/main, and with HF_HUB_OFFLINE=1 the model could not be found by name
+        self.assertIn(f"printf '%s' {pinned} > /opt/hf/hub/models--BAAI--bge-m3/refs/main", text)
+
+    def test_the_download_job_writes_refs_main_and_accepts_a_pin_per_model(self):
+        text = (ROOT / 'deploy' / 'rust' / 'fetch_model.py').read_text(encoding='utf-8')
+        self.assertIn('"refs"', text)
+        self.assertIn('entry.partition("@")', text)
+
+    def test_the_proxy_answers_a_visitor_who_arrives_by_ip_address(self):
+        self.assertIn('default_sni {$CG_SITE}', (ROOT / 'deploy' / 'Caddyfile.internal').read_text(encoding='utf-8'))
+
+    def test_the_api_and_worker_limit_is_not_the_old_768_mb(self):
+        text = (ROOT / 'deploy' / 'rust' / 'compose.yml').read_text(encoding='utf-8')
+        self.assertNotIn('mem_limit: 768m', text)
+        self.assertRegex(text, r'(?m)^  mem_limit: 3g')
+
+    def test_every_setting_compose_reads_is_in_the_env_example(self):
+        compose = (ROOT / 'deploy' / 'rust' / 'compose.yml').read_text(encoding='utf-8')
+        example = (ROOT / 'deploy' / 'env.production.example').read_text(encoding='utf-8')
+        used = set(re.findall(r'\$\{([A-Z][A-Z_0-9]+)[:?\-}]', compose))
+        listed = set(re.findall(r'(?m)^#?\s*([A-Z][A-Z_0-9]+)=', example))
+        self.assertEqual(sorted(used - listed), [], 'a setting that compose reads is missing from deploy/env.production.example')
 
 
 if __name__ == '__main__':

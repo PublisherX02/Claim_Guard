@@ -2,7 +2,8 @@
 stack with a route to the internet. The model servers themselves run offline (HF_HUB_OFFLINE=1) on networks with no route out.
 
 Environment: FETCH_MODELS (space-separated Hugging Face repo ids), HF_HOME (where the cache lives), HF_TOKEN (needed for a gated model such as
-Gemma: accept its licence on huggingface.co with the same account first), VLLM_MODEL_REVISION (optional commit hash that pins the first model).
+Gemma: accept its licence on huggingface.co with the same account first), VLLM_MODEL_REVISION (optional commit hash that pins the first model). Any entry of FETCH_MODELS may carry its own pin as repo@commit-hash
+(for example the vision model: baidu/Unlimited-OCR@<hash>); that wins over VLLM_MODEL_REVISION.
 Exit code 0 only if every model is complete on disk.
 """
 import os
@@ -22,10 +23,12 @@ def main() -> int:
         return 2
     token = os.environ.get("HF_TOKEN") or None
     revision = os.environ.get("VLLM_MODEL_REVISION") or None
-    for i, repo in enumerate(models):
-        print(f"downloading {repo}" + (f" at revision {revision}" if revision and i == 0 else "") + " ...", flush=True)
+    for i, entry in enumerate(models):
+        repo, _, pinned = entry.partition("@")
+        rev = pinned or (revision if i == 0 else None)
+        print(f"downloading {repo}" + (f" at revision {rev}" if rev else "") + " ...", flush=True)
         try:
-            path = snapshot_download(repo, revision=revision if i == 0 else None, token=token, allow_patterns=PATTERNS)
+            path = snapshot_download(repo, revision=rev, token=token, allow_patterns=PATTERNS)
         except GatedRepoError:
             print(f"{repo} is gated: accept its licence on huggingface.co with your account, then run again with HF_TOKEN set to a read token")
             return 1
@@ -35,6 +38,14 @@ def main() -> int:
         except HfHubHTTPError as e:
             print(f"the download of {repo} failed: {e}")
             return 1
+        # A download pinned to a commit hash writes no refs/main, and the offline model server then cannot find the model by name: write it.
+        snaps = os.path.dirname(path)
+        if os.path.basename(snaps) == "snapshots":
+            refs = os.path.join(os.path.dirname(snaps), "refs")
+            os.makedirs(refs, exist_ok=True)
+            if not os.path.exists(os.path.join(refs, "main")):
+                with open(os.path.join(refs, "main"), "w") as fh:
+                    fh.write(os.path.basename(path))
         files = [os.path.join(d, f) for d, _, fs in os.walk(path) for f in fs]
         weights = [f for f in files if f.endswith(".safetensors")]
         if not weights:

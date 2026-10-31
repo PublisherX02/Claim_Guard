@@ -40,7 +40,31 @@ class Load(threading.Thread):
             time.sleep(0.2)
 
 
+def queue_total(api, wait_s=120):
+    """Claims held by the queue, all states together (the dashboard's counts). Retries while the API is restarting. None if it cannot be read."""
+    end = time.time() + wait_s
+    while time.time() < end:
+        status, body, _ = api.call('GET', '/api/v1/queue/dashboard')
+        if status == 200 and isinstance(body, dict) and isinstance(body.get('counts'), dict):
+            return sum(int(v) for v in body['counts'].values())
+        time.sleep(2)
+    return None
+
+
+def preflight(api, pool):
+    """Prove that the dashboard total is a valid way to count: submit 5 claims in a calm system and see the total rise by exactly 5."""
+    a = queue_total(api)
+    batch = [fresh_claim(pool[i % len(pool)]) for i in range(5)]
+    status, _, _ = api.call('POST', '/api/v1/queue/submit', {'claims': batch})
+    time.sleep(5)
+    b = queue_total(api)
+    ok = status == 200 and a is not None and b is not None and b - a == 5
+    print(f'S5 preflight: submit {status}, queue total {a} -> {b} ({"counting works" if ok else "COUNTING DOES NOT WORK"})')
+    return ok
+
+
 def one(api, view, pool, compose, service):
+    before = queue_total(api)
     load = Load(api, pool)
     load.start()
     time.sleep(5)
@@ -59,14 +83,18 @@ def one(api, view, pool, compose, service):
     time.sleep(5)
     load.stop_flag.set()
     load.join(timeout=60)
-    lost = []
-    for cid in load.acked:
-        status, _, _ = view.call('GET', f'/api/v1/claims/{cid}')
-        if status != 200:
-            lost.append(cid)
+    # Read-back by counting: every claim acknowledged with HTTP 200 must be in the queue, so the total must have risen by at least that many.
+    # (The old check asked GET /api/v1/claims/<id>, which serves only the dataset loaded at start-up, never claims submitted to the queue.)
+    time.sleep(5)
+    after = queue_total(api)
+    if before is None or after is None:
+        missing = len(load.acked)          # could not count: report everything as unverified, never as fine
+    else:
+        missing = max(0, len(load.acked) - (after - before))
     return {'service': service, 'restart_command_ok': code == 0, 'restart_command_s': cmd_s,
             'unhealthy_s': (back_at - down_at) if down_at and back_at else 0.0, 'recovered': back_at is not None, 'sent': load.sent, 'acknowledged': len(load.acked),
-            'failed_during_restart': load.failed, 'acknowledged_but_missing': len(lost), 'missing_ids': lost[:10]}
+            'failed_during_restart': load.failed, 'acknowledged_but_missing': missing, 'missing_ids': [],
+            'queue_total_before': before, 'queue_total_after': after, 'method': 'dashboard count before and after (acknowledged claims must all be counted)'}
 
 
 def main():
@@ -81,6 +109,8 @@ def main():
         raise SystemExit('this restarts services; pass --yes-restart to confirm that nobody is working on the server')
     run, api, pool, view = Run(a.run, a.dry), Api().login(), load_claims(), Api(prefix='CG_VIEW_').login()
     rows = []
+    if not preflight(api, pool):
+        raise SystemExit('S5 stopped: the dashboard total did not rise by exactly the number of claims submitted, so a loss could not be measured reliably. Nothing was restarted.')
     for s in a.services.split(','):
         print(f'S5: restarting {s} under load')
         rows.append(one(api, view, pool, a.compose, s))

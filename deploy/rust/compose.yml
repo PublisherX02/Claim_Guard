@@ -72,7 +72,10 @@ x-app: &app
   cap_drop: [ALL]
   read_only: true
   tmpfs: [/tmp]
-  mem_limit: 768m         # measured at about 70 MB; a runaway cannot take the machine with it
+  # A runaway cannot take the machine with it. 768m was set from a measurement on an empty queue (about 70 MB) and is too low: on the target server the API was
+  # killed (exit 137, the site answered 502) at about 7,000 queued claims, and with 8,500 it reached 2.77 GiB (docs/66). 3g is a stopgap, not a sizing: memory
+  # still grows with the number of stored claims, which is being investigated. Watch `docker stats` and raise it before it passes 80 %.
+  mem_limit: 3g
   pids_limit: 256
   cpus: 2.0
 
@@ -202,7 +205,7 @@ services:
     mem_limit: 8g              # host memory only; the weights and the cache sit in the graphics card's memory
     pids_limit: 512
     shm_size: 2g
-    tmpfs: ["/tmp:size=2g"]    # compile and graph caches are rebuilt at every start; nothing persists here
+    tmpfs: ["/tmp:size=4g,exec"]   # compile and graph caches are rebuilt at every start; nothing persists here. Docker mounts a tmpfs noexec by default and vLLM compiles kernels into /tmp: without `exec` it failed to start on the target server (docs/66)
     environment:
       HOME: /tmp
       VLLM_CACHE_ROOT: /tmp/vllm-cache
@@ -211,7 +214,7 @@ services:
       VLLM_API_KEY: ${VLLM_API_KEY:?set VLLM_API_KEY in .env (install.sh generates one)}
       VLLM_MODEL: ${VLLM_MODEL:-google/gemma-3-4b-it}
       VLLM_MAX_LEN: ${VLLM_MAX_LEN:-2048}           # an explanation prompt is about 600 tokens and the answer at most 500; with ASK_LLM_PREFIX=1 use 8192 (the rulebook prefix is about 3,600)
-      VLLM_GPU_UTIL: ${VLLM_GPU_UTIL:-0.55}         # the share of the card's memory this server may take (the vision server below takes its own)
+      VLLM_GPU_UTIL: ${VLLM_GPU_UTIL:-0.85}         # the share of the card's memory this server may take. 0.85 is the value that worked on the target RTX 3080 (10 GB): at 0.55 vLLM stopped with "no memory for the KV cache" (docs/66). The vision server below takes its own share and the two must stay under 0.95 together: on a 10 GB card they do not fit side by side (docs/47)
       VLLM_MAX_SEQS: ${CG_WORKER_CONCURRENCY:-4}    # sequences decoded together: the same number as the worker's pool
       VLLM_EXTRA_ARGS: ${VLLM_EXTRA_ARGS:---quantization fp8}   # weight-only FP8 (an RTX 3080 is Ampere): halves the weights to fit the 10 GB card; set it to a space for a card with room
     entrypoint: ["/bin/sh", "-c"]
@@ -232,7 +235,7 @@ services:
     mem_limit: 8g
     pids_limit: 512
     shm_size: 2g
-    tmpfs: ["/tmp:size=2g"]
+    tmpfs: ["/tmp:size=4g,exec"]   # exec: see the explanation server above
     environment:
       HOME: /tmp
       VLLM_CACHE_ROOT: /tmp/vllm-cache
@@ -241,7 +244,7 @@ services:
       VLLM_API_KEY: ${VLLM_API_KEY:?set VLLM_API_KEY in .env (install.sh generates one)}
       VLLM_VLM_MODEL: ${VLLM_VLM_MODEL:-}   # set by install.sh ... docs with CG_VLM_MODEL; only used when the vision profile is on (compose reads every service, so it cannot be required here)
       VLLM_VLM_MAX_LEN: ${VLLM_VLM_MAX_LEN:-4096}
-      VLLM_VLM_GPU_UTIL: ${VLLM_VLM_GPU_UTIL:-0.30}   # 0.55 + 0.30 leaves 15% of the card free; the two must not add up to more than 1
+      VLLM_VLM_GPU_UTIL: ${VLLM_VLM_GPU_UTIL:-0.30}   # this plus VLLM_GPU_UTIL (default 0.85) must stay under 0.95, so on a 10 GB card lower the explanation server's share first, or run only one of them (install.sh refuses a sum above 0.95)
       VLLM_VLM_EXTRA_ARGS: ${VLLM_VLM_EXTRA_ARGS:- }
     entrypoint: ["/bin/sh", "-c"]
     command: ['exec vllm serve "$$VLLM_VLM_MODEL" --served-model-name "$$VLLM_VLM_MODEL" --api-key "$$VLLM_API_KEY" --host 0.0.0.0 --port 8000 --max-model-len "$$VLLM_VLM_MAX_LEN" --max-num-seqs 2 --gpu-memory-utilization "$$VLLM_VLM_GPU_UTIL" $$VLLM_VLM_EXTRA_ARGS']
