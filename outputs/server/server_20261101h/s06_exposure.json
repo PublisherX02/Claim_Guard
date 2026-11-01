@@ -1,0 +1,92 @@
+{
+ "experiment": "s06_exposure",
+ "finished": "2026-11-01T16:12:13Z",
+ "dry_run": false,
+ "host": "claimguard.kernelsi.com",
+ "ports": {
+  "27017": {
+   "service": "MongoDB",
+   "open": false
+  },
+  "6379": {
+   "service": "Redis",
+   "open": false
+  },
+  "8080": {
+   "service": "API",
+   "open": true
+  },
+  "8000": {
+   "service": "model server",
+   "open": false
+  },
+  "8091": {
+   "service": "embedding service",
+   "open": false
+  },
+  "8095": {
+   "service": "document reader",
+   "open": false
+  },
+  "11434": {
+   "service": "model server (Ollama)",
+   "open": false
+  },
+  "3000": {
+   "service": "app",
+   "open": false
+  },
+  "5432": {
+   "service": "database",
+   "open": false
+  },
+  "80": {
+   "service": "HTTP (redirect only)",
+   "open": true
+  },
+  "443": {
+   "service": "HTTPS",
+   "open": true
+  },
+  "22": {
+   "service": "SSH",
+   "open": false
+  }
+ },
+ "exposed_internal_ports": [
+  8080
+ ],
+ "tls": {
+  "negotiated": "TLSv1.3",
+  "subject": "kernelsi.com",
+  "issuer": "US Google Trust Services WE1",
+  "days_left": 83,
+  "old_protocols": {
+   "TLS1.0": "refused",
+   "TLS1.1": "refused"
+  }
+ },
+ "http_status_port_80": 301,
+ "https_status": 307,
+ "headers": {
+  "strict-transport-security": true,
+  "x-content-type-options": true,
+  "content-security-policy": true,
+  "framing_protected": true,
+  "no_server_version": true
+ },
+ "anonymous": {
+  "api_claims": 401,
+  "ops_health": 401
+ },
+ "checks": {
+  "internal_ports_closed": false,
+  "https_open": true,
+  "http_redirects_to_https": true,
+  "old_tls_refused": true,
+  "security_headers_present": true,
+  "anonymous_api_refused": true,
+  "anonymous_health_panel_refused": true,
+  "healthz_is_minimal": true
+ }
+}
