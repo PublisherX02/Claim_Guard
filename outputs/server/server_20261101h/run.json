@@ -1,0 +1,44 @@
+{
+ "run": "server_20261101h",
+ "dry_run": false,
+ "started": 1793546604.4529722,
+ "seconds": 2535.1821467876434,
+ "log": [
+  {
+   "experiment": "s01",
+   "exit_code": 0,
+   "seconds": 156.17994809150696,
+   "started_at": 1793546604.4529955
+  },
+  {
+   "experiment": "s02",
+   "exit_code": 0,
+   "seconds": 1921.575213432312,
+   "started_at": 1793546760.6330147
+  },
+  {
+   "experiment": "s03",
+   "exit_code": 0,
+   "seconds": 104.44120669364929,
+   "started_at": 1793548682.2082853
+  },
+  {
+   "experiment": "s04",
+   "exit_code": 0,
+   "seconds": 104.19889116287231,
+   "started_at": 1793548786.6495514
+  },
+  {
+   "experiment": "s07",
+   "exit_code": 0,
+   "seconds": 2.7606241703033447,
+   "started_at": 1793548890.8485017
+  },
+  {
+   "experiment": "s05",
+   "exit_code": 0,
+   "seconds": 241.35303807258606,
+   "started_at": 1793548893.6091821
+  }
+ ]
+}

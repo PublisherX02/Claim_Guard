@@ -1,0 +1,94 @@
+{
+ "experiment": "s03_search",
+ "finished": "2026-11-01T15:59:46Z",
+ "dry_run": false,
+ "quality": {
+  "answerable": 26,
+  "hits": 24,
+  "hit_rate": 0.9230769230769231,
+  "off_topic": 5,
+  "refused": 4,
+  "refusal_rate": 0.8,
+  "misses": [
+   {
+    "q": "claim line without a service date",
+    "want": [
+     "rule R001"
+    ],
+    "status": 200,
+    "answered": true
+   },
+   {
+    "q": "how many days after the service can a claim be submitted",
+    "want": [
+     "rule R014",
+     "policy EDU-BASIC (table version 0)",
+     "policy EDU-PLUS (table version 0)"
+    ],
+    "status": 200,
+    "answered": true
+   }
+  ],
+  "reference": "docs/52 and docs/55: the numbers measured on the build PC"
+ },
+ "single_latency_s": {
+  "n": 26,
+  "mean": 3.3887858438269736,
+  "p50": 3.81952565186657,
+  "p95": 5.166537126642652,
+  "p99": 7.750369372428395,
+  "max": 8.602683225646615
+ },
+ "speed": [
+  {
+   "concurrency": 1,
+   "requests": 78,
+   "ok": 17,
+   "questions_per_second": 104.74307066053915,
+   "latency_s": {
+    "n": 17,
+    "mean": 0.0020674898782197166,
+    "p50": 0.0020135347731411457,
+    "p95": 0.002306280937045812,
+    "p99": 0.0026986234448850154,
+    "max": 0.002796709071844816
+   }
+  },
+  {
+   "concurrency": 2,
+   "requests": 78,
+   "ok": 0,
+   "questions_per_second": 0.0,
+   "latency_s": {
+    "n": 0
+   }
+  },
+  {
+   "concurrency": 4,
+   "requests": 78,
+   "ok": 0,
+   "questions_per_second": 0.0,
+   "latency_s": {
+    "n": 0
+   }
+  },
+  {
+   "concurrency": 8,
+   "requests": 78,
+   "ok": 0,
+   "questions_per_second": 0.0,
+   "latency_s": {
+    "n": 0
+   }
+  }
+ ],
+ "rate_limited_429": 295,
+ "statuses_first_pass": {
+  "200": 26
+ },
+ "checks": {
+  "hit_rate_at_least_0_9": true,
+  "all_off_topic_refused": false,
+  "not_rate_limited": false
+ }
+}
