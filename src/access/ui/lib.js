@@ -134,16 +134,36 @@
     (CG.state.streams || []).forEach(function (s) { s.close(); }); CG.state.streams = [];
   };
 
-  // ---- live updates: the server only says "changed" (no claim data); the page then re-reads through the usual routes. The timers stay as
-  // the fallback, so a proxy that buffers the stream, or a browser without EventSource, only makes the page slower to notice, never wrong.
+  // ---- live updates: the server only says "changed" (no claim data); the page then re-reads through the usual routes. A WebSocket is tried first
+  // (/api/v1/work/ws) and the event stream (/api/v1/work/events) is the fallback when the socket cannot be opened (a proxy that does not pass upgrades,
+  // an old browser). The timers stay as the last fallback, so a proxy that buffers the stream only makes the page slower to notice, never wrong.
   CG.live = function (topics, onChange) {
-    if (!window.EventSource) return;
-    var es = new EventSource('/api/v1/work/events?topics=' + encodeURIComponent(topics)), pending = null, seenHello = false;
+    var q = '?topics=' + encodeURIComponent(topics), pending = null, seenHello = false, stopped = false, sock = null, es = null;
     function poke() { if (!pending) pending = setTimeout(function () { pending = null; onChange(); }, 300); }
-    es.addEventListener('hello', function () { if (seenHello) poke(); seenHello = true; });   // after a reconnect, read once: changes during the gap were not announced
-    es.addEventListener('changed', poke);
-    es.addEventListener('end', function () { es.close(); });
-    (CG.state.streams = CG.state.streams || []).push({ close: function () { es.close(); if (pending) clearTimeout(pending); } });
+    function hello() { if (seenHello) poke(); seenHello = true; }   // after a reconnect, read once: changes during the gap were not announced
+    function startSse() {
+      if (stopped || !window.EventSource) return;
+      es = new EventSource('/api/v1/work/events' + q);
+      es.addEventListener('hello', hello);
+      es.addEventListener('changed', poke);
+      es.addEventListener('end', function () { es.close(); });
+    }
+    function startWs() {
+      if (stopped) return;
+      var ws, opened = false, ended = false;
+      try { ws = new WebSocket((location.protocol === 'https:' ? 'wss://' : 'ws://') + location.host + '/api/v1/work/ws' + q); } catch (e) { startSse(); return; }
+      sock = ws;
+      ws.onmessage = function (m) {
+        var ev = null; try { ev = JSON.parse(m.data).event; } catch (e) { return; }
+        if (ev === 'hello') { opened = true; hello(); } else if (ev === 'changed') poke(); else if (ev === 'end') ended = true;
+      };
+      ws.onclose = function () {
+        if (stopped || ended) return;
+        if (!opened) startSse(); else setTimeout(startWs, 1500);   // the server ends a socket after five minutes: open the next one
+      };
+    }
+    if (window.WebSocket) startWs(); else startSse();
+    (CG.state.streams = CG.state.streams || []).push({ close: function () { stopped = true; if (sock) sock.close(); if (es) es.close(); if (pending) clearTimeout(pending); } });
   };
 
   CG.has = function (perm) { return !!(CG.state.me && CG.state.me.permissions.indexOf(perm) >= 0); };
