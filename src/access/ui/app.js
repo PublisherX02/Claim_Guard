@@ -11,7 +11,7 @@
     ['Work', [['#/home', 'Home', null, 'home'], ['#/inbox', 'My inbox', 'claims.decide', 'inbox'], ['#/claims', 'All claims', 'claims.view', 'list'], ['#/ask', 'Ask the rulebook', 'claims.view', 'book']]],
     ['Queue', [['#/board', 'Data center', 'queue.view', 'pulse'], ['#/queue', 'Overview', 'queue.view', 'grid'], ['#/import', 'Import from files', 'routing.manage', 'upload'], ['#/submit', 'Submit claims', 'routing.manage', 'send'], ['#/batches', 'Batches', 'routing.manage', 'layers'], ['#/config', 'Routing settings', 'routing.manage', 'sliders'], ['#/rules', 'Payer rules', 'routing.manage', 'scale']]],
     ['Administration', [['#/health', 'System health', 'queue.view', 'pulse'], ['#/audit', 'Audit and traceability', 'audit.view', 'shield'], ['#/users', 'Users', 'users.manage', 'users']]],
-    ['You', [['#/customize', 'Customize', null, 'palette'], ['#/brand', 'Brand', null, 'star']]]
+    ['You', [['#/customize', 'Customize', null, 'palette'], ['#/brand', 'Brand', 'users.manage', 'star']]]
   ];
   var LEVELS = { 1: 'Viewer', 2: 'Reviewer', 3: 'Senior reviewer', 4: 'Administrator' };
   function allowed(perm) { return perm === null || CG.has(perm); }
@@ -215,7 +215,7 @@
   var ROUTES = [
     [/^#\/home$/, null, function (m, el) { CG.views.home(el); }, '#/home'],
     [/^#\/customize$/, null, function (m, el) { CG.views.customize(el); }, '#/customize'],
-    [/^#\/brand$/, null, function (m, el) { CG.views.brand(el); }, '#/brand'],
+    [/^#\/brand$/, 'users.manage', function (m, el) { CG.views.brand(el); }, '#/brand'],
     [/^#\/inbox$/, 'claims.decide', function (m, el) { CG.views.inbox(el); }, '#/inbox'],
     [/^#\/work\/(.+)$/, 'claims.decide', function (m, el) { CG.views.work(el, decodeURIComponent(m[1])); }, '#/inbox'],
     [/^#\/claims$/, 'claims.view', function (m, el) { CG.views.claims(el); }, '#/claims'],

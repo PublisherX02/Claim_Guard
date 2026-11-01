@@ -10,10 +10,20 @@
     var q = h('input', { type: 'text', maxlength: '300', placeholder: 'For example: which services need an authorization reference?', 'aria-label': 'Your question' });
     var go = h('button', { class: 'btn primary', type: 'button', text: 'Search the rulebook' });
     var out = h('div', { class: 'stack' });
+    var waiting = false;
+    // the answer can take a few seconds when the model has to read the facts first: show at once that the question was received, and after
+    // a few seconds say that it is still working, so the page never looks frozen
+    function busy(on) {
+      waiting = on; go.disabled = on; q.disabled = on; go.textContent = on ? 'Searching...' : 'Search the rulebook';
+    }
     function run() {
       var text = q.value.trim();
-      if (!text) return;
+      if (!text || waiting) return;
       CG.clear(out);
+      busy(true);
+      var status = CG.loading('Reading the rulebook...');
+      out.appendChild(status);
+      var slow = setTimeout(function () { status.lastChild.textContent = 'Still working. A question the model has to interpret can take several seconds.'; }, 4000);
       CG.api('GET', '/knowledge/search?q=' + encodeURIComponent(text)).then(function (r) {
         out.appendChild(h('div', { class: r.answered ? 'notice info' : 'notice warn', text: r.note + (r.answered ? ' Policy table version ' + r.table_version + '.' : '') }));
         if (r.fallback) out.appendChild(h('div', { class: 'notice warn', text: r.fallback }));
@@ -27,7 +37,7 @@
         (r.results || []).forEach(function (x) {
           out.appendChild(h('div', { class: 'card stack' }, h('div', { class: 'row' }, h('b', { text: x.source }), h('span', { class: 'small', text: x.kind })), h('p', { text: x.text })));
         });
-      }, CG.fail);
+      }).catch(CG.fail).then(function () { clearTimeout(slow); busy(false); if (status.parentNode) status.parentNode.removeChild(status); });
     }
     go.addEventListener('click', run);
     q.addEventListener('keydown', function (e) { if (e.key === 'Enter') run(); });

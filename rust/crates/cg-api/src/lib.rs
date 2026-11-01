@@ -489,7 +489,9 @@ impl Api {
             return reply(413, "payload_too_large");
         }
         if ["POST", "PUT", "PATCH"].contains(&req.method.as_str()) {
-            let has_body = cl.is_some_and(|v| v != "0") || req.headers.contains_key("transfer-encoding") || !req.body.is_empty();
+            // A proxy (Caddy behind Cloudflare) sends `Transfer-Encoding: chunked` even for a POST with nothing in it, as every button without a form does;
+            // the server has already decoded the chunks, so only a real body counts, not the header.
+            let has_body = cl.is_some_and(|v| v != "0") || !req.body.is_empty();
             let ctype = req.headers.get("content-type").map(|c| c.split(';').next().unwrap_or("").trim().to_lowercase()).unwrap_or_default();
             if has_body && ctype != "application/json" && req.path != IMPORT_FILE_PATH {
                 return reply(415, "unsupported_media_type");

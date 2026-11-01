@@ -172,10 +172,13 @@ class PersonalTemplates(unittest.TestCase):
         for level in ('1:', '2:', '3:', '4:'):
             self.assertRegex(text, r'CG\.PRESETS = \{[\s\S]*\b' + level)
 
-    def test_only_home_customize_and_brand_are_open_to_every_signed_in_person(self):
+    def test_only_home_and_customize_are_open_to_every_signed_in_person(self):
         text = (UI_DIR / 'app.js').read_text(encoding='utf-8')
         open_routes = re.findall(r"\[/\^#\\/(\w+)\$/, null,", text)
-        self.assertEqual(sorted(open_routes), ['brand', 'customize', 'home'])
+        self.assertEqual(sorted(open_routes), ['customize', 'home'])
+        # the Brand sheet is the identity guide for the people who run the system, not a page for reviewers: menu entry and route need the same permission
+        self.assertIn("['#/brand', 'Brand', 'users.manage', 'star']", text)
+        self.assertIn("[/^#\\/brand$/, 'users.manage',", text)
 
 
 class ReviewPageFixes(unittest.TestCase):
