@@ -8,9 +8,9 @@
       "scenario": "auto-clear only",
       "auto_request_info": "off",
       "claims_cleared_by_the_system": {
-        "mean": 158.05,
+        "mean": 158.4,
         "min": 148.0,
-        "max": 171.0
+        "max": 174.0
       },
       "claims_the_system_requested_information_for": {
         "mean": 0.0,
@@ -18,24 +18,24 @@
         "max": 0.0
       },
       "claims_decided_without_a_person": {
-        "mean": 158.05,
+        "mean": 158.4,
         "min": 148.0,
-        "max": 171.0
+        "max": 174.0
       },
       "percent_of_batch_without_a_person": {
-        "mean": 31.610000000000003,
+        "mean": 31.679999999999996,
         "min": 29.6,
-        "max": 34.2
+        "max": 34.8
       },
       "claims_a_person_still_handles": {
-        "mean": 341.95,
-        "min": 329.0,
+        "mean": 341.6,
+        "min": 326.0,
         "max": 352.0
       },
       "audit_sample_claims": {
-        "mean": 8.75,
+        "mean": 8.4,
         "min": 4.0,
-        "max": 17.0
+        "max": 12.0
       },
       "findings_in_the_batch": {
         "mean": 650.35,
@@ -67,34 +67,34 @@
       "scenario": "auto-clear + auto-request (medium severity)",
       "auto_request_info": "medium",
       "claims_cleared_by_the_system": {
-        "mean": 157.4,
-        "min": 144.0,
-        "max": 167.0
+        "mean": 158.3,
+        "min": 150.0,
+        "max": 169.0
       },
       "claims_the_system_requested_information_for": {
-        "mean": 12.15,
-        "min": 8.0,
+        "mean": 12.35,
+        "min": 9.0,
         "max": 15.0
       },
       "claims_decided_without_a_person": {
-        "mean": 169.55,
-        "min": 158.0,
-        "max": 181.0
+        "mean": 170.65,
+        "min": 162.0,
+        "max": 183.0
       },
       "percent_of_batch_without_a_person": {
-        "mean": 33.91,
-        "min": 31.6,
-        "max": 36.2
+        "mean": 34.13000000000001,
+        "min": 32.4,
+        "max": 36.6
       },
       "claims_a_person_still_handles": {
-        "mean": 330.45,
-        "min": 319.0,
-        "max": 342.0
+        "mean": 329.35,
+        "min": 317.0,
+        "max": 338.0
       },
       "audit_sample_claims": {
-        "mean": 12.2,
+        "mean": 10.75,
         "min": 7.0,
-        "max": 18.0
+        "max": 19.0
       },
       "findings_in_the_batch": {
         "mean": 650.35,
@@ -102,14 +102,14 @@
         "max": 681.0
       },
       "findings_a_person_still_decides": {
-        "mean": 539.45,
+        "mean": 538.15,
         "min": 523.0,
-        "max": 554.0
+        "max": 555.0
       },
       "findings_the_system_requested": {
-        "mean": 110.9,
-        "min": 97.0,
-        "max": 129.0
+        "mean": 112.2,
+        "min": 99.0,
+        "max": 128.0
       },
       "cleared_but_the_key_has_a_finding": {
         "mean": 0.0,
@@ -126,34 +126,34 @@
       "scenario": "auto-clear + auto-request (all severities)",
       "auto_request_info": "all",
       "claims_cleared_by_the_system": {
-        "mean": 159.05,
-        "min": 147.0,
-        "max": 169.0
+        "mean": 158.3,
+        "min": 149.0,
+        "max": 173.0
       },
       "claims_the_system_requested_information_for": {
-        "mean": 36.25,
+        "mean": 35.95,
         "min": 30.0,
-        "max": 41.0
+        "max": 44.0
       },
       "claims_decided_without_a_person": {
-        "mean": 195.3,
-        "min": 183.0,
-        "max": 206.0
+        "mean": 194.25,
+        "min": 185.0,
+        "max": 205.0
       },
       "percent_of_batch_without_a_person": {
-        "mean": 39.059999999999995,
-        "min": 36.6,
-        "max": 41.2
+        "mean": 38.85000000000001,
+        "min": 37.0,
+        "max": 41.0
       },
       "claims_a_person_still_handles": {
-        "mean": 304.7,
-        "min": 294.0,
-        "max": 317.0
+        "mean": 305.75,
+        "min": 295.0,
+        "max": 315.0
       },
       "audit_sample_claims": {
-        "mean": 12.5,
-        "min": 5.0,
-        "max": 18.0
+        "mean": 13.75,
+        "min": 6.0,
+        "max": 24.0
       },
       "findings_in_the_batch": {
         "mean": 650.35,
@@ -161,14 +161,14 @@
         "max": 681.0
       },
       "findings_a_person_still_decides": {
-        "mean": 397.15,
-        "min": 380.0,
-        "max": 417.0
+        "mean": 396.5,
+        "min": 376.0,
+        "max": 411.0
       },
       "findings_the_system_requested": {
-        "mean": 253.2,
-        "min": 227.0,
-        "max": 289.0
+        "mean": 253.85,
+        "min": 224.0,
+        "max": 280.0
       },
       "cleared_but_the_key_has_a_finding": {
         "mean": 0.0,
