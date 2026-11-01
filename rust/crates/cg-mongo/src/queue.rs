@@ -442,6 +442,24 @@ impl QueueStore for MongoQueueStore {
         Ok(())
     }
 
+    fn for_each_in_state_light(&self, state: &str, limit: usize, f: &mut dyn FnMut(Value)) -> Result<()> {
+        if limit == 0 {
+            return Ok(());
+        }
+        let cursor = self
+            .claims
+            .find(doc! {"state": state})
+            .projection(doc! {"_id": 0, "claim_id": 1, "version": 1, "state": 1, "state_at": 1, "escalated": 1, "signoff": 1, "receipt.eligibility": 1})
+            .sort(doc! {"state_at": 1, "claim_id": 1})
+            .limit(limit as i64)
+            .run()
+            .map_err(unavailable)?;
+        for row in cursor {
+            f(self.open(from_doc(&row.map_err(unavailable)?))?);
+        }
+        Ok(())
+    }
+
     fn counts(&self) -> Result<BTreeMap<String, i64>> {
         let rows = self
             .claims

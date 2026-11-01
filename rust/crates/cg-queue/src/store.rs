@@ -212,6 +212,12 @@ pub trait QueueStore: Send + Sync {
         }
         Ok(())
     }
+    /// `for_each_in_state` for a caller that needs only the queue's own bookkeeping fields (`claim_id`, `version`, `state_at`, `escalated`, `signoff`,
+    /// `receipt.eligibility`): the database sends and decrypts only those, not the claim, its findings or its other sealed fields, which is what made the
+    /// dashboard and health pages take seconds with thousands of stored claims (docs/66). Other fields may be missing from the documents handed to `f`.
+    fn for_each_in_state_light(&self, state: &str, limit: usize, f: &mut dyn FnMut(Doc)) -> Result<()> {
+        self.for_each_in_state(state, limit, f)
+    }
     fn counts(&self) -> Result<BTreeMap<String, i64>>;
     fn lease(&self, claim_id: &str, version: i64, badge_id: &str, now: f64, expires_at: f64) -> Result<Option<Doc>>;
     fn inbox(&self, badge_id: &str) -> Result<Vec<Doc>>;
