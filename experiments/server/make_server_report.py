@@ -174,7 +174,7 @@ def make_figures(fig, data, rf):
         out['memtime'] = fig.save(f, 'memory_timeline', 'Memory of all containers over time')
     s3 = data.get('s03_search')
     if s3 and fig.enabled:
-        sp = s3['speed']
+        sp = [x for x in s3['speed'] if str(x.get('mode', 'cold')).startswith('cold')]      # runs before the cold test have no mode and were repeats: they are drawn too
         f, axs = plt.subplots(1, 2, figsize=(9, 3.6))
         q = s3['quality']
         axs[0].bar(['questions\nanswered', 'off-topic\nrefused'], [q['hit_rate'] * 100, q['refusal_rate'] * 100], color=[GREEN, BLUE]); axs[0].set_ylim(0, 105); axs[0].set_ylabel('%')
@@ -326,7 +326,11 @@ def build(run, data, samples, figs, rf, runinfo):
     if s3 := data.get('s03_search'):
         q = s3['quality']
         L.append('## 6. S3. Ask the rulebook, by meaning\n\n' + figs.get('s3', '') + f"\n{q['hits']} of {q['answerable']} questions returned the right rule ({fmt(q['hit_rate'] * 100, 0, ' %')}); {q['refused']} of {q['off_topic']} off-topic strings were refused. Rate-limited answers (429): {s3['rate_limited_429']}. HTTP statuses of the quality pass: {json.dumps(s3.get('statuses_first_pass'))}.\n")
-        L.append(table(['Concurrent', 'Questions', 'Answered', 'Per second', 'Latency p50 (s)', 'Latency p95 (s)'], [[x['concurrency'], x['requests'], x['ok'], fmt(x['questions_per_second'], 1), fmt(x['latency_s'].get('p50'), 3), fmt(x['latency_s'].get('p95'), 3)] for x in s3['speed']]))
+        L.append(table(['Questions', 'Concurrent', 'Count', 'Answered', 'Per second', 'Latency p50 (s)', 'Latency p95 (s)', 'From cache'], [[x.get('mode', 'repeated (old run: answer cache)'), x['concurrency'], x['requests'], x['ok'], fmt(x['questions_per_second'], 1), fmt(x['latency_s'].get('p50'), 3), fmt(x['latency_s'].get('p95'), 3), (x.get('trace') or {}).get('cached_answers', '-')] for x in s3['speed']]))
+        for x in s3['speed']:
+            tr = x.get('trace') or {}
+            if tr.get('server_ms') and str(x.get('mode', '')).startswith('cold') and x['concurrency'] == 1:
+                L.append('Where the time goes on a new question (server side, milliseconds, median): ' + ', '.join(f"{k} {fmt(v.get('p50'), 0)}" for k, v in tr['server_ms'].items()) + f"; answered by tier {tr.get('tiers')}, planner {tr.get('planners')}, model-written answers {tr.get('written')}.\n")
         if q['misses']:
             L.append('Questions that missed: ' + '; '.join(f"\"{m['q']}\" (wanted {', '.join(m['want'])})" for m in q['misses'][:8]) + '.\n')
     if s4 := data.get('s04_documents'):
