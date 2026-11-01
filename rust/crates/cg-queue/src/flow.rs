@@ -378,9 +378,8 @@ pub fn reconcile(store: &dyn QueueStore, now: f64, actor: &str) -> Report {
     }
     let (mut listed, mut leased): (i64, std::collections::BTreeMap<String, Vec<Value>>) = (0, Default::default());
     for state in states::STATES {
-        let docs = store.by_state(state, BIG).unwrap_or_default();
-        listed += docs.len() as i64;
-        for d in docs {
+        let mut visit = |d: Value| {
+            listed += 1;
             let age = now - d["state_at"].as_f64().unwrap_or(0.0);
             match state {
                 "triaged" if age > 60.0 => add(&mut report, "stuck", Some(&d), false, json!({"state": state, "age_seconds": age})),
@@ -390,7 +389,7 @@ pub fn reconcile(store: &dyn QueueStore, now: f64, actor: &str) -> Report {
                 "leased" => {
                     if d["lease"].is_null() {
                         add(&mut report, "leased_without_a_lease", Some(&d), false, json!({}));
-                        continue;
+                        return;
                     }
                     leased.entry(d["claim_id"].as_str().unwrap_or("").to_string()).or_default().push(d.clone());
                     if d["lease"]["expires_at"].as_f64().unwrap_or(f64::MAX) <= now {
@@ -400,6 +399,12 @@ pub fn reconcile(store: &dyn QueueStore, now: f64, actor: &str) -> Report {
                 }
                 _ => {}
             }
+        };
+        // leases are read whole (few, and expiring one writes while it reads); every other state is streamed, so the audit never holds all claims at once
+        if state == "leased" {
+            store.by_state(state, BIG).unwrap_or_default().into_iter().for_each(&mut visit);
+        } else {
+            let _ = store.for_each_in_state(state, BIG, &mut visit);
         }
     }
     for docs in leased.values().filter(|d| d.len() > 1) {

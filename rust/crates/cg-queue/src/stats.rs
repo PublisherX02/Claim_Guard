@@ -49,6 +49,11 @@ fn hour_floor(t: f64) -> f64 {
 }
 
 pub fn build(docs: &[Value], on_shift: &[OnShift], since: f64, now: f64) -> Value {
+    build_streaming(|visit| docs.iter().for_each(|d| visit(d)), on_shift, since, now)
+}
+
+/// The same numbers from a source that hands over one claim at a time (`feed` calls `visit` for each), so the board never holds every claim at once.
+pub fn build_streaming(feed: impl FnOnce(&mut dyn FnMut(&Value)), on_shift: &[OnShift], since: f64, now: f64) -> Value {
     let (mut received, mut processed, mut auto_cleared, mut by_person) = (0_i64, 0_i64, 0_i64, 0_i64);
     let mut backlog: BTreeMap<&str, i64> = BACKLOG.iter().map(|s| (*s, 0)).collect();
     let (mut violations, mut unable) = (0_i64, 0_i64);
@@ -60,7 +65,7 @@ pub fn build(docs: &[Value], on_shift: &[OnShift], since: f64, now: f64) -> Valu
         let back = ((top - hour_floor(t)) / HOUR).round();
         (back >= 0.0 && (back as usize) < SERIES_HOURS).then(|| SERIES_HOURS - 1 - back as usize)
     };
-    for d in docs {
+    feed(&mut |d: &Value| {
         let state = d["state"].as_str().unwrap_or("");
         if let Some(n) = backlog.get_mut(state) {
             *n += 1;
@@ -124,7 +129,7 @@ pub fn build(docs: &[Value], on_shift: &[OnShift], since: f64, now: f64) -> Valu
                 _ => {}
             }
         }
-    }
+    });
     for s in on_shift {
         ops.entry(s.badge.clone()).or_default();
     }

@@ -430,6 +430,18 @@ impl QueueStore for MongoQueueStore {
         self.many(self.claims.find(doc! {"state": state}).sort(doc! {"state_at": 1, "claim_id": 1}).limit(limit as i64).run().map_err(unavailable)?)
     }
 
+    fn for_each_in_state(&self, state: &str, limit: usize, f: &mut dyn FnMut(Value)) -> Result<()> {
+        if limit == 0 {
+            return Ok(());
+        }
+        // the cursor is read one batch at a time: only the document in hand is held
+        let cursor = self.claims.find(doc! {"state": state}).sort(doc! {"state_at": 1, "claim_id": 1}).limit(limit as i64).run().map_err(unavailable)?;
+        for row in cursor {
+            f(self.open(from_doc(&row.map_err(unavailable)?))?);
+        }
+        Ok(())
+    }
+
     fn counts(&self) -> Result<BTreeMap<String, i64>> {
         let rows = self
             .claims
