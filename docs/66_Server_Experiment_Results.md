@@ -220,3 +220,8 @@ The 16-page report `docs/reports/ClaimGuard_Server_Report.pdf` explains the run.
 * **S0, sampling:** the memory timeline has no samples between about minute 70 and 115, so the memory-growth criterion (under 100 MiB an hour) is not verified by this run.
 * **S5, "0 lost":** counted as the queue total before and after, not claim by claim; a loss could be hidden by a claim that was refused to the client yet stored. The old read-back could not see queued claims at all (see the correction in `s05_resilience.py`).
 * **Raw files:** `outputs/` is not committed by design (`.gitignore`); the figures and this chapter are the record. The first `report.md` in the run folder was an early partial and was removed.
+
+## Found after go-live (1 November 2026)
+* **Buttons answered "Request failed (unsupported_media_type)".** Every console button that posts without a form (sign out, claim, release, and others) failed behind Cloudflare and Caddy, for every role. The proxy forwards such a request as `Transfer-Encoding: chunked` with nothing in it; the API counted the header as "a body" and then refused it for having no JSON content type. Reproduced against the live site with `curl -X POST /api/v1/auth/logout` (415). Fixed in the API: only a real body counts (`cg-api` `guarded`), with a regression test. Why the experiments missed it: they always send a JSON body, and the build PC had no proxy in front.
+* **"Ask the rulebook" gave no sign of work.** The page now shows a spinner at once, disables the button, and after 4 seconds says it is still working.
+* **The Brand page was open to reviewers.** It is the identity sheet for the people who run the system; menu entry and route now need the administrator permission (`users.manage`).
