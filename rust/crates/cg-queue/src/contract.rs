@@ -145,6 +145,19 @@ pub fn run(fresh: &dyn Fn() -> Box<dyn QueueStore>) {
         s.for_each_in_state(state, 10, &mut |d| streamed.push(d)).unwrap();
         assert_eq!(streamed, s.by_state(state, 10).unwrap(), "streamed {state}");
     }
+    // the light stream names the same claims in the same order and carries the bookkeeping fields the dashboard reads
+    for state in ["ready", "triaged", "decided"] {
+        let mut light = vec![];
+        s.for_each_in_state_light(state, 10, &mut |d| light.push(d)).unwrap();
+        let full = s.by_state(state, 10).unwrap();
+        assert_eq!(light.len(), full.len(), "light {state}");
+        for (l, f) in light.iter().zip(&full) {
+            for field in ["claim_id", "version", "state_at"] {
+                assert_eq!(l[field], f[field], "light {state} {field}");
+            }
+            assert_eq!((&l["escalated"], &l["signoff"], &l["receipt"]["eligibility"]), (&f["escalated"], &f["signoff"], &f["receipt"]["eligibility"]), "light {state} bookkeeping");
+        }
+    }
     let mut none = 0;
     s.for_each_in_state("triaged", 0, &mut |_| none += 1).unwrap();
     assert_eq!(none, 0);

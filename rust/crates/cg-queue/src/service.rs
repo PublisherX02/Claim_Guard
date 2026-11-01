@@ -159,6 +159,9 @@ pub struct QueueService {
     rules: Mutex<Option<RulesFn>>,
     /// (computed at, skip_lower it was computed for, rules): the light-review set is a read over every decided claim, so it is kept for five minutes.
     light: Mutex<Option<(f64, f64, BTreeSet<String>)>>,
+    /// The live board's numbers with the moment they were computed and what they were computed for (start of day, the claim counts by state, the routing
+    /// version): reading every claim takes seconds with many stored claims, so while nothing moved the same answer is reused for at most 30 seconds.
+    board: Mutex<Option<(f64, String, Value)>>,
     /// Batches being taken in the background (`submit_claims_async`) and the last few finished ones. In memory: a restart forgets them, and a batch that was
     /// cut off is repaired by sending it again (a claim already stored is reported "already_stored", never stored twice).
     jobs: Mutex<BTreeMap<String, Arc<Mutex<Job>>>>,
@@ -183,7 +186,7 @@ const KEEP_FINISHED_JOBS: usize = 20;
 
 impl QueueService {
     pub fn new(store: Arc<dyn QueueStore>, dispatcher: Arc<Dispatcher>, access: Arc<AccessService>, securitylog: Arc<SecurityLog>, review_log: Arc<AuditLog>, clock: Clock) -> QueueService {
-        QueueService { store, dispatcher, access, securitylog, review_log, clock, intake: Mutex::new(None), rules: Mutex::new(None), light: Mutex::new(None), jobs: Mutex::new(BTreeMap::new()) }
+        QueueService { store, dispatcher, access, securitylog, review_log, clock, intake: Mutex::new(None), rules: Mutex::new(None), light: Mutex::new(None), board: Mutex::new(None), jobs: Mutex::new(BTreeMap::new()) }
     }
 
     /// Set by the wiring; only the submit route needs it.
@@ -918,7 +921,7 @@ impl QueueService {
         // read one claim at a time (at most 5000 per state, as before): only what the numbers need is kept, not the claims
         let mut signed: Vec<(Value, Value)> = vec![];
         for state in ["ready", "awaiting_countersign"] {
-            let _ = self.store.for_each_in_state(state, 5000, &mut |d| {
+            let _ = self.store.for_each_in_state_light(state, 5000, &mut |d| {
                 let k = usize::from(d["receipt"]["eligibility"] == "decide_high" || d["escalated"] == true || !d["signoff"].is_null());
                 waiting[k] += 1;
                 oldest[k] = oldest[k].max(now - d["state_at"].as_f64().unwrap_or(now));
@@ -1083,7 +1086,16 @@ impl QueueService {
     /// The live board's numbers (`stats.rs`) from `since` (the caller's start of day, clamped to the last 48 hours) until now.
     pub fn stats(&self, principal: &Principal, since: Option<f64>) -> R<Value> {
         self.require(principal, "queue.view")?;
-        Ok(self.stats_snapshot(since))
+        let now = self.now();
+        let key = format!("{:?}|{:?}|{}", since.map(|s| s as i64), self.store.counts().unwrap_or_default(), self.routing_config().version);
+        if let Some((at, k, v)) = self.board.lock().unwrap_or_else(|e| e.into_inner()).as_ref() {
+            if *k == key && (0.0..30.0).contains(&(now - at)) {
+                return Ok(v.clone());
+            }
+        }
+        let fresh = self.stats_snapshot(since);
+        *self.board.lock().unwrap_or_else(|e| e.into_inner()) = Some((now, key, fresh.clone()));
+        Ok(fresh)
     }
 
     /// The daily report: the same numbers with who asked and when, written to the audit trail because it leaves the console as a file.
