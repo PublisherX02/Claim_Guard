@@ -1,6 +1,6 @@
-# 66. Server experiment results: run `server_20261031`
+# 66. Server experiment results: run `server_20261101h`
 
-Produced by `experiments/server/` (plan, targets and method: [docs/65](65_Server_Experiment_Plan.md)). Every number below was computed from the files in `outputs/server/server_20261031/`.
+Produced by `experiments/server/` (plan, targets and method: [docs/65](65_Server_Experiment_Plan.md)). Every number below was computed from the files in `outputs/server/server_20261101h/`.
 
 ## 1. The machine
 
@@ -9,201 +9,159 @@ Produced by `experiments/server/` (plan, targets and method: [docs/65](65_Server
 | Host | khalil |
 | Operating system | Linux-7.0.14-17-pve-x86_64-with-glibc2.43 |
 | CPU | AMD Ryzen 7 5700X 8-Core Processor (8 threads) |
-| Memory | 12.0 GiB |
+| Memory | 16.0 GiB |
 | GPU | NVIDIA GeForce RTX 3080, 10240 MiB, 615.71.09 |
 | Docker | Docker version 29.9.2, build a82e528 |
 | Compose | 5.6.1 |
 | Code version | not available |
-| Run started | 2026-10-31T13:56:46Z |
+| Run started | 2026-11-01T15:23:24Z |
 
 ## 2. Scoreboard
 
 | Experiment | Measure | Target | Result | Verdict |
 |---|---|---|---|---|
-| S1 | Explanations per minute (best level) | >= 200 | 376.6 at 64 concurrent | PASS |
+| S1 | Explanations per minute (best level) | >= 200 | 209.9 at 16 concurrent | PASS |
 | S1 | Model requests that failed | 0 | 0 | PASS |
-| S2 | Claims per minute through the whole pipeline (best stage) | >= 200 | 11721.3 | PASS |
-| S2 | Batches that failed | 0 | 1 | FAIL |
-| S2 | Slowest read request right after the load (95th percentile) | < 2 s | 1.22 s | FAIL |
+| S2 | Claims per minute through the whole pipeline (best stage) | >= 200 | 4140.2 | PASS |
+| S2 | Batches that failed | 0 | 0 | PASS |
+| S2 | Slowest read request right after the load (95th percentile) | < 2 s | 2.73 s | FAIL |
 | S3 | Rulebook questions answered with the right rule | >= 90 % | 92 % | PASS |
 | S3 | Off-topic strings refused | all | 4 of 5 | FAIL |
-| S4 | Fields read exactly from documents | >= 95 % | 86.4 % | FAIL |
+| S4 | Fields read exactly from documents | >= 95 % | 90.0 % | FAIL |
 | S4 | Documents that could not be read | 0 | 0 | PASS |
 | S5 | Acknowledged claims lost in restarts | 0 | 0 | PASS |
 | S5 | Services back after restart | all | 5 of 5 | PASS |
-| S6 | internal ports closed | yes | no | FAIL |
-| S6 | https open | yes | yes | PASS |
-| S6 | http redirects to https | yes | yes | PASS |
-| S6 | old tls refused | yes | yes | PASS |
-| S6 | security headers present | yes | yes | PASS |
-| S6 | anonymous api refused | yes | yes | PASS |
-| S6 | anonymous health panel refused | yes | yes | PASS |
-| S6 | healthz is minimal | yes | yes | PASS |
-| S7 | health not down | yes | yes | PASS |
+| S7 | health not down | yes | no | FAIL |
 | S7 | no failing probe | yes | no | FAIL |
-| S7 | audit chains verify | yes | yes | PASS |
-| S7 | ledger verifies | yes | yes | PASS |
-| S0 | Peak memory of all containers vs server memory | <= 85 % | 75 % of 12.0 GiB | PASS |
-| S0 | Peak GPU memory vs the card | <= 95 % | 77 % of 10 GiB | PASS |
-| S0 | Containers that reached their memory limit | none | none | PASS |
+| S7 | audit chains verify | yes | no | FAIL |
+| S7 | ledger verifies | yes | no | FAIL |
+| S0 | Peak memory of all containers vs server memory | <= 85 % | 81 % of 16.0 GiB | PASS |
+| S0 | Peak GPU memory vs the card | <= 95 % | 58 % of 10 GiB | PASS |
+| S0 | Containers that reached their memory limit | none | claimguard-api-1, claimguard-ollama-1 | FAIL |
+| S0 | Memory growth during the pipeline experiment | < 100 MiB/hour | 1116 MiB/h | FAIL |
 
-20 of 26 measures pass; 6 fail.
+10 of 19 measures pass; 9 fail.
+
+Not run in this session: s06 (run it from another machine).
 
 ## 3. S1. The explanation model on the GPU
 
-Model `google/gemma-3-4b-it`, one explanation per request (about 250 tokens in, up to 160 out, temperature 0).
+Model `gemma3:4b`, one explanation per request (about 250 tokens in, up to 160 out, temperature 0).
 
-![Explanations per minute and latency against concurrency](figures/server/server_20261031_model.png)
+![Explanations per minute and latency against concurrency](figures/server/server_20261101h_model.png)
 
 | Concurrent | Requests | Errors | Per minute | Latency p50 (s) | Latency p95 (s) | Tokens/s |
 |---|---|---|---|---|---|---|
-| 1 | 16 | 0 | 97.8 | 0.62 | 0.7 | 120.3 |
-| 2 | 16 | 0 | 189.4 | 0.63 | 0.71 | 233.2 |
-| 4 | 16 | 0 | 356.4 | 0.64 | 0.74 | 429.5 |
-| 8 | 32 | 0 | 367.8 | 1.25 | 1.42 | 452.7 |
-| 16 | 64 | 0 | 373.1 | 2.5 | 2.66 | 455.0 |
-| 32 | 128 | 0 | 375.0 | 5.04 | 5.25 | 459.1 |
-| 64 | 256 | 0 | 376.6 | 10.11 | 10.28 | 459.5 |
+| 1 | 16 | 0 | 124.3 | 0.47 | 0.56 | 148.6 |
+| 2 | 16 | 0 | 202.0 | 0.58 | 0.75 | 243.6 |
+| 4 | 16 | 0 | 197.9 | 1.19 | 1.36 | 238.8 |
+| 8 | 32 | 0 | 205.9 | 2.32 | 2.47 | 248.6 |
+| 16 | 64 | 0 | 209.9 | 4.56 | 4.66 | 253.2 |
+| 32 | 128 | 0 | 207.7 | 9.2 | 9.4 | 248.0 |
+| 64 | 256 | 0 | 207.8 | 18.49 | 18.82 | 250.9 |
 
-Best: **376.6 a minute** at 64 concurrent requests; GPU memory peak during the benchmark: not measured (no GPU reading).
+Best: **209.9 a minute** at 16 concurrent requests; GPU memory peak during the benchmark: 4379 MiB.
 
 ## 4. S2. The claim pipeline
 
 Claims go through the proxy, the API, the queue, the engine and the store (POST /api/v1/queue/submit, asynchronous), in batches of rising size.
 
-![Throughput and time per claim by batch size](figures/server/server_20261031_pipeline.png)
+![Throughput and time per claim by batch size](figures/server/server_20261101h_pipeline.png)
 
 | Batch | Batches | Claims in | Errors | Claims/min | Accept p50 (s) | Batch done p50 (s) | Batch done p95 (s) | ms per claim p50 |
 |---|---|---|---|---|---|---|---|---|
-| 10 | 6 | 60 | 0 | 2323.9 | 0.00 | 0.26 | 0.26 | 26 |
-| 50 | 6 | 300 | 0 | 11549.9 | 0.00 | 0.26 | 0.26 | 5 |
-| 200 | 4 | 800 | 0 | 11721.3 | 0.00 | 1.02 | 1.24 | 5 |
-| 500 | 2 | 1000 | 0 | 11181.9 | 0.01 | 2.68 | 2.79 | 5 |
+| 10 | 6 | 60 | 0 | 1943.3 | 0.00 | 0.27 | 0.46 | 27 |
+| 50 | 6 | 300 | 0 | 2931.8 | 0.01 | 1.04 | 1.16 | 21 |
+| 200 | 4 | 800 | 0 | 3789.2 | 0.01 | 3.06 | 3.64 | 15 |
+| 500 | 2 | 1000 | 0 | 4140.2 | 0.01 | 7.24 | 7.58 | 14 |
 
 Answer time of three read requests (seconds), idle before the load and right after it:
 
 | Request | Before p50 | Before p95 | After p50 | After p95 |
 |---|---|---|---|---|
-| dashboard | 0.003 | 0.003 | 0.706 | 0.881 |
-| claims_list | 0.002 | 0.002 | 0.002 | 0.003 |
-| health_panel | 0.004 | 0.005 | 0.972 | 1.224 (8 refused) |
+| dashboard | 1.917 | 2.007 | 1.929 | 2.633 |
+| claims_list | 0.002 | 0.004 | 0.002 | 0.002 |
+| health_panel | 2.041 | 3.163 | 2.249 | 2.728 |
 
 Steady load (soak):
 
-![Claims per minute and batch time during the soak](figures/server/server_20261031_soak.png)
+![Claims per minute and batch time during the soak](figures/server/server_20261101h_soak.png)
 
-30 minute(s), 2990 claims, 1 failed batches.
+30 minute(s), 3000 claims, 0 failed batches.
 
 ## 5. S0. Resources during the run
 
-641 samples over 119 minutes (container memory and CPU from `docker stats`, GPU from `nvidia-smi`).
+507 samples over 42 minutes (container memory and CPU from `docker stats`, GPU from `nvidia-smi`).
 
-![GPU memory and utilisation over time](figures/server/server_20261031_gpu.png)
+![GPU memory and utilisation over time](figures/server/server_20261101h_gpu.png)
 
-![Peak memory by container against its limit](figures/server/server_20261031_memory_peaks.png)
+![Peak memory by container against its limit](figures/server/server_20261101h_memory_peaks.png)
 
-![Memory of all containers over time](figures/server/server_20261031_memory_timeline.png)
+![Memory of all containers over time](figures/server/server_20261101h_memory_timeline.png)
 
 | Container | Peak memory (MiB) | Limit (MiB) | Share of limit |
 |---|---|---|---|
-| claimguard-vllm-1 | 3631 | 8192 | 44 % |
-| claimguard-api-1 | 2771 | 3072 | 90 % |
-| claimguard-worker-1 | 1495 | 3072 | 49 % |
-| claimguard-embed-1 | 1166 | 4096 | 28 % |
-| claimguard-mongo-1 | 951 | 2048 | 46 % |
-| claimguard-reader-1 | 167 | 2048 | 8 % |
-| claimguard-proxy-1 | 37 | 128 | 29 % |
-| gifted_liskov | 34 | 12288 | 0 % |
-| laughing_bohr | 26 | 12288 | 0 % |
+| claimguard-ollama-1 | 5078 | 5120 | 99 % |
+| claimguard-api-1 | 4103 | 4096 | 100 % |
+| claimguard-worker-1 | 2544 | 3072 | 83 % |
+| claimguard-mongo-1 | 1248 | 2048 | 61 % |
+| claimguard-embed-1 | 1010 | 4096 | 25 % |
+| claimguard-reader-1 | 206 | 2048 | 10 % |
+| claimguard-proxy-1 | 35 | 128 | 27 % |
 | claimguard-redis-1 | 7 | 320 | 2 % |
 
-GPU peaks: memory 7839 of 10240 MiB, utilisation 100 %, temperature 68 C, power 336 W.
+GPU peaks: memory 5909 of 10240 MiB, utilisation 100 %, temperature 69 C, power 329 W.
 
-The server never had less than 3.1 GiB of 12.0 GiB available.
+The server never had less than 3.4 GiB of 16.0 GiB available.
+
+Memory trend of the whole stack during S2: +1116 MiB per hour (a straight-line fit; a steady climb over a long soak means a leak, a flat line does not).
 
 ## 6. S3. Ask the rulebook, by meaning
 
-![Search quality and latency](figures/server/server_20261031_search.png)
+![Search quality and latency](figures/server/server_20261101h_search.png)
 
-24 of 26 questions returned the right rule (92 %); 4 of 5 off-topic strings were refused. Rate-limited answers (429): 0. HTTP statuses of the quality pass: {"200": 26}.
+24 of 26 questions returned the right rule (92 %); 4 of 5 off-topic strings were refused. Rate-limited answers (429): 295. HTTP statuses of the quality pass: {"200": 26}.
 
 | Concurrent | Questions | Answered | Per second | Latency p50 (s) | Latency p95 (s) |
 |---|---|---|---|---|---|
-| 1 | 78 | 78 | 515.6 | 0.002 | 0.002 |
-| 2 | 78 | 78 | 909.1 | 0.002 | 0.002 |
-| 4 | 78 | 78 | 1567.4 | 0.002 | 0.003 |
-| 8 | 78 | 78 | 1819.3 | 0.004 | 0.005 |
+| 1 | 78 | 17 | 104.7 | 0.002 | 0.002 |
+| 2 | 78 | 0 | 0.0 | - | - |
+| 4 | 78 | 0 | 0.0 | - | - |
+| 8 | 78 | 0 | 0.0 | - | - |
 
 Questions that missed: "claim line without a service date" (wanted rule R001); "how many days after the service can a claim be submitted" (wanted rule R014, policy EDU-BASIC (table version 0), policy EDU-PLUS (table version 0)).
 
 ## 7. S4. Documents to claims
 
-![Document reading accuracy and speed](figures/server/server_20261031_documents.png)
+![Document reading accuracy and speed](figures/server/server_20261101h_documents.png)
 
 40 documents tried, 0 failed, 0 waits because the reader was busy.
 
 | Condition | Documents | Field accuracy | Documents fully right | Seconds p50 | Seconds p95 |
 |---|---|---|---|---|---|
 | digital PDF | 10 | 100.0 % | 100 % | 0.0 | 0.0 |
-| image-only PDF | 10 | 97.3 % | 70 % | 0.8 | 0.8 |
-| photo | 10 | 50.0 % | 20 % | 0.6 | 0.7 |
-| scan | 10 | 98.2 % | 80 % | 1.2 | 1.3 |
+| image-only PDF | 10 | 100.0 % | 100 % | 3.1 | 3.2 |
+| photo | 10 | 60.0 % | 60 % | 2.3 | 7.6 |
+| scan | 10 | 100.0 % | 100 % | 3.2 | 5.5 |
 
 For comparison: docs/45: 97.4 % of fields, 66.7 % of documents fully right, two readers, on the build PC.
 
 ## 8. S5. Restarts under load
 
-![Seconds of unavailability per restarted service](figures/server/server_20261031_s5_restarts.png)
+![Seconds of unavailability per restarted service](figures/server/server_20261101h_s5_restarts.png)
 
 | Service | Restart command (s) | Unhealthy (s) | Recovered | Sent | Acknowledged | Failed during restart | Acknowledged but missing |
 |---|---|---|---|---|---|---|---|
-| worker | 4.3 | 0.0 | yes | 430 | 430 | 0 | 0 |
-| api | 5.6 | 5.4 | yes | 320 | 300 | 20 | 0 |
-| redis | 0.3 | 0.0 | yes | 380 | 380 | 0 | 0 |
-| mongo | 0.5 | 0.0 | yes | 360 | 360 | 0 | 0 |
-| proxy | 0.4 | 0.5 | yes | 205 | 195 | 10 | 0 |
+| worker | 2.7 | 0.0 | yes | 375 | 375 | 0 | 0 |
+| api | 5.7 | 5.4 | yes | 280 | 255 | 25 | 0 |
+| redis | 0.4 | 0.0 | yes | 335 | 335 | 0 | 0 |
+| mongo | 0.5 | 0.0 | yes | 315 | 315 | 0 | 0 |
+| proxy | 0.5 | 0.5 | yes | 185 | 175 | 10 | 0 |
 
-## 9. S6. Exposure seen from the network
+## 9. S7. Integrity and backup
 
-| Port | Service | Open |
-|---|---|---|
-| 22 | SSH | no |
-| 80 | HTTP (redirect only) | yes |
-| 443 | HTTPS | yes |
-| 3000 | app | no |
-| 5432 | database | no |
-| 6379 | Redis | no |
-| 8000 | model server | no |
-| 8080 | API | yes |
-| 8091 | embedding service | no |
-| 8095 | document reader | no |
-| 11434 | model server (Ollama) | no |
-| 27017 | MongoDB | no |
+Health panel: None (2.50 s). Audit verification: HTTP 502. Ledger: HTTP 502.
 
-TLS: older protocols {"TLS1.0": "refused", "TLS1.1": "refused"}, negotiated TLSv1.3, certificate kernelsi.com issued by US Google Trust Services WE1, 83 days left. Headers: {"strict-transport-security": true, "x-content-type-options": true, "content-security-policy": true, "framing_protected": true, "no_server_version": true}.
-
-## 10. S7. Integrity and backup
-
-Health panel: degraded (0.01 s). Audit verification: HTTP 200. Ledger: HTTP 200.
-
-| Health probe | Status |
-|---|---|
-| api | ok |
-| user_store | ok |
-| audit_logs | ok |
-| disk | ok |
-| anchor | ok |
-| timestamp | unknown |
-| ledger | ok |
-| signals | degraded |
-| queue_store | ok |
-| broker | ok |
-| scheduler | ok |
-| audit_guard | ok |
-| outbox | ok |
-| flow | ok |
-| model | ok |
-
-## 11. How to read this
+## 10. How to read this
 
 A FAIL is a finding, not an error in the scripts: write what was changed (a setting, a model, a limit) and run the failing experiment again, keeping both runs. Targets and their reasons are in docs/65 section 2. Everything here used synthetic claims; real hospital paper, handwriting and Arabic documents are still untested.
