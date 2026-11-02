@@ -1,0 +1,238 @@
+{
+ "experiment": "s03_search",
+ "finished": "2026-11-01T23:38:27Z",
+ "dry_run": false,
+ "quality": {
+  "answerable": 26,
+  "hits": 24,
+  "hit_rate": 0.9230769230769231,
+  "off_topic": 5,
+  "refused": 4,
+  "refusal_rate": 0.8,
+  "misses": [
+   {
+    "q": "claim line without a service date",
+    "want": [
+     "rule R001"
+    ],
+    "status": 200,
+    "answered": true
+   },
+   {
+    "q": "how many days after the service can a claim be submitted",
+    "want": [
+     "rule R014",
+     "policy EDU-BASIC (table version 0)",
+     "policy EDU-PLUS (table version 0)"
+    ],
+    "status": 200,
+    "answered": true
+   }
+  ],
+  "reference": "docs/52 and docs/55: the numbers measured on the build PC"
+ },
+ "single_latency_s": {
+  "n": 26,
+  "mean": 3.4858328913195202,
+  "p50": 3.7423615269362926,
+  "p95": 5.343991116154939,
+  "p99": 5.448363676550798,
+  "max": 5.471397312358022
+ },
+ "speed": [
+  {
+   "mode": "cold",
+   "concurrency": 1,
+   "requests": 78,
+   "ok": 78,
+   "questions_per_second": 0.24755656308651863,
+   "latency_s": {
+    "n": 78,
+    "mean": 4.039415275272077,
+    "p50": 4.799617743818089,
+    "p95": 5.482768434192986,
+    "p99": 6.171325691137475,
+    "max": 8.408646136056632
+   },
+   "trace": {
+    "cached_answers": 0,
+    "answers": 78,
+    "tiers": {
+     "graph": 9,
+     "vector": 69
+    },
+    "planners": {
+     "None": 0,
+     "rules": 9
+    },
+    "written": 0,
+    "server_ms": {},
+    "server_latency_ms": {
+     "n": 78,
+     "mean": 4015.769230769231,
+     "p50": 4796.5,
+     "p95": 5477.2,
+     "p99": 5804.6700000000055,
+     "max": 6828
+    }
+   }
+  },
+  {
+   "mode": "cold",
+   "concurrency": 2,
+   "requests": 78,
+   "ok": 78,
+   "questions_per_second": 0.26611093274658987,
+   "latency_s": {
+    "n": 78,
+    "mean": 7.471753480103918,
+    "p50": 7.989802011754364,
+    "p95": 10.38532259722706,
+    "p99": 12.516206920580041,
+    "max": 19.201754444278777
+   },
+   "trace": {
+    "cached_answers": 0,
+    "answers": 78,
+    "tiers": {
+     "graph": 9,
+     "vector": 69
+    },
+    "planners": {
+     "None": 0,
+     "rules": 9
+    },
+    "written": 0,
+    "server_ms": {},
+    "server_latency_ms": {
+     "n": 78,
+     "mean": 7389.884615384615,
+     "p50": 7985.5,
+     "p95": 10380.2,
+     "p99": 11116.07000000001,
+     "max": 13125
+    }
+   }
+  },
+  {
+   "mode": "cold",
+   "concurrency": 4,
+   "requests": 78,
+   "ok": 78,
+   "questions_per_second": 0.24992188934939405,
+   "latency_s": {
+    "n": 78,
+    "mean": 15.621654870030351,
+    "p50": 17.422652140026912,
+    "p95": 21.047473421832546,
+    "p99": 23.930153128323152,
+    "max": 25.41103917080909
+   },
+   "trace": {
+    "cached_answers": 0,
+    "answers": 78,
+    "tiers": {
+     "graph": 9,
+     "vector": 69
+    },
+    "planners": {
+     "None": 0,
+     "rules": 9
+    },
+    "written": 0,
+    "server_ms": {},
+    "server_latency_ms": {
+     "n": 78,
+     "mean": 15278.038461538461,
+     "p50": 17140.5,
+     "p95": 20803.15,
+     "p99": 21057.41,
+     "max": 21186
+    }
+   }
+  },
+  {
+   "mode": "cold",
+   "concurrency": 8,
+   "requests": 78,
+   "ok": 74,
+   "questions_per_second": 0.21921265506692306,
+   "latency_s": {
+    "n": 74,
+    "mean": 31.271162142014333,
+    "p50": 36.76692426018417,
+    "p95": 43.61955108921975,
+    "p99": 48.527057056385075,
+    "max": 52.11807750398293
+   },
+   "trace": {
+    "cached_answers": 0,
+    "answers": 74,
+    "tiers": {
+     "graph": 9,
+     "vector": 65
+    },
+    "planners": {
+     "None": 0,
+     "rules": 9
+    },
+    "written": 0,
+    "server_ms": {},
+    "server_latency_ms": {
+     "n": 74,
+     "mean": 30640.35135135135,
+     "p50": 36692.5,
+     "p95": 40698.9,
+     "p99": 43901.049999999996,
+     "max": 44496
+    }
+   }
+  },
+  {
+   "mode": "warm (repeat of questions already asked)",
+   "concurrency": 1,
+   "requests": 26,
+   "ok": 26,
+   "questions_per_second": 349.81482226715514,
+   "latency_s": {
+    "n": 26,
+    "mean": 0.0028145887996428288,
+    "p50": 0.0023001269437372684,
+    "p95": 0.005206567468121648,
+    "p99": 0.007468227646313608,
+    "max": 0.008189007174223661
+   },
+   "trace": {
+    "cached_answers": 26,
+    "answers": 26,
+    "tiers": {
+     "graph": 3,
+     "vector": 23
+    },
+    "planners": {
+     "None": 0,
+     "rules": 3
+    },
+    "written": 0,
+    "server_ms": {},
+    "server_latency_ms": {
+     "n": 26,
+     "mean": 0.0,
+     "p50": 0.0,
+     "p95": 0.0,
+     "p99": 0.0,
+     "max": 0
+    }
+   }
+  }
+ ],
+ "rate_limited_429": 0,
+ "statuses_first_pass": {
+  "200": 26
+ },
+ "checks": {
+  "hit_rate_at_least_0_9": true,
+  "all_off_topic_refused": false,
+  "not_rate_limited": true
+ }
+}

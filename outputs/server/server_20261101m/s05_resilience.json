@@ -1,0 +1,86 @@
+{
+ "experiment": "s05_resilience",
+ "finished": "2026-11-01T23:43:45Z",
+ "dry_run": false,
+ "services": [
+  {
+   "service": "worker",
+   "restart_command_ok": true,
+   "restart_command_s": 1.1952145099639893,
+   "unhealthy_s": 0.0,
+   "recovered": true,
+   "sent": 410,
+   "acknowledged": 410,
+   "failed_during_restart": 0,
+   "acknowledged_but_missing": 0,
+   "missing_ids": [],
+   "queue_total_before": 7525,
+   "queue_total_after": 7935,
+   "method": "dashboard count before and after (acknowledged claims must all be counted)"
+  },
+  {
+   "service": "api",
+   "restart_command_ok": true,
+   "restart_command_s": 5.477177143096924,
+   "unhealthy_s": 5.422967433929443,
+   "recovered": true,
+   "sent": 315,
+   "acknowledged": 295,
+   "failed_during_restart": 20,
+   "acknowledged_but_missing": 0,
+   "missing_ids": [],
+   "queue_total_before": 7935,
+   "queue_total_after": 8230,
+   "method": "dashboard count before and after (acknowledged claims must all be counted)"
+  },
+  {
+   "service": "redis",
+   "restart_command_ok": true,
+   "restart_command_s": 0.40015554428100586,
+   "unhealthy_s": 0.0,
+   "recovered": true,
+   "sent": 375,
+   "acknowledged": 375,
+   "failed_during_restart": 0,
+   "acknowledged_but_missing": 0,
+   "missing_ids": [],
+   "queue_total_before": 8230,
+   "queue_total_after": 8605,
+   "method": "dashboard count before and after (acknowledged claims must all be counted)"
+  },
+  {
+   "service": "mongo",
+   "restart_command_ok": true,
+   "restart_command_s": 0.5369987487792969,
+   "unhealthy_s": 0.0,
+   "recovered": true,
+   "sent": 360,
+   "acknowledged": 360,
+   "failed_during_restart": 0,
+   "acknowledged_but_missing": 0,
+   "missing_ids": [],
+   "queue_total_before": 8605,
+   "queue_total_after": 8965,
+   "method": "dashboard count before and after (acknowledged claims must all be counted)"
+  },
+  {
+   "service": "proxy",
+   "restart_command_ok": true,
+   "restart_command_s": 0.39325571060180664,
+   "unhealthy_s": 0.5031795501708984,
+   "recovered": true,
+   "sent": 200,
+   "acknowledged": 195,
+   "failed_during_restart": 5,
+   "acknowledged_but_missing": 0,
+   "missing_ids": [],
+   "queue_total_before": 8965,
+   "queue_total_after": 9160,
+   "method": "dashboard count before and after (acknowledged claims must all be counted)"
+  }
+ ],
+ "checks": {
+  "nothing_acknowledged_was_lost": true,
+  "every_service_recovered": true
+ }
+}

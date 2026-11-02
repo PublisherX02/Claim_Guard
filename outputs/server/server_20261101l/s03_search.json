@@ -1,0 +1,247 @@
+{
+ "experiment": "s03_search",
+ "finished": "2026-11-01T18:33:15Z",
+ "dry_run": false,
+ "quality": {
+  "answerable": 26,
+  "hits": 23,
+  "hit_rate": 0.8846153846153846,
+  "off_topic": 5,
+  "refused": 4,
+  "refusal_rate": 0.8,
+  "misses": [
+   {
+    "q": "what happens if the invoice number is missing",
+    "want": [
+     "rule R001"
+    ],
+    "status": "ERROR",
+    "answered": null
+   },
+   {
+    "q": "claim line without a service date",
+    "want": [
+     "rule R001"
+    ],
+    "status": 200,
+    "answered": true
+   },
+   {
+    "q": "how many days after the service can a claim be submitted",
+    "want": [
+     "rule R014",
+     "policy EDU-BASIC (table version 0)",
+     "policy EDU-PLUS (table version 0)"
+    ],
+    "status": 200,
+    "answered": true
+   }
+  ],
+  "reference": "docs/52 and docs/55: the numbers measured on the build PC"
+ },
+ "single_latency_s": {
+  "n": 26,
+  "mean": 4.412450237504135,
+  "p50": 1.1072099381126463,
+  "p95": 9.125533609534614,
+  "p99": 47.625398625736125,
+  "max": 60.04367464594543
+ },
+ "speed": [
+  {
+   "mode": "cold",
+   "concurrency": 1,
+   "requests": 78,
+   "ok": 78,
+   "questions_per_second": 0.6621702174343906,
+   "latency_s": {
+    "n": 78,
+    "mean": 1.510123745806945,
+    "p50": 1.0477582814637572,
+    "p95": 4.964687516121196,
+    "p99": 5.517015988160857,
+    "max": 5.598242650274187
+   },
+   "trace": {
+    "cached_answers": 0,
+    "answers": 78,
+    "tiers": {
+     "graph": 9,
+     "vector": 69
+    },
+    "planners": {
+     "None": 0,
+     "rules": 9
+    },
+    "written": 0,
+    "server_ms": {},
+    "server_latency_ms": {
+     "n": 78,
+     "mean": 1506.948717948718,
+     "p50": 1044.5,
+     "p95": 4961.850000000002,
+     "p99": 5513.38,
+     "max": 5595
+    }
+   }
+  },
+  {
+   "mode": "cold",
+   "concurrency": 2,
+   "requests": 78,
+   "ok": 78,
+   "questions_per_second": 0.46818003893770127,
+   "latency_s": {
+    "n": 78,
+    "mean": 4.2565234888416645,
+    "p50": 4.1472178439144045,
+    "p95": 9.060027867672035,
+    "p99": 10.490236460347662,
+    "max": 10.800031449180096
+   },
+   "trace": {
+    "cached_answers": 0,
+    "answers": 78,
+    "tiers": {
+     "graph": 9,
+     "vector": 69
+    },
+    "planners": {
+     "None": 0,
+     "rules": 9
+    },
+    "written": 0,
+    "server_ms": {},
+    "server_latency_ms": {
+     "n": 78,
+     "mean": 4195.858974358975,
+     "p50": 4142.5,
+     "p95": 8990.45,
+     "p99": 10415.930000000002,
+     "max": 10794
+    }
+   }
+  },
+  {
+   "mode": "cold",
+   "concurrency": 4,
+   "requests": 78,
+   "ok": 78,
+   "questions_per_second": 0.534983009072102,
+   "latency_s": {
+    "n": 78,
+    "mean": 7.319455066206268,
+    "p50": 8.147192074917257,
+    "p95": 12.657381607126448,
+    "p99": 17.010234715174885,
+    "max": 17.410126521717757
+   },
+   "trace": {
+    "cached_answers": 0,
+    "answers": 78,
+    "tiers": {
+     "graph": 9,
+     "vector": 69
+    },
+    "planners": {
+     "None": 0,
+     "rules": 9
+    },
+    "written": 0,
+    "server_ms": {},
+    "server_latency_ms": {
+     "n": 78,
+     "mean": 7255.923076923077,
+     "p50": 8143.5,
+     "p95": 12614.650000000001,
+     "p99": 14431.700000000013,
+     "max": 16888
+    }
+   }
+  },
+  {
+   "mode": "cold",
+   "concurrency": 8,
+   "requests": 78,
+   "ok": 78,
+   "questions_per_second": 0.5571003246097557,
+   "latency_s": {
+    "n": 78,
+    "mean": 13.708720424487137,
+    "p50": 14.991741544101387,
+    "p95": 23.025267503107898,
+    "p99": 24.321500415955672,
+    "max": 24.690445841755718
+   },
+   "trace": {
+    "cached_answers": 0,
+    "answers": 78,
+    "tiers": {
+     "graph": 9,
+     "vector": 69
+    },
+    "planners": {
+     "None": 0,
+     "rules": 9
+    },
+    "written": 0,
+    "server_ms": {},
+    "server_latency_ms": {
+     "n": 78,
+     "mean": 13681.038461538461,
+     "p50": 14989.0,
+     "p95": 22839.300000000003,
+     "p99": 23764.540000000005,
+     "max": 24687
+    }
+   }
+  },
+  {
+   "mode": "warm (repeat of questions already asked)",
+   "concurrency": 1,
+   "requests": 26,
+   "ok": 26,
+   "questions_per_second": 467.9668674755849,
+   "latency_s": {
+    "n": 26,
+    "mean": 0.0021059898337206016,
+    "p50": 0.0020360900089144707,
+    "p95": 0.00280768726952374,
+    "p99": 0.002873916528187692,
+    "max": 0.00287505891174078
+   },
+   "trace": {
+    "cached_answers": 26,
+    "answers": 26,
+    "tiers": {
+     "graph": 3,
+     "vector": 23
+    },
+    "planners": {
+     "None": 0,
+     "rules": 3
+    },
+    "written": 0,
+    "server_ms": {},
+    "server_latency_ms": {
+     "n": 26,
+     "mean": 0.0,
+     "p50": 0.0,
+     "p95": 0.0,
+     "p99": 0.0,
+     "max": 0
+    }
+   }
+  }
+ ],
+ "rate_limited_429": 0,
+ "statuses_first_pass": {
+  "ERROR": 1,
+  "200": 25
+ },
+ "checks": {
+  "hit_rate_at_least_0_9": false,
+  "all_off_topic_refused": false,
+  "not_rate_limited": true
+ }
+}

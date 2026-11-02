@@ -1,0 +1,20 @@
+{
+ "run": "server_20261101i",
+ "dry_run": false,
+ "started": 1793555084.556961,
+ "seconds": 720.0909490585327,
+ "log": [
+  {
+   "experiment": "s02",
+   "exit_code": 0,
+   "seconds": 713.9259283542633,
+   "started_at": 1793555084.5569859
+  },
+  {
+   "experiment": "s07",
+   "exit_code": 0,
+   "seconds": 2.694258689880371,
+   "started_at": 1793555798.4829776
+  }
+ ]
+}

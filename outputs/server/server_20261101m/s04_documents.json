@@ -1,0 +1,80 @@
+{
+ "experiment": "s04_documents",
+ "finished": "2026-11-01T23:40:10Z",
+ "dry_run": false,
+ "files_tried": 40,
+ "failed": [],
+ "busy_retries": 0,
+ "conditions": [
+  {
+   "condition": "digital PDF",
+   "documents": 10,
+   "seconds_per_document": {
+    "n": 10,
+    "mean": 0.016037934459745884,
+    "p50": 0.0067075141705572605,
+    "p95": 0.058985891798511214,
+    "p99": 0.0924290688801557,
+    "max": 0.10078986315056682
+   },
+   "field_accuracy": 1.0,
+   "documents_all_fields_right": 1.0
+  },
+  {
+   "condition": "image-only PDF",
+   "documents": 10,
+   "seconds_per_document": {
+    "n": 10,
+    "mean": 3.063647627783939,
+    "p50": 3.0194394283462316,
+    "p95": 3.2424690153216944,
+    "p99": 3.2735331398947163,
+    "max": 3.281299171037972
+   },
+   "field_accuracy": 1.0,
+   "documents_all_fields_right": 1.0
+  },
+  {
+   "condition": "photo",
+   "documents": 10,
+   "seconds_per_document": {
+    "n": 10,
+    "mean": 3.552433654293418,
+    "p50": 2.293207042850554,
+    "p95": 6.933088425826282,
+    "p99": 7.455862880554051,
+    "max": 7.586556494235992
+   },
+   "field_accuracy": 0.6,
+   "documents_all_fields_right": 0.6
+  },
+  {
+   "condition": "scan",
+   "documents": 10,
+   "seconds_per_document": {
+    "n": 10,
+    "mean": 3.645680307643488,
+    "p50": 3.2050728930626065,
+    "p95": 5.553877008892599,
+    "p99": 6.92490380961448,
+    "max": 7.2676605097949505
+   },
+   "field_accuracy": 1.0,
+   "documents_all_fields_right": 1.0
+  }
+ ],
+ "seconds_per_document": {
+  "n": 40,
+  "mean": 2.5694498810451476,
+  "p50": 2.981193158077076,
+  "p95": 6.19106799503788,
+  "p99": 7.462187060303986,
+  "max": 7.586556494235992
+ },
+ "field_accuracy": 0.9,
+ "reference": "docs/45: 97.4 % of fields, 66.7 % of documents fully right, two readers, on the build PC",
+ "checks": {
+  "no_failed_documents": true,
+  "field_accuracy_at_least_0_95": false
+ }
+}
