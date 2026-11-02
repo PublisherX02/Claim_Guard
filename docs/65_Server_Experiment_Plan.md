@@ -83,3 +83,5 @@ Send back one file: `python experiments/server/pack_results.py --run <run>` make
 * A rehearsal on a laptop (`--dry`) proves the scripts work and is marked as such in every file; its numbers are not results.
 * The 5-second sampler (S0) can miss a peak shorter than that.
 * The soak is 30 to 60 minutes: it shows a leak of tens of MiB an hour, not of a few MiB a day. A 24-hour soak is the right test before a long unattended period.
+* Behind Cloudflare (or any other front), S6 and the other scripts measure the front, not the server. Run S6 against the server's own address from another network too, and check what listens on the server (`ss -tlnp`).
+* Some CDNs refuse the default Python User-Agent (Cloudflare: error 1010); the scripts send their own.

@@ -2,6 +2,8 @@
 # Browsers show a warning until you trust that authority (docs/35 says how); the desktop app can be pointed at it the same way.
 # Slow or oversized requests are cut off at the proxy, before they reach the application (slowloris, giant headers).
 {
+	# a visitor who reaches the machine by IP address sends no name in the TLS handshake; without a default name Caddy answers it with a TLS error (seen on the first server install, docs/66)
+	default_sni {$CG_SITE}
 	servers {
 		timeouts {
 			read_header 10s

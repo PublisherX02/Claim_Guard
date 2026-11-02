@@ -56,7 +56,7 @@
     });
 
     root.appendChild(h('div', { class: 'row between' },
-      h('div', null, h('h1', { text: 'Data center' }), h('div', { class: 'row tight' }, h('span', { class: 'dot ok', 'aria-hidden': 'true' }), h('span', { class: 'muted small', text: 'Live: refreshes every minute.' }), stamp)),
+      h('div', null, h('h1', { text: 'Data center' }), h('div', { class: 'row tight' }, h('span', { class: 'dot ok', 'aria-hidden': 'true' }), h('span', { class: 'muted small', text: 'Live: updates within seconds of a change, and every minute.' }), stamp)),
       h('button', { class: 'btn', type: 'button', text: 'Refresh now', onclick: load })));
     root.appendChild(tabbar);
     root.appendChild(panel);
@@ -79,7 +79,7 @@
       if (shortages.length) panel.appendChild(h('div', { class: 'notice bad' }, h('b', { text: 'Needs attention: ' }), shortages.join('; ')));
       panel.appendChild(h('div', { class: 'tiles' },
         tile(c.received, 'claims received today'), tile(c.processed, 'claims processed today', pct(c.processed, c.received) + ' of those received'),
-        tile(c.unprocessed, 'still unprocessed', 'the whole backlog, not only today'), tile(v.total, 'rule violations today', v.rules_violated + ' different rules'),
+        tile(c.unprocessed, 'still unprocessed', 'the whole backlog, not only today'), tile((c.backlog_by_state || {}).awaiting_countersign || 0, 'awaiting countersign', 'one senior has signed; a second must agree'), tile(v.total, 'rule violations today', v.rules_violated + ' different rules'),
         tile(o.worked, 'operators worked today', o.on_shift + ' on shift now'), tile(c.processed_by_system, 'cleared by the system', c.processed_by_person + ' decided by people')));
       var order = Object.keys(c.backlog_by_state);
       panel.appendChild(h('div', { class: 'card' }, h('h2', { text: 'Where the unprocessed claims are' }),
@@ -151,5 +151,6 @@
     select(tab);
     load();
     CG.every(REFRESH_MS, load);
+    CG.live('queue', load);   // a claim moving between states is shown within seconds, not at the next minute
   };
 })();

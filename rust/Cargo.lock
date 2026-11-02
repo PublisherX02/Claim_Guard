@@ -486,6 +486,7 @@ name = "cg-api"
 version = "0.1.0"
 dependencies = [
  "axum",
+ "base64 0.22.1",
  "cg-access",
  "cg-audit",
  "cg-core",
@@ -501,6 +502,7 @@ dependencies = [
  "rustls",
  "serde",
  "serde_json",
+ "sha1 0.10.7",
  "sha2 0.10.9",
  "subtle",
  "tempfile",

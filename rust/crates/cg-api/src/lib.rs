@@ -489,7 +489,9 @@ impl Api {
             return reply(413, "payload_too_large");
         }
         if ["POST", "PUT", "PATCH"].contains(&req.method.as_str()) {
-            let has_body = cl.is_some_and(|v| v != "0") || req.headers.contains_key("transfer-encoding") || !req.body.is_empty();
+            // A proxy (Caddy behind Cloudflare) sends `Transfer-Encoding: chunked` even for a POST with nothing in it, as every button without a form does;
+            // the server has already decoded the chunks, so only a real body counts, not the header.
+            let has_body = cl.is_some_and(|v| v != "0") || !req.body.is_empty();
             let ctype = req.headers.get("content-type").map(|c| c.split(';').next().unwrap_or("").trim().to_lowercase()).unwrap_or_default();
             if has_body && ctype != "application/json" && req.path != IMPORT_FILE_PATH {
                 return reply(415, "unsupported_media_type");
@@ -1306,7 +1308,7 @@ impl Api {
         let p = self.need(req, "routing.manage")?;
         let mut m = object_body(req)?;
         let expected = m.remove("expected_version").filter(Value::is_i64).and_then(|v| v.as_i64()).filter(|v| *v >= 0).ok_or_else(invalid)?;
-        const ALLOWED: [&str; 15] = ["points", "lane_b_flagged", "lane_b_score", "slice_size", "low_water", "lease_seconds", "aging_per_hour", "ai_per_minute", "ai_daily_budget", "on_shift", "exclusions", "auto_clear_green", "audit_percent", "bulk_confirm_skip_lower", "auto_request_info"];
+        const ALLOWED: [&str; 18] = ["points", "lane_b_flagged", "lane_b_score", "slice_size", "low_water", "lease_seconds", "aging_per_hour", "ai_per_minute", "ai_daily_budget", "on_shift", "exclusions", "auto_clear_green", "audit_percent", "bulk_confirm_skip_lower", "auto_request_info", "schedules", "bands", "utc_offset_minutes"];
         if m.keys().any(|k| !ALLOWED.contains(&k.as_str())) || m.values().any(Value::is_null) {
             return Err(invalid());
         }

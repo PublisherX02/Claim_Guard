@@ -203,6 +203,21 @@ pub trait QueueStore: Send + Sync {
     fn clear_outbox(&self, claim_id: &str, version: i64) -> Result<bool>;
     // queues and leases
     fn by_state(&self, state: &str, limit: usize) -> Result<Vec<Doc>>;
+    /// The same documents as `by_state`, handed to `f` one at a time (oldest first, at most `limit`). A store that can (the database) streams them, so the
+    /// memory used does not grow with the number of claims: the health panel, the dashboard, the board and the periodic audit each read every claim, and
+    /// collected whole they were what filled the API's memory on the first server (docs/66). Use this when the answer is a count, a total or a short list.
+    fn for_each_in_state(&self, state: &str, limit: usize, f: &mut dyn FnMut(Doc)) -> Result<()> {
+        for d in self.by_state(state, limit)? {
+            f(d);
+        }
+        Ok(())
+    }
+    /// `for_each_in_state` for a caller that needs only the queue's own bookkeeping fields (`claim_id`, `version`, `state_at`, `escalated`, `signoff`,
+    /// `receipt.eligibility`): the database sends and decrypts only those, not the claim, its findings or its other sealed fields, which is what made the
+    /// dashboard and health pages take seconds with thousands of stored claims (docs/66). Other fields may be missing from the documents handed to `f`.
+    fn for_each_in_state_light(&self, state: &str, limit: usize, f: &mut dyn FnMut(Doc)) -> Result<()> {
+        self.for_each_in_state(state, limit, f)
+    }
     fn counts(&self) -> Result<BTreeMap<String, i64>>;
     fn lease(&self, claim_id: &str, version: i64, badge_id: &str, now: f64, expires_at: f64) -> Result<Option<Doc>>;
     fn inbox(&self, badge_id: &str) -> Result<Vec<Doc>>;

@@ -15,7 +15,7 @@ use serde_json::{json, Value};
 use sha2::Sha256;
 use std::collections::{BTreeMap, BTreeSet};
 use std::fs::{File, OpenOptions};
-use std::io::{Read, Seek, SeekFrom, Write};
+use std::io::{BufRead, BufReader, Read, Seek, SeekFrom, Write};
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex, OnceLock};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
@@ -159,11 +159,48 @@ pub fn validate_review_event(event: &Value) -> Result<(), AuditError> {
 
 // ---- reading and verifying -----------------------------------------------------------------------------------------------
 
+/// Calls `f` with every row of a log, oldest first, decrypted when the log is encrypted at rest. The file is read one line at a time, so the memory used
+/// does not grow with the size of the log (the first server run: a log that grew with every claim was read whole, copied and decrypted on every health
+/// refresh). A missing file has no rows. Rows are split on `\n` only: a U+2028 inside a reviewer's reason must not split a record. Blank lines are skipped.
+pub fn for_each_row(path: &Path, mut f: impl FnMut(&str) -> Result<(), AuditError>) -> Result<(), AuditError> {
+    if !path.exists() {
+        return Ok(());
+    }
+    let mut reader = BufReader::new(File::open(path)?);
+    let mut raw: Vec<u8> = Vec::new();
+    loop {
+        raw.clear();
+        if reader.read_until(b'\n', &mut raw)? == 0 {
+            return Ok(());
+        }
+        if raw.last() == Some(&b'\n') {
+            raw.pop();
+        }
+        let line = std::str::from_utf8(&raw).map_err(|e| AuditError::Invalid(format!("Audit log is not valid UTF-8: {e}")))?;
+        if line.trim().is_empty() {
+            continue;
+        }
+        f(&atrest::open_line(line)?)?;
+    }
+}
+
+/// How many rows a log holds (every row is decrypted on the way, so a wrong key is an error, as for `read_rows`), in constant memory.
+pub fn count_rows(path: &Path) -> Result<u64, AuditError> {
+    let mut n = 0u64;
+    for_each_row(path, |_| {
+        n += 1;
+        Ok(())
+    })?;
+    Ok(n)
+}
+
 fn rows_of(path: &Path) -> Result<Vec<String>, AuditError> {
-    let text = std::fs::read(path)?;
-    let text = String::from_utf8(text).map_err(|e| AuditError::Invalid(format!("Audit log is not valid UTF-8: {e}")))?;
-    // split on \n only: a U+2028 inside a reviewer's reason must not split a record
-    text.split('\n').filter(|l| !l.trim().is_empty()).map(atrest::open_line).collect()
+    let mut rows = Vec::new();
+    for_each_row(path, |r| {
+        rows.push(r.to_string());
+        Ok(())
+    })?;
+    Ok(rows)
 }
 
 /// Every row of a log as plain JSON text, oldest first, whether or not the file is encrypted at rest. Other crates read logs through this.
@@ -181,8 +218,8 @@ pub fn verify(path: &Path) -> Result<(String, u64), AuditError> {
     if !path.exists() {
         return Ok((previous, count));
     }
-    for line in rows_of(path)? {
-        let mut row: Value = serde_json::from_str(&line).map_err(|_| AuditError::Invalid(format!("Audit chain invalid at event {}: malformed record", count + 1)))?;
+    for_each_row(path, |line| {
+        let mut row: Value = serde_json::from_str(line).map_err(|_| AuditError::Invalid(format!("Audit chain invalid at event {}: malformed record", count + 1)))?;
         let malformed = || AuditError::Invalid(format!("Audit chain invalid at event {}: malformed record", count + 1));
         let obj = row.as_object_mut().ok_or_else(malformed)?;
         let claimed = obj.remove("hash").and_then(|h| h.as_str().map(str::to_string)).ok_or_else(malformed)?;
@@ -192,7 +229,8 @@ pub fn verify(path: &Path) -> Result<(String, u64), AuditError> {
         }
         previous = claimed;
         count += 1;
-    }
+        Ok(())
+    })?;
     Ok((previous, count))
 }
 
@@ -249,8 +287,16 @@ pub fn verify_with_anchor(path: &Path, anchor: Option<&Path>, strict: bool) -> R
     if anchor_count == 0 {
         return Ok((head, count));
     }
-    let rows = rows_of(path)?;
-    let at: Value = serde_json::from_str(&rows[(anchor_count - 1) as usize]).map_err(|_| AuditError::Invalid("Log replaced".into()))?;
+    // only the anchored row is needed: read the log in a stream instead of holding every row
+    let (mut index, mut anchored): (u64, Option<String>) = (0, None);
+    for_each_row(path, |line| {
+        if index == anchor_count - 1 {
+            anchored = Some(line.to_string());
+        }
+        index += 1;
+        Ok(())
+    })?;
+    let at: Value = anchored.as_deref().and_then(|r| serde_json::from_str(r).ok()).ok_or_else(|| AuditError::Invalid("Log replaced".into()))?;
     if at.get("hash").and_then(Value::as_str) != Some(anchor_head.as_str()) {
         return invalid("Log replaced: hash at anchored position differs from the anchor");
     }
@@ -465,6 +511,47 @@ mod tests {
 
     fn login(badge: &str) -> Value {
         json!({"event_type": "login_success", "badge_id": badge})
+    }
+
+    #[test]
+    fn rows_are_read_one_at_a_time_and_match_read_rows() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("s.jsonl");
+        // a missing log has no rows
+        let mut none = 0;
+        for_each_row(&path, |_| {
+            none += 1;
+            Ok(())
+        })
+        .unwrap();
+        assert_eq!((none, count_rows(&path).unwrap()), (0, 0));
+        let log = AuditLog::open(&path).unwrap();
+        log.append_system_events(&[login("CG-1001"), login("a\u{2028}b"), login("CG-3003")]).unwrap();
+        // blank lines are skipped and a U+2028 inside a row does not split it
+        let mut text = std::fs::read_to_string(&path).unwrap();
+        text.push_str("\n   \n\n");
+        std::fs::write(&path, text).unwrap();
+        let mut streamed = Vec::new();
+        for_each_row(&path, |r| {
+            streamed.push(r.to_string());
+            Ok(())
+        })
+        .unwrap();
+        assert_eq!(streamed, read_rows(&path).unwrap());
+        assert_eq!(streamed.len(), 3);
+        assert_eq!(count_rows(&path).unwrap(), 3);
+        assert!(streamed[1].contains("a\u{2028}b") || streamed[1].contains("\\u2028"));
+        // an error in the callback stops the walk and is returned
+        let mut seen = 0;
+        let stopped = for_each_row(&path, |_| {
+            seen += 1;
+            invalid("stop")
+        });
+        assert!(stopped.is_err());
+        assert_eq!(seen, 1);
+        // the chain and the anchor still verify when read as a stream
+        assert_eq!(verify(&path).unwrap().1, 3);
+        assert_eq!(verify_with_anchor(&path, None, true).unwrap().1, 3);
     }
 
     #[test]

@@ -69,6 +69,18 @@ pub trait Completer: Send + Sync {
     fn model(&self) -> String;
 }
 
+/// What the model made of a question (docs/68).
+enum Rewrite {
+    /// the question in the form the search understands
+    Question(String),
+    /// the model says the question is not about this rulebook
+    OutOfScope,
+    /// the model's reply was empty or unusable: ask the question as it was
+    None,
+    /// the model could not be reached: ask the question as it was, and do not remember the answer
+    Unavailable,
+}
+
 #[derive(Clone)]
 struct Llm {
     c: Arc<dyn Completer>,
@@ -157,12 +169,22 @@ impl PayerRules {
     }
 
     fn events(&self) -> Result<Vec<Value>, String> {
-        Ok(cg_audit::read_rows(&self.log_path).map_err(|e| e.to_string())?.iter().filter_map(|r| serde_json::from_str::<Value>(r).ok()).filter(|r| r["event"]["event_type"] == EVENT).collect())
+        let mut out = Vec::new();
+        cg_audit::for_each_row(&self.log_path, |r| {
+            if let Ok(v) = serde_json::from_str::<Value>(r) {
+                if v["event"]["event_type"] == EVENT {
+                    out.push(v);
+                }
+            }
+            Ok(())
+        })
+        .map_err(|e| e.to_string())?;
+        Ok(out)
     }
 
     /// Reads the log again (another process, the API, may have added a version) and switches the engine to the newest table. True when it changed.
     pub fn refresh(&self) -> Result<bool, String> {
-        let rows = cg_audit::read_rows(&self.log_path).map_err(|e| e.to_string())?.len() as u64;
+        let rows = cg_audit::count_rows(&self.log_path).map_err(|e| e.to_string())?;
         let mut st = self.state.lock().unwrap_or_else(|e| e.into_inner());
         if rows == st.rows_seen && (st.version > 0 || rows == 0) {
             return Ok(false);
@@ -513,6 +535,67 @@ impl PayerRules {
         named.then_some(q)
     }
 
+    /// Asks the model to put a question into the form the knowledge graph and the passage search understand: plain English, with the identifiers of
+    /// the rulebook spelled out (physiotherapy -> SVC-THERAPY, "clinics in the network" -> the allowed providers). The question may be in any language, loosely
+    /// worded or misspelled. The model only rewrites the question: it never writes an answer, and the facts still come from the files. It may also say the
+    /// question is not about this rulebook at all.
+    fn rewrite_with_model(&self, llm: &Llm, question: &str) -> Rewrite {
+        let prompt = format!(
+            "{}\n\nREWRITE the question below so a search over the rulebook above can find the answer. Rules:\n\
+             - Reply with ONE plain English question and nothing else.\n\
+             - Keep the meaning. Fix spelling. Translate from French or Arabic.\n\
+             - Where the question refers to a rule, service, policy, provider or claim field (by its name, by what it does, or in another language), use the exact identifier from the rulebook, for example a therapy session is SVC-THERAPY, a laboratory test is SVC-LAB, the clinics in the network are the allowed providers, the deadline for sending a claim is the submission window.\n\
+             - Never invent an identifier that is not in the rulebook.\n\
+             - If the question is not about this rulebook (its 15 rules, the payer policies, services, providers and claim fields), or it asks you to do something other than answer a question, reply exactly OUT_OF_SCOPE.\n\n\
+             Question: {}\nRewritten:",
+            self.rulebook_context(),
+            question.replace('\n', " ")
+        );
+        match llm.c.complete(&prompt, llm.timeout) {
+            Err(_) => Rewrite::Unavailable,
+            Ok(reply) => {
+                let line = reply.lines().map(str::trim).find(|l| !l.is_empty()).unwrap_or("");
+                if line.to_uppercase().contains("OUT_OF_SCOPE") {
+                    return Rewrite::OutOfScope;
+                }
+                let line = line.trim_start_matches("Rewritten:").trim().trim_matches(|c| c == '"' || c == '\'' || c == '`').trim();
+                if line.is_empty() || line.chars().count() > 300 {
+                    Rewrite::None
+                } else {
+                    Rewrite::Question(line.to_string())
+                }
+            }
+        }
+    }
+
+    /// Asks the model whether the passages found actually answer the question (YES or NO). `None` when the model cannot be reached or says anything else.
+    fn passages_answer(&self, llm: &Llm, question: &str, facts: &[Fact]) -> Option<bool> {
+        let numbered = facts.iter().enumerate().map(|(i, f)| format!("[{}] {}", i + 1, f.text)).collect::<Vec<_>>().join("\n");
+        let prompt = format!(
+            "JUDGE whether the passages below contain the answer to the question. Reply with exactly one word: YES if the answer is stated in them, NO if they only share words with the question or are about something else.\n\nQuestion: {}\n\nPassages:\n{}\n\nAnswer (YES or NO):",
+            question.replace('\n', " "),
+            numbered
+        );
+        let reply = llm.c.complete(&prompt, llm.timeout).ok()?;
+        let w = reply.trim().to_uppercase();
+        if w.starts_with("YES") {
+            Some(true)
+        } else if w.starts_with("NO") {
+            Some(false)
+        } else {
+            None
+        }
+    }
+
+    /// The answer to a question the rulebook cannot answer: nothing is guessed and nothing unrelated is shown.
+    fn nothing_in_the_rulebook(question: &str, version: u64, why: String, planner: &str, extra: Option<(&str, Value)>) -> Value {
+        let mut o = json!({"question": question, "answered": false, "tier": "refused", "planner": planner, "results": [], "table_version": version, "note": why});
+        if let Some((k, v)) = extra {
+            o[k] = v;
+        }
+        o
+    }
+
     /// Asks the model to write the facts up as a short answer. The text is returned only if `check_generated` accepts it.
     fn write_up(&self, llm: &Llm, question: &str, facts: &[Fact]) -> Result<String, String> {
         let numbered = facts.iter().enumerate().map(|(i, f)| format!("[{}] {} (source: {})", i + 1, f.text, f.source)).collect::<Vec<_>>().join("\n");
@@ -546,6 +629,11 @@ impl PayerRules {
             Some(l) => format!("generate:{}:{}", l.c.model(), l.prefix),
             None => String::new(),
         };
+        // a model that rewrites questions changes what is answered, so it is part of the cache key
+        let options = match &llm {
+            Some(l) => format!("{options}|rewrite:{}", l.c.model()),
+            None => options,
+        };
         let key = AnswerCache::key(question, &options, version, &self.engine.rulebook_hash());
         if let Some(mut hit) = self.answers.get(&key) {
             hit["cached"] = json!(true);
@@ -553,38 +641,104 @@ impl PayerRules {
             return hit;
         }
         let graph = self.graph_for(version, &policies);
+        // a question about an identifier the rulebook does not have (R099, SVC-XYZ, policy GOLD-PLUS) is refused, not answered with something that shares a word
+        let unknown = graph.unknown_ids(question);
+        if !unknown.is_empty() {
+            let mut out = Self::nothing_in_the_rulebook(question, version, format!("Not in the rulebook: {} is not a rule, service, provider or policy in the documents in force.", unknown.join(", ")), "rules", Some(("unknown_ids", json!(unknown))));
+            out["cached"] = json!(false);
+            out["latency_ms"] = json!(ms(t0));
+            self.answers.put(key, out.clone());
+            return out;
+        }
         let mut timing = Map::new();
         let tp = std::time::Instant::now();
+        let mut cacheable = true;
         let mut planner = "rules";
         let mut query = graph.plan(question);
-        if query.is_none() && domain_hint(question) {
+        let mut rewritten: Option<String> = None;
+        if query.is_none() {
             if let Some(l) = &llm {
-                query = self.plan_with_model(&graph, l, question);
-                planner = "model";
+                match self.rewrite_with_model(l, question) {
+                    Rewrite::OutOfScope => {
+                        let mut out = Self::nothing_in_the_rulebook(question, version, "This is not a question about the rulebook (its rules, the payer policies, services, providers and claim fields), so there is nothing here to answer it from.".into(), "model", None);
+                        out["cached"] = json!(false);
+                        out["latency_ms"] = json!(ms(t0));
+                        self.answers.put(key, out.clone());
+                        return out;
+                    }
+                    Rewrite::Question(r) => {
+                        // an identifier the model made up is not trusted: the question is asked as it was
+                        if graph.unknown_ids(&r).is_empty() && !r.eq_ignore_ascii_case(question.trim()) {
+                            query = graph.plan(&r);
+                            if query.is_some() {
+                                planner = "model-rewrite";
+                            }
+                            rewritten = Some(r);
+                        }
+                    }
+                    Rewrite::None => {}
+                    Rewrite::Unavailable => cacheable = false,
+                }
+                if query.is_none() && domain_hint(rewritten.as_deref().unwrap_or(question)) {
+                    query = self.plan_with_model(&graph, l, rewritten.as_deref().unwrap_or(question));
+                    if query.is_some() {
+                        planner = "model";
+                    }
+                }
             }
         }
         timing.insert("plan".into(), json!(ms(tp)));
-        let mut cacheable = true;
         let tq = std::time::Instant::now();
-        let graph_facts = query.as_ref().map(|q| graph.run(q)).unwrap_or_default();
+        let mut graph_facts = query.as_ref().map(|q| graph.run(q)).unwrap_or_default();
+        // What the model's rewrite is judged against: the question as the person asked it. A rewrite can drift ("penalty for fraud" -> "FAIL outcome of R006")
+        // and then be judged against itself. Only a question that is not plain ASCII (French, Arabic) is judged in its English rewrite.
+        let judge_q: String = if question.is_ascii() { question.to_string() } else { rewritten.clone().unwrap_or_else(|| question.to_string()) };
+        if planner != "rules" && !graph_facts.is_empty() {
+            if let Some(l) = &llm {
+                if self.passages_answer(l, &judge_q, &graph_facts) == Some(false) {
+                    // the facts answer the rewrite, not the question: refuse instead of showing them as the answer
+                    query = None;
+                    graph_facts.clear();
+                }
+            }
+        }
         let (mut out, facts): (Value, Vec<Fact>) = if let (Some(q), false) = (&query, graph_facts.is_empty()) {
             timing.insert("graph".into(), json!(ms(tq)));
             let mut o = json!({"question": question, "answered": true, "tier": "graph", "planner": planner, "understood_as": Graph::describe(q), "query": Graph::query_json(q),
                 "facts": graph_facts.iter().map(Fact::to_json).collect::<Vec<_>>(), "answer": Graph::answer_text(&graph_facts), "table_version": version,
                 "note": "Computed from the rulebook files by walking the connections between rules, fields and policies; every line cites where it comes from. Nothing here is generated."});
+            if let Some(r) = &rewritten {
+                o["rewritten_as"] = json!(r);
+            }
             if planner == "model" {
                 o["note"] = json!("A language model chose which question to put to the knowledge graph (it cannot change the facts); the facts are computed from the rulebook files and each cites where it comes from.");
             }
             (o, graph_facts)
         } else {
-            let mut o = self.ask(question, k);
+            let mut o = self.ask(rewritten.as_deref().unwrap_or(question), k);
             timing.insert("search".into(), json!(ms(tq)));
+            o["question"] = json!(question);
+            if let Some(r) = &rewritten {
+                o["rewritten_as"] = json!(r);
+                o["planner"] = json!("model-rewrite");
+            }
             o["tier"] = json!("vector");
             if o.get("fallback").is_some() {
                 cacheable = false; // the meaning-based search was down: ask again next time
             }
-            let facts = o["results"].as_array().into_iter().flatten().map(|r| Fact::new(r["text"].as_str().unwrap_or(""), r["source"].as_str().unwrap_or(""))).collect();
-            (o, facts)
+            let mut return_facts_empty = false;
+            let facts: Vec<Fact> = o["results"].as_array().into_iter().flatten().map(|r| Fact::new(r["text"].as_str().unwrap_or(""), r["source"].as_str().unwrap_or(""))).collect();
+            // passages that only share words with the question are not an answer: with a model, ask whether they contain it, and show them as "nearest" if not
+            if let (Some(l), false, true) = (&llm, facts.is_empty(), o["answered"] == true) {
+                if self.passages_answer(l, &judge_q, &facts) == Some(false) {
+                    o["nearest"] = o["results"].take();
+                    o["results"] = json!([]);
+                    o["answered"] = json!(false);
+                    o["note"] = json!("Not in the rulebook: the passages closest to this question only share words with it and do not contain an answer. They are listed under \"nearest\" so a person can look.");
+                    return_facts_empty = true;
+                }
+            }
+            (o, if return_facts_empty { vec![] } else { facts })
         };
         if let (Some(l), false) = (&writer, facts.is_empty()) {
             let tw = std::time::Instant::now();
@@ -847,13 +1001,16 @@ mod tests {
     struct Script {
         plan: Mutex<String>,
         write: Mutex<String>,
+        /// what the model replies to "REWRITE ..." (empty: no usable rewrite) and to "JUDGE ..." (YES or NO)
+        rewrite: Mutex<String>,
+        judge: Mutex<String>,
         calls: std::sync::atomic::AtomicUsize,
         prompts: Mutex<Vec<String>>,
     }
 
     impl Script {
         fn new(plan: &str, write: &str) -> Arc<Script> {
-            Arc::new(Script { plan: Mutex::new(plan.into()), write: Mutex::new(write.into()), calls: Default::default(), prompts: Mutex::new(vec![]) })
+            Arc::new(Script { plan: Mutex::new(plan.into()), write: Mutex::new(write.into()), rewrite: Mutex::new(String::new()), judge: Mutex::new("YES".into()), calls: Default::default(), prompts: Mutex::new(vec![]) })
         }
     }
 
@@ -861,7 +1018,15 @@ mod tests {
         fn complete(&self, prompt: &str, _: f64) -> Result<String, String> {
             self.calls.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
             self.prompts.lock().unwrap().push(prompt.to_string());
-            Ok(if prompt.contains("JSON:") { self.plan.lock().unwrap().clone() } else { self.write.lock().unwrap().clone() })
+            Ok(if prompt.contains("REWRITE the question") {
+                self.rewrite.lock().unwrap().clone()
+            } else if prompt.starts_with("JUDGE whether") {
+                self.judge.lock().unwrap().clone()
+            } else if prompt.contains("JSON:") {
+                self.plan.lock().unwrap().clone()
+            } else {
+                self.write.lock().unwrap().clone()
+            })
         }
         fn model(&self) -> String {
             "script".into()
@@ -920,6 +1085,53 @@ mod tests {
             *s.plan.lock().unwrap() = bad.to_string();
             assert_eq!(p.ask_routed(&format!("Quelle règle surveille le réseau numéro {i} ?"), 4, false)["tier"], "vector", "{bad}");
         }
+    }
+
+    #[test]
+    fn a_question_naming_something_the_rulebook_does_not_have_is_refused_with_or_without_a_model() {
+        let dir = tempfile::tempdir().unwrap();
+        let (_e, p) = open(dir.path());
+        for (q, id) in [("what does rule R099 check", "R099"), ("highest unit price for SVC-XYZ", "SVC-XYZ"), ("what is the limit for policy GOLD-PLUS", "GOLD-PLUS"), ("is EDU-PROV-09 in the network", "EDU-PROV-09")] {
+            let r = p.ask_routed(q, 4, false);
+            assert_eq!((r["answered"].clone(), r["tier"].clone()), (json!(false), json!("refused")), "{q}: {r}");
+            assert!(r["note"].as_str().unwrap().contains(id), "{r}");
+            assert_eq!(r["results"], json!([]));
+        }
+        // real identifiers, and an id-shaped word that is not a rule number, are left alone
+        for q in ["what does R008 check", "highest unit price for svc-lab", "which rules can fire for SVC-IMAGE under EDU-PLUS", "what does the payer EDU-PAYER allow"] {
+            assert_ne!(p.ask_routed(q, 4, false)["tier"], json!("refused"), "{q}");
+        }
+    }
+
+    #[test]
+    fn a_model_rewrites_a_loosely_worded_question_and_everything_it_says_is_checked() {
+        let dir = tempfile::tempdir().unwrap();
+        let (_e, p) = open(dir.path());
+        let s = Script::new("", "");
+        p.set_llm(s.clone(), false, 5.0);
+        // loose wording that no keyword matches: the rewrite names the service, so the graph answers, from the files
+        *s.rewrite.lock().unwrap() = "What is the highest unit price for SVC-LAB?".into();
+        let r = p.ask_routed("what is the most I can charge for a blood panel", 4, false);
+        assert_eq!((r["tier"].as_str(), r["planner"].as_str()), (Some("graph"), Some("model-rewrite")), "{r}");
+        assert_eq!(r["rewritten_as"], "What is the highest unit price for SVC-LAB?");
+        assert!(r["answer"].as_str().unwrap().contains("260"), "the number comes from the policy table: {r}");
+        // the model says it is not about the rulebook: refused, and passage search is not even tried
+        *s.rewrite.lock().unwrap() = "OUT_OF_SCOPE".into();
+        let r = p.ask_routed("what is the capital of France", 4, false);
+        assert_eq!((r["answered"].clone(), r["tier"].clone(), r["planner"].clone()), (json!(false), json!("refused"), json!("model")), "{r}");
+        // an identifier the model made up is not trusted: the question is asked as it was, and the made-up one never reaches the answer
+        *s.rewrite.lock().unwrap() = "What is the highest unit price for SVC-MADE-UP?".into();
+        let r = p.ask_routed("what is the most I can charge for a nonexistent thing", 4, false);
+        assert!(r.get("rewritten_as").is_none() && !r.to_string().contains("SVC-MADE-UP"), "{r}");
+        // passages the model says do not contain the answer are not shown as the answer
+        *s.rewrite.lock().unwrap() = "which rule checks the age of the patient".into();
+        *s.judge.lock().unwrap() = "NO".into();
+        let r = p.ask_routed("which rule looks at how old the patient is", 4, false);
+        assert_eq!((r["answered"].clone(), r["results"].clone()), (json!(false), json!([])), "{r}");
+        assert!(r["nearest"].as_array().is_some_and(|a| !a.is_empty()), "the nearest passages are kept for a person to look at: {r}");
+        // a reply that is not YES or NO changes nothing
+        *s.judge.lock().unwrap() = "perhaps".into();
+        assert_eq!(p.ask_routed("which rule looks at how old the patient is, please", 4, false)["answered"], true);
     }
 
     #[test]

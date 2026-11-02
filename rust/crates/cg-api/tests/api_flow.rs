@@ -163,6 +163,10 @@ fn bodies_are_strict() {
     let mut wrong_type = req("POST", "/api/v1/auth/logout", Some(json!({"a": 1})), Some(&s.0), Some(&s.1));
     wrong_type.headers.insert("content-type".into(), "text/plain".into());
     assert_eq!(t.api.handle(wrong_type).status, 415);
+    // a button with no body, as a proxy forwards it (chunked, nothing in it, no content type), is not a wrong media type
+    let mut chunked_empty = req("POST", "/api/v1/auth/logout", None, Some(&s.0), Some(&s.1));
+    chunked_empty.headers.insert("transfer-encoding".into(), "chunked".into());
+    assert_ne!(t.api.handle(chunked_empty).status, 415);
 }
 
 #[test]

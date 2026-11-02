@@ -77,13 +77,15 @@ def soak(api, pool, minutes, rate):
         batch = [fresh_claim(pool[(k + i) % len(pool)]) for i in range(batch_size)]
         k += batch_size
         _, done, n, err = submit_batch(api, batch)
-        m = per_minute.setdefault(int((t0 - t_begin) // 60), {'claims': 0, 'errors': 0, 'done_s': []})
+        m = per_minute.setdefault(int((t0 - t_begin) // 60), {'claims': 0, 'errors': 0, 'done_s': [], 'error_samples': []})
         m['claims'] += n
         m['errors'] += 1 if err else 0
+        if err and len(m['error_samples']) < 3:
+            m['error_samples'].append(err)      # what the server answered (status and the start of the body): the cause of a failed batch
         if done is not None:
             m['done_s'].append(done)
         time.sleep(max(0.0, gap - (time.time() - t0)))
-    return [{'minute': k, 'claims': v['claims'], 'errors': v['errors'], 'batch_done_p50_s': summary(v['done_s']).get('p50'), 'batch_done_p95_s': summary(v['done_s']).get('p95')}
+    return [{'minute': k, 'claims': v['claims'], 'errors': v['errors'], 'batch_done_p50_s': summary(v['done_s']).get('p50'), 'batch_done_p95_s': summary(v['done_s']).get('p95'), 'error_samples': v['error_samples']}
             for k, v in sorted(per_minute.items())]
 
 

@@ -211,6 +211,26 @@ impl Graph {
     fn provider(&self, s: &str) -> Option<String> {
         Self::canon(self.providers.keys().cloned(), s)
     }
+    /// Words in a question that look like an identifier of this rulebook but name nothing in it: a rule number (R099), a service code (SVC-XYZ), a
+    /// provider (EDU-PROV-09) or a policy written after the word "policy" (GOLD-PLUS). A question about them cannot be answered from the documents, and
+    /// the passage search must not answer it with something unrelated that merely shares a word.
+    pub fn unknown_ids(&self, question: &str) -> Vec<String> {
+        let toks: Vec<&str> = question.split(|c: char| !(c.is_alphanumeric() || c == '-' || c == '_')).filter(|w| !w.is_empty()).collect();
+        let mut out: BTreeSet<String> = BTreeSet::new();
+        for (i, t) in toks.iter().enumerate() {
+            let l = t.to_lowercase();
+            let rule_shaped = l.len() == 4 && l.starts_with('r') && l[1..].chars().all(|c| c.is_ascii_digit());
+            let policy_named = i > 0 && matches!(toks[i - 1].to_lowercase().as_str(), "policy" | "plan") && t.contains('-') && t.chars().any(|c| c.is_ascii_uppercase());
+            let unknown = (rule_shaped && self.rule(&l).is_none())
+                || (l.starts_with("svc-") && self.service(&l).is_none())
+                || (l.starts_with("edu-prov-") && self.provider(&l).is_none())
+                || (policy_named && !l.starts_with("svc-") && self.policy(&l).is_none());
+            if unknown {
+                out.insert(t.to_uppercase());
+            }
+        }
+        out.into_iter().collect()
+    }
     fn attr(&self, s: &str) -> Option<String> {
         ATTRS.iter().map(|(n, _, _)| n.to_string()).find(|n| n == s.trim())
     }

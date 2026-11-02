@@ -44,7 +44,7 @@ pub const CONFIRM_REASON: &str = "Confirmed: the finding matches the evidence.";
 /// Recorded on a finding confirmed in bulk after a light review. Such decisions are left out of the reliability evidence (`reliability::counted_decisions`).
 pub const BULK_REASON: &str = "Confirmed in bulk after a light review.";
 const LIGHT_TTL: f64 = 300.0;
-const CONFIG_FIELDS: [&str; 15] = ["points", "lane_b_flagged", "lane_b_score", "slice_size", "low_water", "lease_seconds", "aging_per_hour", "ai_per_minute", "ai_daily_budget", "on_shift", "exclusions", "auto_clear_green", "audit_percent", "bulk_confirm_skip_lower", "auto_request_info"];
+const CONFIG_FIELDS: [&str; 18] = ["points", "lane_b_flagged", "lane_b_score", "slice_size", "low_water", "lease_seconds", "aging_per_hour", "ai_per_minute", "ai_daily_budget", "on_shift", "exclusions", "auto_clear_green", "audit_percent", "bulk_confirm_skip_lower", "auto_request_info", "schedules", "bands", "utc_offset_minutes"];
 
 #[derive(Debug, thiserror::Error)]
 pub enum QueueError {
@@ -159,6 +159,9 @@ pub struct QueueService {
     rules: Mutex<Option<RulesFn>>,
     /// (computed at, skip_lower it was computed for, rules): the light-review set is a read over every decided claim, so it is kept for five minutes.
     light: Mutex<Option<(f64, f64, BTreeSet<String>)>>,
+    /// The live board's numbers with the moment they were computed and what they were computed for (start of day, the claim counts by state, the routing
+    /// version): reading every claim takes seconds with many stored claims, so while nothing moved the same answer is reused for at most 30 seconds.
+    board: Mutex<Option<(f64, String, Value)>>,
     /// Batches being taken in the background (`submit_claims_async`) and the last few finished ones. In memory: a restart forgets them, and a batch that was
     /// cut off is repaired by sending it again (a claim already stored is reported "already_stored", never stored twice).
     jobs: Mutex<BTreeMap<String, Arc<Mutex<Job>>>>,
@@ -183,7 +186,7 @@ const KEEP_FINISHED_JOBS: usize = 20;
 
 impl QueueService {
     pub fn new(store: Arc<dyn QueueStore>, dispatcher: Arc<Dispatcher>, access: Arc<AccessService>, securitylog: Arc<SecurityLog>, review_log: Arc<AuditLog>, clock: Clock) -> QueueService {
-        QueueService { store, dispatcher, access, securitylog, review_log, clock, intake: Mutex::new(None), rules: Mutex::new(None), light: Mutex::new(None), jobs: Mutex::new(BTreeMap::new()) }
+        QueueService { store, dispatcher, access, securitylog, review_log, clock, intake: Mutex::new(None), rules: Mutex::new(None), light: Mutex::new(None), board: Mutex::new(None), jobs: Mutex::new(BTreeMap::new()) }
     }
 
     /// Set by the wiring; only the submit route needs it.
@@ -911,16 +914,21 @@ impl QueueService {
     pub fn dashboard_snapshot(&self) -> Value {
         let now = self.now();
         let cfg = self.routing_config();
-        let agents: Vec<Agent> = (self.dispatcher.agents)().into_iter().filter(|a| a.active && cfg.on_shift.contains(&a.badge_id)).collect();
+        let agents: Vec<Agent> = (self.dispatcher.agents)().into_iter().filter(|a| a.active && cfg.is_on_shift(&a.badge_id, now)).collect();
         let senior: Vec<&Agent> = agents.iter().filter(|a| a.permissions.contains("claims.decide_high")).collect();
         let junior: Vec<&Agent> = agents.iter().filter(|a| a.permissions.contains("claims.decide")).collect();
         let (mut oldest, mut waiting) = ([0.0_f64; 2], [0_i64; 2]);
-        let mut pool = self.store.by_state("ready", 5000).unwrap_or_default();
-        pool.extend(self.store.by_state("awaiting_countersign", 5000).unwrap_or_default());
-        for d in &pool {
-            let k = usize::from(d["receipt"]["eligibility"] == "decide_high" || d["escalated"] == true || !d["signoff"].is_null());
-            waiting[k] += 1;
-            oldest[k] = oldest[k].max(now - d["state_at"].as_f64().unwrap_or(now));
+        // read one claim at a time (at most 5000 per state, as before): only what the numbers need is kept, not the claims
+        let mut signed: Vec<(Value, Value)> = vec![];
+        for state in ["ready", "awaiting_countersign"] {
+            let _ = self.store.for_each_in_state_light(state, 5000, &mut |d| {
+                let k = usize::from(d["receipt"]["eligibility"] == "decide_high" || d["escalated"] == true || !d["signoff"].is_null());
+                waiting[k] += 1;
+                oldest[k] = oldest[k].max(now - d["state_at"].as_f64().unwrap_or(now));
+                if matches!(d["signoff"]["stage"].as_str(), Some("countersign" | "tiebreak")) {
+                    signed.push((d["signoff"]["first_by"].clone(), d["signoff"]["second_by"].clone()));
+                }
+            });
         }
         let mut shortages = vec![];
         if waiting[1] > 0 && senior.is_empty() {
@@ -929,8 +937,7 @@ impl QueueService {
         if waiting[0] > 0 && junior.is_empty() {
             shortages.push("claims are waiting and nobody is on shift");
         }
-        let signed: Vec<&Value> = pool.iter().filter(|d| matches!(d["signoff"]["stage"].as_str(), Some("countersign" | "tiebreak"))).collect();
-        if signed.iter().any(|d| !senior.iter().any(|a| d["signoff"]["first_by"] != a.badge_id.as_str() && d["signoff"]["second_by"] != a.badge_id.as_str())) {
+        if signed.iter().any(|(first, second)| !senior.iter().any(|a| *first != a.badge_id.as_str() && *second != a.badge_id.as_str())) {
             shortages.push("claims are waiting for a countersignature and no other senior is on shift");
         }
         let inboxes: Map<String, Value> = agents.iter().map(|a| (a.badge_id.clone(), json!(self.store.inbox_load(&a.badge_id).map(|l| l.0).unwrap_or(0)))).collect();
@@ -1079,7 +1086,16 @@ impl QueueService {
     /// The live board's numbers (`stats.rs`) from `since` (the caller's start of day, clamped to the last 48 hours) until now.
     pub fn stats(&self, principal: &Principal, since: Option<f64>) -> R<Value> {
         self.require(principal, "queue.view")?;
-        Ok(self.stats_snapshot(since))
+        let now = self.now();
+        let key = format!("{:?}|{:?}|{}", since.map(|s| s as i64), self.store.counts().unwrap_or_default(), self.routing_config().version);
+        if let Some((at, k, v)) = self.board.lock().unwrap_or_else(|e| e.into_inner()).as_ref() {
+            if *k == key && (0.0..30.0).contains(&(now - at)) {
+                return Ok(v.clone());
+            }
+        }
+        let fresh = self.stats_snapshot(since);
+        *self.board.lock().unwrap_or_else(|e| e.into_inner()) = Some((now, key, fresh.clone()));
+        Ok(fresh)
     }
 
     /// The daily report: the same numbers with who asked and when, written to the audit trail because it leaves the console as a file.
@@ -1096,14 +1112,24 @@ impl QueueService {
         const BIG: usize = 100_000;
         let now = self.now();
         let since = since.unwrap_or(now - now.rem_euclid(86_400.0)).clamp(now - 48.0 * 3600.0, now);
-        let docs: Vec<Value> = crate::states::STATES.iter().flat_map(|s| self.store.by_state(s, BIG).unwrap_or_default()).collect();
         let cfg = self.routing_config();
         let on_shift: Vec<crate::stats::OnShift> = (self.dispatcher.agents)()
             .into_iter()
-            .filter(|a| a.active && cfg.on_shift.contains(&a.badge_id))
+            .filter(|a| a.active && cfg.is_on_shift(&a.badge_id, now))
             .map(|a| crate::stats::OnShift { inbox: self.store.inbox_load(&a.badge_id).map(|l| l.0).unwrap_or(0), badge: a.badge_id })
             .collect();
-        crate::stats::build(&docs, &on_shift, since, now)
+        // every claim is read, but one at a time: with thousands of claims stored, holding them all is what filled the API's memory
+        let store = &self.store;
+        crate::stats::build_streaming(
+            |visit| {
+                for state in crate::states::STATES.iter() {
+                    let _ = store.for_each_in_state(state, BIG, &mut |d| visit(&d));
+                }
+            },
+            &on_shift,
+            since,
+            now,
+        )
     }
 }
 
