@@ -1,3 +1,5 @@
 # Reviewed false positive: a made-up JWT-shaped string used as test input for experiments/server/pack_results.py (it is not a credential).
 # Later commits build it in pieces; gitleaks scans history, so the first commit that added it is listed here.
 8bacf6d366870d8cdf6247b06c0dc096b9e58a88:tests/test_server_experiments.py:jwt:157
+888fb6a108cfce7b2cff635c3d8c70d9e7045508:README.md:generic-api-key:19
+README.md:generic-api-key:19
