@@ -1,0 +1,133 @@
+{
+ "experiment": "s07_integrity",
+ "finished": "2026-11-01T23:40:12Z",
+ "dry_run": false,
+ "health": {
+  "status": 200,
+  "seconds": 0.9202982899732888,
+  "overall": "degraded",
+  "probes": [
+   {
+    "name": "api",
+    "status": "ok"
+   },
+   {
+    "name": "user_store",
+    "status": "ok"
+   },
+   {
+    "name": "audit_logs",
+    "status": "ok"
+   },
+   {
+    "name": "disk",
+    "status": "ok"
+   },
+   {
+    "name": "anchor",
+    "status": "ok"
+   },
+   {
+    "name": "timestamp",
+    "status": "unknown"
+   },
+   {
+    "name": "ledger",
+    "status": "ok"
+   },
+   {
+    "name": "signals",
+    "status": "degraded"
+   },
+   {
+    "name": "queue_store",
+    "status": "ok"
+   },
+   {
+    "name": "broker",
+    "status": "ok"
+   },
+   {
+    "name": "scheduler",
+    "status": "ok"
+   },
+   {
+    "name": "audit_guard",
+    "status": "ok"
+   },
+   {
+    "name": "outbox",
+    "status": "ok"
+   },
+   {
+    "name": "flow",
+    "status": "degraded"
+   },
+   {
+    "name": "model",
+    "status": "ok"
+   }
+  ]
+ },
+ "audit_verify": {
+  "status": 200,
+  "seconds": 0.17698710691183805,
+  "body": {
+   "security": {
+    "ok": true,
+    "events": 32154,
+    "key_configured": true,
+    "anchor_signed": true
+   },
+   "review": {
+    "ok": true,
+    "events": 0
+   }
+  }
+ },
+ "ledger": {
+  "status": 200,
+  "seconds": 0.2657766523770988,
+  "body": {
+   "configured": true,
+   "key_id": "9111fc5ed8e5f840",
+   "public_key": "yoVjLSumitl9J5Yld9vkZPsvzqo2_URId3bMOGU9zBQ",
+   "ok": true,
+   "logs": {
+    "security": {
+     "ok": true,
+     "checkpoints": 109,
+     "log_rows": 32156,
+     "covered_rows": 32112,
+     "uncovered_rows": 44,
+     "latest": {
+      "version": "claimguard-checkpoint-v1",
+      "log": "security",
+      "count": 32112,
+      "head": "12003e2e5df69ee7c4a793db7e457e5252966b3e2cd3fcdd8e72e0f4051474a0",
+      "merkle_root": "9e3a423586520640868177241f60f22646b5e91f2a5b9b32746230c624c832a9",
+      "time": "2026-11-01T23:18:20.952338+00:00",
+      "key_id": "9111fc5ed8e5f840",
+      "signature": "z1dngqVsKE4RKaK-7nJtuG64RVVpnV21WCsIKJWRd0DUuIEpcSUfKvg6bZ5d2PeIvkvTkcXVWvPq69U2IYDMDQ"
+     },
+     "problems": []
+    },
+    "review": {
+     "ok": true,
+     "checkpoints": 0,
+     "log_rows": 0,
+     "covered_rows": 0,
+     "uncovered_rows": 0,
+     "latest": null,
+     "problems": []
+    }
+   }
+  }
+ },
+ "checks": {
+  "health_not_down": true,
+  "no_failing_probe": false,
+  "audit_chains_verify": true,
+  "ledger_verifies": true
+ }
+}

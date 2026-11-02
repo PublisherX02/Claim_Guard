@@ -1,0 +1,95 @@
+{
+ "experiment": "s01_model",
+ "finished": "2026-11-01T22:45:19Z",
+ "dry_run": false,
+ "ok": true,
+ "model": "gemma3:4b",
+ "result": {
+  "server": "172.21.0.3",
+  "model": "gemma3:4b",
+  "name": "server_gemma3:4b",
+  "levels": [
+   {
+    "concurrency": 1,
+    "requests": 16,
+    "errors": 0,
+    "requests_per_minute": 116.6,
+    "latency_p50_s": 0.51,
+    "latency_p95_s": 0.61,
+    "output_tokens_per_second": 139.5,
+    "seconds": 8.2
+   },
+   {
+    "concurrency": 2,
+    "requests": 16,
+    "errors": 0,
+    "requests_per_minute": 189.0,
+    "latency_p50_s": 0.63,
+    "latency_p95_s": 0.78,
+    "output_tokens_per_second": 228.0,
+    "seconds": 5.1
+   },
+   {
+    "concurrency": 4,
+    "requests": 16,
+    "errors": 0,
+    "requests_per_minute": 188.5,
+    "latency_p50_s": 1.23,
+    "latency_p95_s": 1.39,
+    "output_tokens_per_second": 227.3,
+    "seconds": 5.1
+   },
+   {
+    "concurrency": 8,
+    "requests": 32,
+    "errors": 0,
+    "requests_per_minute": 189.8,
+    "latency_p50_s": 2.5,
+    "latency_p95_s": 2.63,
+    "output_tokens_per_second": 229.8,
+    "seconds": 10.1
+   },
+   {
+    "concurrency": 16,
+    "requests": 64,
+    "errors": 0,
+    "requests_per_minute": 189.8,
+    "latency_p50_s": 5.02,
+    "latency_p95_s": 5.17,
+    "output_tokens_per_second": 229.0,
+    "seconds": 20.2
+   },
+   {
+    "concurrency": 32,
+    "requests": 128,
+    "errors": 0,
+    "requests_per_minute": 188.5,
+    "latency_p50_s": 10.16,
+    "latency_p95_s": 10.35,
+    "output_tokens_per_second": 229.2,
+    "seconds": 40.7
+   },
+   {
+    "concurrency": 64,
+    "requests": 256,
+    "errors": 0,
+    "requests_per_minute": 214.6,
+    "latency_p50_s": 17.68,
+    "latency_p95_s": 18.13,
+    "output_tokens_per_second": 263.4,
+    "seconds": 71.6
+   }
+  ],
+  "best_requests_per_minute": 214.6,
+  "at_concurrency": 64,
+  "gpu_memory_peak_mib": 4379,
+  "gpu_utilization_peak_percent": 90,
+  "target_requests_per_minute": 200,
+  "reaches_target": true,
+  "note": "One explanation per request: about 250 prompt tokens in, up to 160 out, temperature 0. Measured on this machine only; the target server is a different card."
+ },
+ "checks": {
+  "reaches_200_per_minute": true,
+  "no_errors": true
+ }
+}
