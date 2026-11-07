@@ -22,6 +22,8 @@ pymongo==4.18.3
 # celery, redis: the claim queue (src/workqueue/tasks.py). Redis is only the broker; MongoDB is the source of truth. Optional for the offline engine.
 celery==5.6.3
 redis==8.1.0
+# packaging: imported by kombu's Redis transport (celery's broker library). kombu 5.7.0 no longer installs it, so the broker tests failed in CI on 2026-11-07; the version is the one the last green run used.
+packaging==26.3
 # pyasn1, pyasn1-modules: ASN.1 structures of RFC 3161 timestamp tokens and CMS (src/timestamp_anchor.py). The signature and certificate
 # checks use cryptography above. Optional for the offline engine: only the timestamp step imports them.
 pyasn1==0.6.5
