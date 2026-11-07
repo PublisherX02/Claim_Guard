@@ -55,6 +55,10 @@ Numbers are those recorded in docs/45 sections 1 and 5; the script is `rust/tool
 - Document reading is evaluated on 240 synthetic documents only (docs/45); real paper, handwriting and Arabic are untested.
 - The advisory extension rules (E001-E103) are outside the official score.
 
+## Addendum: the v1.3.0 build (2026-11-02)
+
+The CI run on the final commit (`31a20b3`, after the `desktop-v1.3.0` source `1533475`) ran the Rust workspace tests: **473 passed, 0 failed, 1 ignored**, and 1,897 Python tests on Python 3.10. All seven required checks passed. Accuracy, latency, fuzz and mutation figures above were not re-measured for v1.2.0 and v1.3.0; the server-side measurements of that build are in [docs/66](66_Server_Experiment_Results.md).
+
 ## Addendum: the v1.1.0 build (2026-10-31)
 
 `cargo test -j 2 --workspace --locked` on the v1.1.0 source: **463 passed, 0 failed, 1 ignored** (457 at v1.0.0; the six new tests cover the data-center arithmetic, permissions on the new routes, the audit of every report download and the absence of any patient identifier in the report). The black-box penetration test was re-run with the two new routes: 125 checks, 0 failed. The console review (every role, desktop and phone width, 0 issues) and the CI jobs are recorded in [docs/67](67_Admin_Data_Center_and_Movable_Panels.md) section 5. Accuracy, latency, fuzz and mutation figures above are unchanged and were not re-measured.

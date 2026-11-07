@@ -1,5 +1,7 @@
 # 64. The final release (v1.0.0): what was audited, what was run, what is left
 
+> **Record of v1.0.0, kept as written.** The project has moved on: the latest release is `desktop-v1.3.0` ([docs/43](43_Desktop_App_Release.md)), the target-server results are in [docs/66](66_Server_Experiment_Results.md), and the figures below (for example 457 Rust tests) are those of v1.0.0, not of the latest build.
+
 This is the closing record of the project. It says what the last release contains, what was run against it before it was published, what was found and fixed on the way, and what is deliberately not done. As everywhere else in this repository, a claim here is either backed by a command you can run or is marked as not checked.
 
 All data in the system is synthetic. A passed pre-check is not a payer approval.
