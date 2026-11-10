@@ -1,22 +1,22 @@
 # 18 | Contribution log
 
-## Team roles  (TO BE FILLED IN BY THE TEAM)
+## Team roles
 
-The repository history and session records do not identify who the team members are or
-what each did, so nothing is invented here. Complete this table before submission.
-
-| Team member | Role | What they did (files, decisions, testing, demo) | Evidence (commits, PRs, notes) |
+| Team member | Role | What they did | Evidence |
 |---|---|---|---|
-| _TODO_ | _TODO_ | _TODO_ | _TODO_ |
-| _TODO_ | _TODO_ | _TODO_ | _TODO_ |
+| Mohamed Mouelhi | Lead Systems Architect (team lead) | System and infrastructure design; the rule engine and its 15 rules; the bounded AI step and its guards; the audit log; the task queue; the Rust rebuild; security testing (penetration test, fuzzing, mutation tests, OWASP audits); evaluation and documentation. Directed the AI coding tool described below and decided what was kept | Git history of this repository (single author account), `docs/` |
+| Hamza Tebbi | Product Design Lead | UI and UX design of the operator console: screens and reviewer flows | The operator console |
+| Khalil Ben Youssef | Deployment and Operations | The GPU server (RTX 3080, Ubuntu): hardware, network, Cloudflare access and the physical deployment; ran the server installs and test runs | [docs/66](66_Server_Experiment_Results.md), server install reports |
+| Ahmed Ayachi | AI Research Engineer | Phase 1 research into an agentic architecture. It was measured against the rules-first design and set aside; the current product does not use it | Phase 1 notes |
 
-The git author configured on this machine is a single account; commits do not show who
-directed which part. `docs/09_Work_Plan_and_Templates.md` asks that every rule was
-"reviewed by a teammate": record below which rules and modules a human actually reviewed.
+The git author configured on the build machine is a single account, so commits do not show
+who did which part. The table above is the team's own statement.
 
-| Module / rule group | Human reviewer | Date | Notes |
-|---|---|---|---|
-| _TODO_ | _TODO_ | _TODO_ | _TODO_ |
+**Human review.** Review is not recorded per rule or per module. What was checked, and how:
+every rule against the organisers' answer key on all public splits and against an independent
+oracle (0 disagreements over 107,635 generated claims); every module by its own tests (473 Rust
+tests in CI); security by the tests listed in [docs/39](39_Rust_Security_Results.md). The team
+lead read the results of each run and directed the fixes.
 
 ## How AI coding tools were used
 
@@ -47,7 +47,12 @@ symbol, "in the future" claims) were turned into a guard and regression tests. *
 AI self-checks.** Human review of the code is not recorded anywhere in the repository;
 the team must state in the table above what a person actually reviewed.
 
-**AI at run time (a product component, not a coding tool):** `mistralai/Mistral-Nemo-Instruct-2407` with prompt v1.6.0 and a closing gate
+**AI at run time in the Rust build (what runs today):** a local model (`gemma3:4b` through Ollama, on the
+hospital's own server) fills a fixed explanation template. It never sees claim values, a guard checks every
+sentence, it cannot change a status, and the audit records `auto_correct_applied: false` for every AI action.
+It falls back to a deterministic template on any failure. The copilot is deterministic and uses no model.
+
+**AI at run time in the Python reference (phase 2, kept for comparison):** `mistralai/Mistral-Nemo-Instruct-2407` with prompt v1.6.0 and a closing gate
 via Featherless.ai explains findings only (chosen in round two of `docs/21`; earlier runs used `Qwen/Qwen2.5-14B-Instruct`, and before that `mistralai/mistral-nemotron` via NVIDIA NIM).
 It cannot change a status, rule id or review flag (pydantic schema + validator), has no tools beyond
 read-only evidence lookup, its question and action type are written to the audit log before each call,

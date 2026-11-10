@@ -10,15 +10,9 @@ This section is the whole project in one page: what exists, what was measured, w
 
 **What it is.** ClaimGuard checks a healthcare claim against 15 fixed payer rules before it is sent, using a deterministic engine (the engine decides; an AI step only explains, and cannot change a verdict). Claims that are risky or uncertain go to a person, every decision is audited, and nothing leaves the hospital's own server. All data is synthetic. The system now exists twice: the original Python version (kept as the reference) and a **Rust rebuild** of all of it, which is what the desktop app and the server image run.
 
-**Try the live server (nothing to install).** ClaimGuard is deployed on the project's own server (RTX 3080, Ubuntu, Docker Compose) and reachable at **<https://claimguard.kernelsi.com>** (through Cloudflare). Open it in a browser, or start the desktop app normally (not with `--local-demo`) and type that address as the server. Use this demo account:
+**Try the live server (nothing to install).** ClaimGuard is deployed on the project's own server (RTX 3080, Ubuntu, Docker Compose) and reachable at **<https://claimguard.kernelsi.com>** (through Cloudflare). Open it in a browser, or start the desktop app normally (not with `--local-demo`) and type that address as the server. The demo account (badge, password and authenticator key) is sent to the jury privately; it is no longer published here.
 
-| | |
-|---|---|
-| Account name (badge) | `CG-4001` |
-| Password | `Gooba123&é"AZERTY` |
-| Authenticator (time-based, TOTP) | add this key to any authenticator app: `RTCKLFRNYSHH6DHWIRCC6TSM6PJXWDV4` |
-
-`CG-4001` is a **supervisor** (level 4): it runs the queue, the rules, the people and the audit, and **cannot decide claims**. **No claims are stored in the database**, so no claim action can be applied: the server is deployed and waiting for claims to process. To see claims, use *Submit claims* or *Import from files* (a few synthetic examples are in `data/`), or start the desktop app with `--local-demo`. All data is synthetic. The test results of this server are in [docs/66](docs/66_Server_Experiment_Results.md) and in [the server report](docs/reports/ClaimGuard_Server_Report_v4.pdf).
+The demo account is a **supervisor** (level 4): it runs the queue, the rules, the people and the audit, and **cannot decide claims**. **No claims are stored in the database**, so no claim action can be applied: the server is deployed and waiting for claims to process. To see claims, use *Submit claims* or *Import from files* (a few synthetic examples are in `data/`), or start the desktop app with `--local-demo`. All data is synthetic. The test results of this server are in [docs/66](docs/66_Server_Experiment_Results.md) and in [the server report](docs/reports/ClaimGuard_Server_Report_v4.pdf).
 
 **Get it and run it (2 minutes).**
 1. Download `ClaimGuard.exe` from the [Releases page, release `desktop-v1.3.0` (the latest; `desktop-v1.0.0` was the first final release)](https://github.com/PublisherX02/Claim_Guard/releases/tag/desktop-v1.3.0) (Windows 10/11, one file, about 30 MB, nothing to install). It is not code-signed, so Windows warns on first run: check the SHA-256 in [docs/43](docs/43_Desktop_App_Release.md) first, then *More info, Run anyway*.
