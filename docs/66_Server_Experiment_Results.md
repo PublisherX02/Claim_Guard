@@ -181,6 +181,42 @@ Health panel: degraded (0.92 s). Audit verification: HTTP 200. Ledger: HTTP 200.
 | flow | degraded |
 | model | ok |
 
+## 9a. S8. The live-update WebSocket (separate run, 11 November 2026)
+
+Run by Khalil on 11 November 2026, 17:40 to 18:20 (Tunisia), on the live server through `https://claimguard.kernelsi.com` (Cloudflare Tunnel, then Caddy, then the API), with the test client on the server itself. Official run `ws_1111d` (the 300 s test is from `ws_1111b`). The first attempt (`ws_1111`) was invalid: the client sent the wrong `Origin` and was correctly refused with 403. The script `experiments/server/s08_websocket.py` (standard library only) was written for this run and is **not in the repository yet**; it is added once Khalil sends it. The scoreboard in section 2 is the earlier run and is not changed; these are separate results. Accounts used: one level-4 administrator and one viewer. All claims were synthetic.
+
+| Check | Expected | Result | Verdict |
+|---|---|---|---|
+| Valid session opens the socket | 101 and a `hello` frame | 101, `hello` after 0.17 s | PASS |
+| No session | 401, no upgrade | 401 | PASS |
+| Foreign `Origin` | 403 | 403 | PASS |
+| Unknown topic | 422 | 422 | PASS |
+| Missing handshake key | 400 | 400 | PASS |
+| Viewer asks for the queue topic | 403 | 403 | PASS |
+| Updates that reach the client | all | 55 of 55, none missed | PASS |
+| Per-address limit | 16 open; the 17th and 18th refused with 429; slots return after closing | as expected (needs about 8 s after closing) | PASS |
+| Dashboard with 16 idle sockets open | no slowdown | 0.136 s with and without | PASS |
+| Socket lifetime and reconnect | closed by the server near 300 s (code 1001); a new socket opens | closed after about 299 s; reconnect 101 | PASS |
+
+**Delay between a claim being submitted and the console being told** (the 0.15 s of the submit call itself is subtracted). The server looks for changes every 3 s, so about 1.5 s on average is expected.
+
+| Load | Messages | Median | 95th percentile | Slowest |
+|---|---|---|---|---|
+| 1 socket | 5 | 1.60 s | 2.44 s | 2.65 s |
+| 10 sockets | 50 | 1.81 s | 3.26 s | 3.50 s |
+| Overall | 55 | about 1.7 s | under 3.3 s | 3.5 s |
+
+Say "within a few seconds", not "instant". The messages carry no claim data (only `hello`, `changed` and `end`); the console re-reads through the normal permission-checked routes.
+
+**Side finding: a slow name lookup on the server.** The server's DNS list named an address that does not answer (172.28.10.100) first, which added about 3 s to every request the server made to itself through the public name (3 ms on the local network; 0.2 to 0.36 s from the PC through the public name). Runs `ws_1111b` and `ws_1111c` carry this 3 s offset. Outside visitors were never affected. It was fixed by commenting that line out of `/etc/resolv.conf` and adding the marker `/etc/.pve-ignore.resolv.conf`; lookups now take 0.03 s and requests 0.14 to 0.29 s.
+
+**Cleanup.** About 50 synthetic claims were created and all test claims were removed afterwards (82 claims, 7 deals, 8 jobs, 146 notifications and 82 batch events remain; backup `~/claimguard_queue_before_demo.gz`). The signed audit log was not touched.
+
+**Not settled by this run:**
+* Whether the 16-socket limit is **shared by all public visitors**. The server identifies a client by the last address in `X-Forwarded-For`, and Cloudflare Tunnel may make every visitor look the same, in which case a 17th browser tab anywhere would get `too_many_streams` (the console then falls back to the event stream). Test: hold 16 sockets from the server, open one more from another computer through the public address (429 means shared, 101 means separate).
+* Whether the DNS fix survives a container restart (if not: `pct set 138 --nameserver "172.28.10.1 8.8.8.8"`, and tell the owner of 172.28.10.100).
+* `s08_websocket.py` is not in the repository yet.
+
 ## 10. How to read this
 
 A FAIL is a finding, not an error in the scripts: write what was changed (a setting, a model, a limit) and run the failing experiment again, keeping both runs. Targets and their reasons are in docs/65 section 2. Everything here used synthetic claims; real hospital paper, handwriting and Arabic documents are still untested.
@@ -358,6 +394,9 @@ A FAIL is a finding, not an error in the scripts: write what was changed (a sett
 
 
 ## 12. Review notes
+
+### On the WebSocket run (S8, 11 November 2026)
+Added after the third run. The WebSocket endpoint of PR #43 had not been measured on the server before; section 9a is that measurement. All checks passed: 55 of 55 updates arrived, median about 1.7 s, slowest 3.5 s, with 10 sockets open at once. Three things stay open and are stated in section 9a: the shared-address question behind Cloudflare, whether the DNS fix survives a restart, and the script not yet being in the repository. Earlier statements that the WebSocket was "not load-tested" are out of date; what remains untested is the shared-address behaviour and a long run with many real users.
 
 ### On the third run (`server_20261101m`, full run on the final version, PR #43)
 The server was updated to the code of PR #43 and rebuilt from nothing, then every experiment was run again (S1 to S5, S7 on the server, S6 from outside). 15 of 19 measures pass. The 31-page third edition (`docs/reports/ClaimGuard_Server_Report_v3.pdf` covers runs `h` to `l`) and the fourth edition `docs/reports/ClaimGuard_Server_Report_v4.pdf` explain it.
