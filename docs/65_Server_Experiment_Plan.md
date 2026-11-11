@@ -16,6 +16,7 @@ What to measure on the target server, how, with which scripts, and what counts a
 | S5 | When a service restarts while claims arrive, is anything acknowledged lost, and how long is the server unavailable? | The reliability claim of the design (docs/40, docs/53). |
 | S6 | What does the server show to the network? | Only 80 and 443 should answer; internal ports must be closed. |
 | S7 | Do the health panel, the audit chains and the signed ledger verify on the live stack, and does a real backup work and stay encrypted? | The integrity claims of docs/58 and docs/59, on the deployed system. |
+| S8 | Does the live-update WebSocket work on the live server: refusals, delay, many sockets, the limit per address? | Built in PR #43 and never measured on the server; docs/45 section 3. |
 
 ## 2. Method and pass criteria
 
@@ -29,6 +30,7 @@ What to measure on the target server, how, with which scripts, and what counts a
 | S5 | `s05_resilience.py` | While a client submits, each of worker, api, redis, mongo, proxy is restarted; every acknowledged claim is read back | Zero acknowledged claims missing; every service back within 5 minutes | 15 min (interrupts the server) |
 | S6 | `s06_exposure.py` (from another machine) | Port check, TLS versions, headers, anonymous requests | Only 80 and 443 (and SSH) open; TLS 1.0 and 1.1 refused; HSTS, CSP, no server version; anonymous API and health panel refused | 2 min |
 | S7 | `s07_integrity.py` | Health panel, audit verification, ledger, and with a key file a real `backup.sh` | No failing probe; chains and ledger verify; backup file encrypted with a matching SHA-256 | 5 min |
+| S8 | `s08_websocket.py` (added after the first five runs; run 11 Nov 2026, results in docs/66 section 9a) | Opens `/api/v1/work/ws` with valid and invalid sessions, origins, topics and handshakes; submits claims and times how long the console is told; opens 16, 17 and 18 sockets; checks the dashboard with sockets open and the 300 s lifetime | All security checks refused as designed; every update arrives; limit of 16 per address enforced; no slowdown (a few seconds for an update is expected, the server looks every 3 s) |
 
 The targets are not tuned to what is expected: where a measure can be argued either way, the stricter number is used. A FAIL is a finding. Write what was changed and run that experiment again; keep both runs (each run has its own folder).
 
